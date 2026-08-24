@@ -1,30 +1,37 @@
 # AHFMES-ARE
 
-Isolated repository for the **AHFMES Autonomous Research Engine (ARE)** architecture and governance.
+Repositori terpisah untuk arsitektur dan tata kelola **AHFMES Autonomous
+Research Engine (ARE)**.
 
-## Migration boundary
+## Batas migrasi
 
-This repository is a byte-preserving extraction of the ARE-only documents from
-`Mziana/AHFMES-CHATGPT` at source commit
+Repositori ini merupakan ekstraksi byte-identical dokumen ARE dari
+`Mziana/AHFMES-CHATGPT` pada commit sumber
 `dcecafd1f9caae130da3880170f018026b1d5183`.
 
-It deliberately excludes Condition Atlas, Position Path Replay, research data,
-production/runtime code, tests, generated artifacts, and mixed project-status
-documents. Historical references to those systems inside preserved ARE design
-documents remain historical citations only; their source artifacts are not
-present in this repository.
+Condition Atlas, Position Path Replay, data riset, kode production/runtime,
+test, artefak hasil, serta dokumen status campuran sengaja tidak dibawa ke
+sini. Rujukan historis terhadap sistem tersebut yang masih ada di dokumen ARE
+hanya merupakan sitasi sejarah; artefak sumbernya tidak ada di repositori ini.
 
-## Current safety status
+## Aturan branch — keras
 
-This migration does **not** transfer any execution authority.
+- Repositori ini hanya memakai branch `main`.
+- **Dilarang membuat branch baru**, worktree baru, branch per-AI, branch audit,
+  branch perbaikan, maupun branch handoff.
+- Pengecualian hanya boleh terjadi atas instruksi eksplisit pemilik proyek.
 
-- ARE-0 design closure: **NO**
-- External-audit readiness: **NO**
-- Implementation: **NOT AUTHORIZED**
-- Substantive research / P001: **NOT AUTHORIZED**
-- Production, paper, or live trading: **CLOSED**
+## Status keselamatan saat ini
 
-Start with
+Migrasi ini **tidak** memindahkan authority untuk menjalankan apa pun.
+
+- Penutupan desain ARE-0: **BELUM**
+- Kesiapan external audit: **BELUM**
+- Implementasi: **TIDAK DIIZINKAN**
+- Riset substantif / P001: **TIDAK DIIZINKAN**
+- Production, paper trading, atau live trading: **DITUTUP**
+
+Mulailah dari
 [`PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md`](PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md).
-The former source-repository commit identities remain provenance evidence, not
-the identity of a new ARE audit candidate.
+Identitas commit di repositori sumber tetap merupakan bukti provenance
+historis, bukan identitas kandidat audit baru untuk repositori ini.

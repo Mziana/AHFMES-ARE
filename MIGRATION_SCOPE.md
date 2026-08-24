@@ -1,25 +1,24 @@
-# ARE extraction scope
+# Cakupan ekstraksi ARE
 
-## Included
+## Yang dibawa
 
-Exactly 228 byte-preserved files from source commit
+Tepat 228 file yang dipertahankan byte-identical dari commit sumber
 `dcecafd1f9caae130da3880170f018026b1d5183`:
 
-- 215 `PROJECT_GOVERNANCE/AHFMES_ARE*` documents;
-- 4 legacy `AHFMES_AUTONOMOUS_RESEARCH_ENGINE*` documents;
+- 215 dokumen `PROJECT_GOVERNANCE/AHFMES_ARE*`;
+- 4 dokumen legacy `AHFMES_AUTONOMOUS_RESEARCH_ENGINE*`;
 - `PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md`;
-- 8 ARE-only diary records.
+- 8 catatan jurnal khusus ARE.
 
-## Deliberately excluded
+## Yang sengaja tidak dibawa
 
-- All Condition Atlas and Position Path Replay implementation, data, and
-  generated evidence.
-- Production/runtime code, tests, dashboards, research folders, and agent
-  memory.
-- `PROJECT_JOURNAL/DIARY/2026-08-20-PPR-G1-CLOSURE-AND-ARE-DIRECTION.md`, which
-  mixes PPR and ARE content.
-- `PROJECT_JOURNAL/STATUS/CURRENT_RESEARCH_STATUS_2026-08-20.md`, which mixes
-  Atlas, PPR, and ARE status.
+- Seluruh implementasi, data, dan bukti hasil Condition Atlas serta Position
+  Path Replay.
+- Kode production/runtime, test, dashboard, folder riset, dan agent memory.
+- `PROJECT_JOURNAL/DIARY/2026-08-20-PPR-G1-CLOSURE-AND-ARE-DIRECTION.md`, karena
+  mencampur konten PPR dan ARE.
+- `PROJECT_JOURNAL/STATUS/CURRENT_RESEARCH_STATUS_2026-08-20.md`, karena
+  mencampur status Atlas, PPR, dan ARE.
 
-One retained historical ARE document cites a PPR artifact for the P001 origin.
-That citation is not an active dependency and does not import the artifact.
+Satu dokumen ARE historis yang dipertahankan menyitir artefak PPR sebagai asal
+masalah P001. Itu bukan dependency aktif dan artefaknya tidak ikut diimpor.
