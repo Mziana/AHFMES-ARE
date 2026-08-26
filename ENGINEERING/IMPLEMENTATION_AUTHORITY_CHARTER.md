@@ -6,7 +6,7 @@ STATUS   = DRAFT v0.95 (ARCHITECT-REVIEWED: ACCEPT WITH AMENDMENTS A1-A7) / ZERO
 SUSUN    : External Auditor (2026-08-26), atas permintaan owner
 REVIEW   : Lead Architect (filter sesuai AUDIT_COLLABORATION_CHARTER §2.4),
            lalu ratifikasi OWNER
-RATIFIKASI = BELUM
+RATIFIED = YES (2026-08-26, owner — commit T4)
 ```
 
 ## 1. Objek dan cakupan otoritas
