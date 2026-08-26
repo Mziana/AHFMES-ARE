@@ -56,6 +56,7 @@ sendiri bahwa kamu sudah boleh.
 | E-08 | **DUAL IMPLEMENTATION** untuk operasi kanonikal kritis: dua implementasi independen wajib hasil identik bit-per-bit; beda = bug spesifikasi. |
 | E-09 | **REGRESI ADALAH PERMANEN**: skenario X-series yang lolos jadi test yang tidak pernah dihapus. Test gagal = stop, bukan ditoleransi. |
 | E-10 | **KAMU TIDAK BERHAK**: meriset P001, men-tuning strategi, mengedit dokumen normatif, atau "memperbaiki" desain diam-diam. Temuan desain masuk daftar pertanyaan — keputusan tetap milik governance. |
+| E-11 | **SERANG SEBELUM TERBIT** (instruksi owner 2026-08-26): setiap laporan/deliverable wajib melewati pass adversarial multi-peran SEBELUM diterbitkan — minimal tiga sudut serang (RT-mekanisme/otoritas, RT-evidence/kualifikasi, RT-konsistensi-lintas-dokumen/outside-family), atau jendela agent "engineer naif" terpisah sesuai pola D4 advisory. Temuan: diperbaiki sebelum terbit, atau dilampirkan apa adanya bila menyangkut interpretasi milik governance. Rekam serangan dilampirkan pada deliverable; laporan tanpa rekam serangan = BELUM SIAP TERBIT. |
 
 Aturan tambahan turunan Quarantine Policy V8 (selama gelombang kualifikasi
 aktif):

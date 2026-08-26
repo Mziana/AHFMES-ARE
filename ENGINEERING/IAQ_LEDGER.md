@@ -315,3 +315,70 @@ LANGKAH BERIKUTNYA:
   2. Arsitek membekukan SLICE-1 CONTRACT (T3)
   3. OWNER commit ratifikasi (T4) => IMPLEMENTATION(ARE-1) = AUTHORIZED
 ```
+
+---
+
+## LAMPIRAN A — SELF-ATTACK MULTI-PERAN PASCA-TRIASE (2026-08-26)
+
+```text
+STATUS   = ZERO AUTHORITY / INPUT UNTUK VERIFIKASI SILANG AUDITOR ATAS T2
+           (bukan pembatalan disposisi arsitek; tidak mengubah entri 001-010)
+ATURAN   = E-11 RULES.md (instruksi owner): serang multi-peran sebelum/menyertai
+           penerbitan. Peran: RT-A mekanisme/otoritas; RT-B evidence/kualifikasi;
+           RT-C konsistensi lintas-dokumen/outside-family.
+```
+
+### A-1 (RT-B, material) — IAQ-002 mencampur dua rezim kanonikal
+
+NFC/BOM/CRLF-reject adalah rezim `AHFMES_CANONICAL_OBJECT_V1` untuk **encoding
+objek** (`GRAND DESIGN/AHFMES_ARE_GRAND_DESIGN_V1.md:424-431`), sedangkan root
+manifest memakai **path raw UTF-8 bytes tanpa normalisasi apa pun**
+(`PROJECT_GOVERNANCE/ARE0/MANIFEST/AHFMES_ARE_0_NORMATIVE_AUTHORITY_MANIFEST_V38.md:172-181`
+— menormalisasi path justru MENGUBAH identitas). Implementer TIDAK BOLEH
+menerapkan verifier NFC pada penanganan path manifest. Disposisi arsitek atas
+IAQ-002 tetap valid untuk objek; pemisahan rezim ini wajib dieksplisitkan di
+SLICE-1 CONTRACT.
+
+### A-2 (RT-A) — Penegakan append-only SQLite belum mekanis
+
+"UPDATE/DELETE diblok lapisan akses + regression test" (IAQ-001) tidak tahan
+proses riset compromised pada akun user yang sama — proses lain dapat membuka
+ koneksinya sendiri. Penegakan mekanis nyata: DB hanya writable oleh proses
+sole-writer hasil pemetaan IAQ-010, berada di bawah authority keeper IAQ-003;
+reader memakai koneksi read-only (`query_only`) + ACL. Tanpa itu, kontrol
+adalah disiplin, bukan mekanisme.
+
+### A-3 (RT-A) — Framing keamanan pemisahan proses
+
+Pemisahan proses OS (IAQ-003/IAQ-005) pada SATU akun user bukan boundary
+anti-tamper (same-user dapat kill/inject). Sesuai threat model
+`GRAND DESIGN ...V1.md:417-420` (kode riset diasumsikan bisa compromised;
+yang WAJIB dijamin adalah ketiadaan root otoritas di sisi riset +
+verify-at-use fail-closed), klaim yang benar: pemisahan proses mencegah
+coupling insidental dan menegakkan interface capability — BUKAN isolasi
+malisial. Slice contract harus melarang framing overclaim.
+
+### A-4 (RT-C) — Verifikasi repo-wide klaim IAQ-008
+
+Grep `domain_tag|domain-separated|AHFMES:` seluruh repo: skema ada di
+`GRAND DESIGN ...V1.md:427`,
+`PROJECT_GOVERNANCE/ARE0/CONTRACTS/AHFMES_ARE_0B_AUTHORITY_NON_FORGEABILITY_V3.md:207`,
+`.../AHFMES_ARE_FORMAL_ARCHITECTURE_MASTER_V2.md:481` — **tabel enumerasi tag
+tetap tidak ada**. Klaim "TIDAK DITEMUKAN" kini sah scope repo-wide dan
+MENDUKUNG disposisi NEEDS-NEW-GENERATION arsitek.
+
+### A-5 (RT-C, minor) — Cakupan harness regresi belum ter-IAQ-kan
+
+`PROJECT_GOVERNANCE/ARE0/R9_CORRECTIONS/AHFMES_ARE_0_R9_CORRECTION_PACKAGE_V35.md:26-29`
+mewajibkan intra-run positive control untuk X293/X295/X296/X302 — implikasi
+implementability-nya (pemilik eksekusi harness, format bukti per kontrol,
+penyimpanannya di mana) belum tercakup entri mana pun. Usul: masuk cek lingkup
+SLICE-1 CONTRACT (T3).
+
+### Rekap serangan
+
+```text
+TEMUAN MATERIAL = A-1, A-2        (wajib dieksplisitkan di SLICE-1 CONTRACT)
+KLARIFIKASI     = A-3 (framing), A-4 (cakupan klaim sah), A-5 (gap kecil)
+ENTRI DIBATALKAN = TIDAK ADA
+```

@@ -109,6 +109,7 @@ CATATAN KOSMETIK : Index baris 40 masih "ARE-0 CLOSED = NO" -> sinkronkan
                    saat commit T4 (menjadi: ARE-0 DESIGN CLOSED @03aec99)
 
 ## 6. Amandemen arsitek (v0.95)
+```
 
 ```text
 A1 baseline subject pin (§1B)          A2 definisi tuntas T2 + coverage minimal
