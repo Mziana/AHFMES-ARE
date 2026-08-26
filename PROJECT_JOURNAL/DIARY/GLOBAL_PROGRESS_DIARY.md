@@ -184,3 +184,19 @@ DETAIL   : DoD + Audit Collaboration Charter + ENGINEERING/RULES.md kawankan;
 DAMPAK   : Micro-audit/audit penuh oleh owner+auditor pada exact SHA ini;
            lolos => SA-11 dieksekusi tanpa perubahan normatif apa pun.
 ```
+
+
+## 2026-08-26 — SIAP EXTERNAL AUDIT: kandidat gen-38 terbekukan
+
+```text
+KATEGORI : ARE0 / GLOBAL
+STATUS   : Seluruh gerbang internal lulus (SA-11, impact CLEAN, CP1+CP2
+           berurutan, regresi 369/369 tanpa OPEN_LIST, final consistency).
+           Kandidat 03aec996... + binder a7287e71... menunggu external audit.
+DETAIL   : Handoff: PROJECT_GOVERNANCE/ARE0/EXTERNAL_AUDIT/
+           AHFMES_ARE_0_EXTERNAL_AUDIT_HANDOFF_GEN38.md; kronologi lengkap
+           di ledger lokal ENTRI 12B/13.
+DAMPAK   : Keputusan kini di tangan external auditor. Tiga disposisi sah:
+           CHANGES_REQUIRED / ACCEPT_ARE0_FORMAL_DESIGN_CLOSED /
+           ARE0_FORMALIZATION_INVALID.
+```

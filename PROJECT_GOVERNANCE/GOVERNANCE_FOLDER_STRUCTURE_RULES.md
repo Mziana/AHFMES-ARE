@@ -34,7 +34,7 @@ Reorganisasi fisik ini dideklarasikan sebagai **STRUCTURAL_GENERATION_S1**:
 ```text
 PROJECT_GOVERNANCE/
 ├── GOVERNANCE_FOLDER_STRUCTURE_RULES.md   (file ini)
-├── CURRENT_AUTHORITY_INDEX.md             (entry point orientasi — tetap di root)
+├── CURRENT_AUTHORITY_INDEX.md             (entry point orientasi — tetap di root)`n├── ENGINEERING/                           (working agreement Engineering AI)
 └── ARE0/                                  (semua dokumen ARE-0)
     ├── README.md                          (index kategori ARE0)
     ├── GRAND_DESIGN/                      desain menyeluruh human-readable
@@ -62,7 +62,7 @@ tersendiri.
 | `AUTHORITY_AND_WORKFLOW` | Dokumen otoritas fase & proses kerja | Formalization Authority, Publication Audit, Batched Workflow, GitHub-First Workflow, Source Reuse Hygiene |
 | `CONTRACTS` | Kontrak formal normatif ARE-0A s/d 0F beserta versinya | 0A V1/V3, 0B V1/V3, 0C V2, 0D V2, 0E V2, 0F V1 |
 | `MACHINE` | Sumber mesin kanonikal: authority/transition matrix + object inventory | Matrix V1–V28, Inventory/Register V1–V28 |
-| `MANIFEST` | Closed exact path set + resolver stabil | Manifest V1–V35, Current Normative Manifest Binding |
+| `MANIFEST` | Closed exact path set + resolver stabil | Manifest V1–V38, Current Normative Manifest Binding |
 | `COUNCIL_PROTOCOL` | Protokol dewan audit internal semua versi | Protocol V1–V35 |
 | `QUARANTINE` | Kebijakan & ledger karantina authority legacy | Quarantine Policy V1–V8, Record, Record V3 |
 | `R9_CORRECTIONS` | Koreksi root R9 + rekam serangan dampaknya | Correction Package V6–V34 (jendela normatif), Impact Attack Record V1–V9 |

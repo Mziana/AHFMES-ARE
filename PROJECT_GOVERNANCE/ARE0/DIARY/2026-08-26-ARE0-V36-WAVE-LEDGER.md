@@ -373,3 +373,29 @@ CP1             = CLEAN dengan syarat F01(rekam impact gen-38 - ditutup oleh
 ENTRI-NUMBERING : ENTRI 11 ada namun ditulis SETELAH 12 secara kronologi
                   editor (klarifikasi utk F7).
 ```
+
+
+---
+
+## ENTRI 13 — 2026-08-26: CANDIDATE + BINDER TERBENTUK — SIAP EXTERNAL AUDIT
+
+```text
+CANDIDATE C  = 03aec996f7c1eeaee205b18634e6739bb4ef5cbe
+               TREE b38878ff9c905772139cdf2d1462cda80ae69966
+BINDER B     = a7287e7119d3e54f7222bcaea4ffbaec7461e969
+               provenance: candidate->binder tepat 1 commit,
+               hanya file handoff yang berubah.
+LINEAGE      : S0 ae98b77 -> C = 4 commit; seluruh path dalam output set;
+               non-output-set = 0.
+GERBANG      : SA-11 PASS | IMPACT CLEAN | CP1 PASS | CP2 PASS |
+               REGRESI 369/369 (OPEN_LIST kosong) | FINAL CONSISTENCY PASS.
+ROOT         = 3affbbf079cef439879c64169938ef8798828097d1143f45ced8947b7f2bc4e2
+               stabil di S0/praCP1/praCP2/pra-kandidat (re-sertifikasi ulang).
+KL           = KL-1..KL-11 katalog lengkap -> hygiene patch penutup wave.
+HANDOFF      = ARE0/EXTERNAL_AUDIT/AHFMES_ARE_0_EXTERNAL_AUDIT_HANDOFF_GEN38.md
+NEXT         = EXTERNAL AUDIT oleh owner+auditor pada exact SHA 03aec99...
+               Disposisi: CHANGES_REQUIRED | ACCEPT_ARE0_FORMAL_DESIGN_CLOSED |
+               ARE0_FORMALIZATION_INVALID.
+FIREWALL     : ARE-0 CLOSED=NO | IMPLEMENTATION=NOT AUTHORIZED | P001=NOT
+               AUTHORIZED | PRODUCTION=CLOSED | LIVE/PAPER=NOT AUTHORIZED.
+```
