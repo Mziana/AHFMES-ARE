@@ -345,3 +345,31 @@ NEXT GATES: SA-11 verifikasi AT-SUBJECT -> impact re-run (harus CLEAN atas
              IC-1..IC-6) -> CP1 -> CP2 -> regresi 369/369 -> final consistency
              -> candidate+binder -> external audit.
 ```
+
+
+---
+
+## ENTRI 12B — 2026-08-26: Kontinuitas gen-38 (F02) + status gerbang
+
+```text
+SUPERSEDE CHECK : subjek 8edfdc1 (gen-37) & kandidat 99b32ea/ff2d51a/b0238ad/
+                  c2ef649 = orphan pra-dispatch, kredit NOL.
+GEN-38 FREEZE   : S0 ae98b770fd4ba1eb9b386435de375d1279ba8a28
+                  (sebab re-mint #4 substantif: bloker B1-B4 pada prosa
+                   Manifest V37 + refresh index; delta label-only vs gen-37
+                   pada semantik mesin).
+SA-11 GEN-38    = PASS (135 anggota; SELF 22479; G0=253 U0=118;
+                  ROOT 3affbbf079cef439879c64169938ef8798828097d1143f45ced8947b7f2bc4e2
+                  dual derivasi MATCH; binding fb->76886bdc by design)
+IMPACT          : ronde c2ef649 = CHANGES_REQUIRED -> terintegrasi IC-1..IC-6
+                  (Matrix V30/Register V30); re-verifikasi fokus gen-38 (IRR-1):
+                  seluruh IC CLOSED; satu NEW-GAP low (IC-1 publisher pinning)
+                  tertutup oleh rekonsiliasi published-root yang memang
+                  diwajibkan IC-1 terhadap record SA-11 ini.
+REGRESI         = 369/369 PASS (OPEN_LIST kosong) - adjudikasi teks-basis.
+CP1             = CLEAN dengan syarat F01(rekam impact gen-38 - ditutup oleh
+                  record INTERNAL_IMPACT_AUDIT_V2 update)+F02(entri ini);
+                  MINOR F03-F07 => KL-7..KL-11 (hygiene patch penutup wave).
+ENTRI-NUMBERING : ENTRI 11 ada namun ditulis SETELAH 12 secara kronologi
+                  editor (klarifikasi utk F7).
+```
