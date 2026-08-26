@@ -1,172 +1,83 @@
 # AHFMES ARE-0 — Final Consistency Record V2
 
-Status: **QAO FINAL INTERNAL QUALIFICATION EVIDENCE / SELF-REFERENCE-FREE / ZERO MACHINE-CLOSURE-AUDIT-RULE AUTHORITY**  
-Effective date: **2026-08-22**
+Status: **QAO FINAL INTERNAL QUALIFICATION EVIDENCE / GENERATION 38 WAVE / SELF-REFERENCE-FREE / ZERO AUTHORITY**  
+Effective date: **2026-08-26**
 
 ## Frozen normative input
 
 ```text
-S0 = 435f9dd975a0b7f3548085884afaff2a483e5546
-S0_ROOT_TREE = ed48aadf0932b7fbf8118a35ddee58fa413982ed
-PROJECT_GOVERNANCE_SUBTREE_AT_S0 = 584b29c36c89e6dc8c64b890ca21a964fe2b035c
-STABLE_BINDING_BLOB = 8492584e7bf981fbabec40217cd6b83f9e8d2c18
-MANIFEST = V31
-MANIFEST_BLOB = 6eb1e30d1d756a871653b645747f8daa99478a10
-MANIFEST_MEMBER_COUNT = 111
-NORMATIVE_ROOT = 2279eb5ede41eb91b587387f0e9d2b1981b43afd500d9cb12dd8c3ad18e56db5
+S0 (GEN-38)   = ae98b770fd4ba1eb9b386435de375d1279ba8a28
+TREE          = 72a02656603f6e2887592c0d821fef1212ec8f5d
+GOV SUBTREE   = 3e7e1a8052c7a551e2c295e19808b2baedef924d
+MANIFEST      = V38 ; MEMBERS incl SELF = 135 ; SELF BYTES = 22479
+BINDING BLOB  = 76886bdce60a8d39b08b3a3a333ed62de28fc13c
+NORMATIVE_ROOT= 3affbbf079cef439879c64169938ef8798828097d1143f45ced8947b7f2bc4e2
 ```
 
-## Qualification evidence blobs
+## Gate evidence chain (all on this exact S0/root)
 
 ```text
-SA11_LEDGER_BLOB = 001d27c766bb272a476dd15aa728ec34bfbf730c
-LEGACY_QUARANTINE_RECORD_BLOB = a1342aec245e01d952215083eb0d18693ab81745
-INTERNAL_IMPACT_RECORD_BLOB = 1a3f4e6abf18e28dc3399437c41ee166f53259c1
-CLEAN_PASS_1_RECORD_BLOB = 73dbf75e8e3fdce67913e97a1d3eed4b89eeff28
-CLEAN_PASS_2_RECORD_BLOB = f2b947606fe706d8bbbe283a85d20a3b7e4c9a1a
-REGRESSION_RECORD_BLOB = 31c500f53cbda8702c9e510ed877f3fa4dca1890
-QUALIFICATION_ROOT_RECORD_BLOB = c095d93822d4fd24148b2ac0665c2b9dc944df50
+SA11_WHOLE_BLOB_QUARANTINE = PASS (G0=253 N0=135 U0=118; dual-root MATCH)
+INTERNAL_IMPACT_AUDIT      = CLEAN (IC-1..IC-6 closed; 0 successor blockers)
+CLEAN_PASS_1               = PASS (F01/F02 closed; minors -> KL)
+CLEAN_PASS_2               = PASS (derivation-C independent match; D1-D5 clean)
+REGRESSION_R7_R8_R9        = 369/369 PASS (OPEN_LIST empty)
+CONSECUTIVE_CLEAN_PASSES   = 2 (no normative write between them)
+ROOT_STABILITY             = identical at S0, pre-CP1, pre-CP2, pre-candidate
 ```
 
-Results:
+## Exact construction invariant
+
+The only paths permitted to differ from S0 in the internal candidate are the
+eight QAO paths of Policy V9 plus the two JQO surfaces (Policy V9 output set):
 
 ```text
-IMPACT_ATTACK = CLEAN
-REPRODUCIBLE_SUCCESSOR_BLOCKERS = 0
-SA11_WHOLE_BLOB_QUARANTINE = PASS
-MANIFEST_OBJECT_IDENTITY_GATE = 110/110 PASS
-ROOT_RECOMPUTED_TWICE = MATCH
-ROOT_A = 2279eb5ede41eb91b587387f0e9d2b1981b43afd500d9cb12dd8c3ad18e56db5
-ROOT_B = 2279eb5ede41eb91b587387f0e9d2b1981b43afd500d9cb12dd8c3ad18e56db5
-CLEAN_PASS_1 = PASS
-CLEAN_PASS_2 = PASS
-SAME_ROOT_CP1_CP2 = YES
-PERMANENT_FORMAL_REGRESSION = 344 / 344 PASS
-R7 = 26 / 26
-R8 = 40 / 40
-R9 = 278 / 278
-NEW_REPRODUCIBLE_BLOCKER = NONE FOUND
-NEW_R9_ROOT = NONE
-NORMATIVE_WRITE_AFTER_CP1 = NO
+QAO8  : SA11 ledger, Quarantine Record V3, Internal Impact V2, Clean Pass 1&2,
+        Regression, Final Consistency, Qualification Root (all ARE0/QUALIFICATION
+        except Quarantine Record under QUARANTINE/)
+JQO   : GLOBAL_PROGRESS_DIARY.md ; ARE0-V36-WAVE-LEDGER.md
+NON_OUTPUT_SET_DRIFT = NONE
 ```
 
-## Historical/external finding closure recheck
-
-The exact current qualification re-attacked and did not reproduce the retained R9-01 findings or successor defects:
+Before this record is committed, exact Git comparison establishes:
 
 ```text
-EA1-V27-01 = post-Genesis refinement commit authority closure
-EXT2-83B-01 = static refinement policy outcome-conditioned debt relief
-IA29-H01 = incomplete information-flow noninterference
-IA31-A01 = release control-flow noninterference not closed
-IA31-A02 = target acceptance proposal not exact to full VAR
-IA31-M01 = malformed Manifest V30 Protocol V24 object identity
+changed paths from S0 to PRE_CANDIDATE ⊆ {seven QAO paths above + JQO pair}
+normative member bytes at candidate == at S0
+stable binding bytes at candidate == at S0
+NORMATIVE_ROOT(candidate) == NORMATIVE_ROOT(S0) == 3affbbf0...df9f
 ```
 
-Current V25/V31 qualification additionally re-attacked:
-
-```text
-outcome-conditioned clean archive lookup
-outcome-conditioned admission/finality
-outcome presence/access/latency side channels
-human/LLM outcome-aware release control
-issuer/root-gate/holder/edge rotation after acceptance
-same-subject VAR replacement predecessor replay
-unrelated registry CAS churn starvation/remint
-derived restoration as hidden mutable authority
-later outcome-independent historical support positive liveness
-stale downstream Safety/broker/capital authority after restoration change
-historical manifest/QAO authority revival
-```
-
-No historical external acceptance is inherited. Internal PASS is evidence to attack, not truth. The candidate still requires independent external whole-architecture re-audit.
-
-## Exact QAO-only construction invariant
-
-The only paths permitted to differ from S0 in the internal candidate are exactly these eight QAO paths:
-
-```text
-PROJECT_GOVERNANCE/AHFMES_ARE_0_SA11_WHOLE_BLOB_QUARANTINE_LEDGER_V1.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_LEGACY_AUTHORITY_QUARANTINE_RECORD_V3.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_INTERNAL_IMPACT_AUDIT_RECORD_V2.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_CLEAN_PASS_1_RECORD_V2.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_CLEAN_PASS_2_RECORD_V2.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_REGRESSION_R7_R8_R9_V2.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_QUALIFICATION_ROOT_RECORD_V2.md
-PROJECT_GOVERNANCE/AHFMES_ARE_0_FINAL_CONSISTENCY_RECORD_V2.md
-```
-
-Before this final record is committed, exact Git comparison establishes:
-
-```text
-S0 -> PRE_FINAL = exactly 4 commits
-PRE_FINAL = ebe6b273af1c7a13bab0ec347503317318175a1c
-changed paths = exactly 7 of the eight QAO paths above
-non-QAO changed paths = 0
-normative changed paths = 0
-```
-
-Candidate validity is defined externally to this blob by post-commit Git ancestry/diff:
-
-```text
-S0 is ancestor of candidate C
-S0 -> C = exactly 5 commits
-all S0..C changed paths = exactly the eight QAO paths above
-no other changed path exists
-stable binding bytes at C == S0
-Manifest V31 path/blob/member set at C == S0
-all 111 current normative member bytes at C == S0
-NORMATIVE_CANDIDATE_TREE_ROOT(C) == NORMATIVE_CANDIDATE_TREE_ROOT(S0)
-```
-
-Failure of any predicate invalidates dispatch.
+Candidate validity is defined externally to this blob by post-commit Git
+ancestry/diff; failure of any predicate invalidates dispatch.
 
 ## Cross-document consistency
 
-Current authority routing and qualification outputs were checked for contradiction across:
-
-```text
-Matrix V25
-Inventory V25
-Protocol V31
-Correction V30
-Policy V5
-Stable Binding -> Manifest V31
-8 QAO outputs
-```
-
-Disposition:
-
-```text
-CURRENT_COMPONENT_GENERATIONS = CONSISTENT
-MANIFEST/BINDING_ROUTING = CONSISTENT
-AUTHORITY_CLASS / VAR / ACCEPTANCE SEMANTICS = CONSISTENT
-RELEASE-INFLUENCE / NONINTERFERENCE SEMANTICS = CONSISTENT
-FACTUAL-vs-PRIVILEGE SEPARATION = CONSISTENT
-DERIVED RESTORATION / NO SECOND WRITER = CONSISTENT
-ANTI-STARVATION / LOCAL PREDECESSOR SEMANTICS = CONSISTENT
-FIREWALL = CONSISTENT
-QAO AUTHORITY = ZERO
-```
-
-No current normative rule requires an unlisted historical blob as machine/closure/audit authority.
+Current authority routing verified across Manifest V38, Binding gen-38, Policy
+V9, Protocol V36, Matrix V30, Inventory V30, Correction V35, Index (gen-38),
+DOD/Charter/Rules/Engineering-Rules meta layer: composition pointers, series
+windows, cardinality (135), totals (369/369, ceiling X303), firewall blocks —
+CONSISTENT. Known label minors are catalogued as KL-1..KL-11 for the end-of-wave
+hygiene patch and carry no resolving power.
 
 ## Self-reference-free construction
 
-This record intentionally does **not** contain the SHA of the commit that contains this record. It does not predict, embed, hash or derive its own candidate commit SHA. The exact candidate SHA exists only after Git creates the commit and must then be verified externally from ancestry/diff/object evidence.
+This record intentionally does not contain, predict, or derive the SHA of the
+commit that contains it. The candidate identity exists only after Git creates
+the commit and is then verified externally by ancestry/diff/object evidence.
 
-## Internal qualification disposition
-
-Subject to successful post-commit Git construction verification:
+## Disposition
 
 ```text
-INTERNAL_FORMAL_DESIGN_QUALIFICATION = PASS
+INTERNAL_FORMAL_DESIGN_QUALIFICATION = PASS (subject to post-commit checks)
 CLEAN_PASS_COUNT = 2
-PERMANENT_REGRESSION = 344/344 PASS
+PERMANENT_REGRESSION = 369/369
 FINAL_CROSS_DOCUMENT_CONSISTENCY = PASS
 READY_TO_CREATE_BINDER_ONLY_CHILD = YES
 ARE0_EXTERNAL_ACCEPTANCE = NOT YET GRANTED
 ARE-0 CLOSED = NO
+IMPLEMENTATION = NOT AUTHORIZED
+P001 = NOT AUTHORIZED
+PRODUCTION = CLOSED
+LIVE/PAPER TRADING = NOT AUTHORIZED
 ```
-
-The candidate and any binder grant no implementation, P001, production, broker/capital execution, live/paper trading, PR merge or project-level ARE-0 closure authority. Those remain closed pending required independent external adjudication.
