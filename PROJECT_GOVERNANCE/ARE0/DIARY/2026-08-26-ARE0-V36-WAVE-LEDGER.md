@@ -399,3 +399,5 @@ NEXT         = EXTERNAL AUDIT oleh owner+auditor pada exact SHA 03aec99...
 FIREWALL     : ARE-0 CLOSED=NO | IMPLEMENTATION=NOT AUTHORIZED | P001=NOT
                AUTHORIZED | PRODUCTION=CLOSED | LIVE/PAPER=NOT AUTHORIZED.
 ```
+
+T3 FROZEN @1d567fa: SLICE_1_CONTRACT (storage+canonical; gen-39 prereq S1/S2); charter fence fix. Menunggu T4 ratifikasi owner.
