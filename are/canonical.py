@@ -67,6 +67,8 @@ DOMAIN_TAGS = frozenset({
     "CAPABILITY_ACTIVATION_EPISODE",
     "DEPLOYMENT_ACTIVATION_EPISODE",
     "INTEGRITY_DEFECT_RECORD",
+    # Safety contract
+    "SAFETY_CONTRACT_CHANGE_PROPOSAL_RECORD",
 })
 
 
@@ -107,23 +109,27 @@ def _verify_canonical_bytes_impl_a(data: bytes) -> tuple[bytes, int]:
     except UnicodeDecodeError as e:
         raise VerificationError(f"Invalid UTF-8: {e}", e.start or 0)
 
-    # Check for CRLF
-    crlf_pos = text.find("\r\n")
-    if crlf_pos >= 0:
-        # Find byte offset of the \r
-        byte_offset = data.find(b"\r\n")
-        raise VerificationError("CRLF not allowed (must use LF)", byte_offset)
+    # Check for CRLF / CR at byte level (P1-13: byte offset, not char offset)
+    if b"\r\n" in data:
+        raise VerificationError("CRLF not allowed (must use LF)", data.find(b"\r\n"))
+    if b"\r" in data:
+        # Standalone CR (since CRLF already rejected, any \r is standalone)
+        raise VerificationError("Standalone CR not allowed", data.find(b"\r"))
 
-    # Check for standalone CR
-    cr_pos = text.find("\r")
-    if cr_pos >= 0:
-        byte_offset = data.find(b"\r")
-        raise VerificationError("Standalone CR not allowed", byte_offset)
-
-    # Verify NFC normalization
+    # Verify NFC normalization (P1-12: check length first, not just zip)
     normalized = unicodedata.normalize("NFC", text)
     if text != normalized:
-        # Find first differing position
+        if len(text) != len(normalized):
+            # Length differs -> find first char where byte representation diverges
+            # For decomposed vs composed, first differing position is where lengths diverge
+            min_len = min(len(text), len(normalized))
+            for i in range(min_len):
+                if text[i] != normalized[i]:
+                    byte_offset = len(text[:i].encode("utf-8"))
+                    raise VerificationError("String not in NFC form", byte_offset)
+            # Difference is extra chars in longer string
+            byte_offset = len(text[:min_len].encode("utf-8"))
+            raise VerificationError("String not in NFC form", byte_offset)
         for i, (c1, c2) in enumerate(zip(text, normalized)):
             if c1 != c2:
                 # Calculate byte offset up to this char
@@ -216,9 +222,17 @@ def _verify_canonical_bytes_impl_b(data: bytes) -> tuple[bytes, int]:
     except UnicodeDecodeError as e:
         raise VerificationError(f"Invalid UTF-8: {e}", e.start or 0)
 
-    # NFC check using unicodedata
+    # NFC check using unicodedata (P1-12: length-aware)
     normalized = unicodedata.normalize("NFC", text)
     if text != normalized:
+        if len(text) != len(normalized):
+            min_len = min(len(text), len(normalized))
+            for i in range(min_len):
+                if text[i] != normalized[i]:
+                    byte_offset = len(text[:i].encode("utf-8"))
+                    raise VerificationError("String not in NFC form", byte_offset)
+            byte_offset = len(text[:min_len].encode("utf-8"))
+            raise VerificationError("String not in NFC form", byte_offset)
         for i, (c1, c2) in enumerate(zip(text, normalized)):
             if c1 != c2:
                 byte_offset = len(text[:i].encode("utf-8"))
@@ -238,14 +252,30 @@ def _verify_canonical_bytes_impl_b(data: bytes) -> tuple[bytes, int]:
 
 def _canonicalize_json_impl_b(obj: Any) -> bytes:
     """Canonicalize JSON without json module (IMPL_B)."""
+    ESCAPE_MAP = {
+        '\\': '\\\\', '"': '\\"', '\b': '\\b', '\f': '\\f',
+        '\n': '\\n', '\r': '\\r', '\t': '\\t',
+    }
+
+    def _escape_string(s: str) -> str:
+        out = []
+        for ch in s:
+            if ch in ESCAPE_MAP:
+                out.append(ESCAPE_MAP[ch])
+            elif ord(ch) < 0x20:
+                out.append(f'\\u{ord(ch):04x}')
+            else:
+                out.append(ch)
+        return ''.join(out)
+
     def _encode_value(v) -> bytes:
         if isinstance(v, str):
             norm = unicodedata.normalize("NFC", v)
             if v != norm:
                 raise VerificationError("JSON string not NFC", 0)
-            # Escape for JSON string
-            escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
-            return b'"' + norm.encode("utf-8") + b'"'
+            # Escape for JSON string using complete escape table
+            escaped = _escape_string(v)
+            return b'"' + escaped.encode("utf-8") + b'"'
         elif isinstance(v, bool):
             return b"true" if v else b"false"
         elif v is None:

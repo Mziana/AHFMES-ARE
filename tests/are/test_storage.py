@@ -65,7 +65,7 @@ class TestStorageAppendOnly(unittest.TestCase):
 
     def test_append_event_basic(self):
         """Basic append increments revision and updates head."""
-        rec = self.store.append_event("stream-1", b"event-1", 0)
+        rec = self.store.append_event("stream-1", b"event-1", 0, "0" * 64)
         self.assertEqual(rec.stream_id, "stream-1")
         self.assertEqual(rec.revision, 1)
         self.assertEqual(rec.previous_event_hash, "0" * 64)
@@ -75,68 +75,72 @@ class TestStorageAppendOnly(unittest.TestCase):
 
     def test_append_event_cas_fails_on_wrong_revision(self):
         """CAS must fail if expected_revision != current head."""
-        self.store.append_event("stream-1", b"event-1", 0)
+        self.store.append_event("stream-1", b"event-1", 0, "0" * 64)
 
         with self.assertRaises(Edge1Error) as cm:
-            self.store.append_event("stream-1", b"event-2", 0)
+            self.store.append_event("stream-1", b"event-2", 0, "0" * 64)
         self.assertIn("CAS failed", str(cm.exception))
 
     def test_append_event_succeeds_on_correct_revision(self):
         """CAS succeeds with correct expected revision."""
-        self.store.append_event("stream-1", b"event-1", 0)
-        rec = self.store.append_event("stream-1", b"event-2", 1)
-        self.assertEqual(rec.revision, 2)
+        rec1 = self.store.append_event("stream-1", b"event-1", 0, "0" * 64)
+        rec2 = self.store.append_event("stream-1", b"event-2", 1, rec1.event_hash)
+        self.assertEqual(rec2.revision, 2)
 
         head = self.store.get_head("stream-1")
         self.assertEqual(head[0], 2)
 
     def test_append_event_multiple_streams_independent(self):
         """Each stream has independent head revision."""
-        self.store.append_event("stream-A", b"A1", 0)
-        self.store.append_event("stream-B", b"B1", 0)
-        self.store.append_event("stream-A", b"A2", 1)
-        self.store.append_event("stream-B", b"B2", 1)
+        self.store.append_event("stream-A", b"A1", 0, "0" * 64)
+        self.store.append_event("stream-B", b"B1", 0, "0" * 64)
+        rec_a1 = self.store.get_head("stream-A")[1]
+        rec_a2 = self.store.append_event("stream-A", b"A2", 1, rec_a1)
+        rec_b1 = self.store.get_head("stream-B")[1]
+        rec_b2 = self.store.append_event("stream-B", b"B2", 1, rec_b1)
 
         self.assertEqual(self.store.get_head("stream-A")[0], 2)
         self.assertEqual(self.store.get_head("stream-B")[0], 2)
 
     def test_append_event_previous_hash_chain(self):
         """Events form correct previous-event-hash chain."""
-        rec1 = self.store.append_event("stream-1", b"event-1", 0)
-        rec2 = self.store.append_event("stream-1", b"event-2", 1)
-        rec3 = self.store.append_event("stream-1", b"event-3", 2)
+        rec1 = self.store.append_event("stream-1", b"event-1", 0, "0" * 64)
+        rec2 = self.store.append_event("stream-1", b"event-2", 1, rec1.event_hash)
+        rec3 = self.store.append_event("stream-1", b"event-3", 2, rec2.event_hash)
 
         self.assertEqual(rec2.previous_event_hash, rec1.event_hash)
         self.assertEqual(rec3.previous_event_hash, rec2.event_hash)
 
     def test_get_event_by_revision(self):
         """Can retrieve specific revision."""
-        rec = self.store.append_event("stream-1", b"event-1", 0)
+        rec = self.store.append_event("stream-1", b"event-1", 0, "0"*64)
         retrieved = self.store.get_event("stream-1", 1)
         self.assertEqual(retrieved.revision, 1)
         self.assertEqual(retrieved.event_data, b"event-1")
 
     def test_verify_chain_valid(self):
         """Valid chain passes verification."""
-        self.store.append_event("stream-1", b"e1", 0)
-        self.store.append_event("stream-1", b"e2", 1)
-        self.store.append_event("stream-1", b"e3", 2)
+        r1 = self.store.append_event("stream-1", b"e1", 0, "0"*64)
+        r2 = self.store.append_event("stream-1", b"e2", 1, r1.event_hash)
+        r3 = self.store.append_event("stream-1", b"e3", 2, r2.event_hash)
         self.assertTrue(self.store.verify_chain("stream-1"))
 
     def test_verify_chain_invalid_on_tamper(self):
-        """Tampered event breaks chain verification."""
-        self.store.append_event("stream-1", b"e1", 0)
-        self.store.append_event("stream-1", b"e2", 1)
+        """Tampered event blocked by DB trigger (append-only enforcement)."""
+        import sqlite3
+        r1 = self.store.append_event("stream-1", b"e1", 0, "0"*64)
+        r2 = self.store.append_event("stream-1", b"e2", 1, r1.event_hash)
 
-        # Direct DB tampering (simulated)
+        # Direct DB tampering must be blocked by trigger
         conn = self.store._get_conn()
-        with conn:
+        with self.assertRaises(sqlite3.IntegrityError) as cm:
             conn.execute(
                 "UPDATE events SET event_data = ? WHERE stream_id = ? AND revision = ?",
                 (b"tampered", "stream-1", 1),
             )
-
-        self.assertFalse(self.store.verify_chain("stream-1"))
+        self.assertIn("append-only", str(cm.exception).lower())
+        # Chain remains valid since tamper was rejected
+        self.assertTrue(self.store.verify_chain("stream-1"))
 
 
 class TestEdge1Manager(unittest.TestCase):
@@ -495,11 +499,11 @@ class TestConcurrentCAS(unittest.TestCase):
         store, _ = open_store(db_path)
 
         # First append
-        store.append_event("stream-c", b"first", 0)
+        store.append_event("stream-c", b"first", 0, "0"*64)
 
         # Simulate concurrent attempt with stale expected revision
         with self.assertRaises(Edge1Error):
-            store.append_event("stream-c", b"second", 0)
+            store.append_event("stream-c", b"second", 0, "0"*64)
 
         store.close()
         gc.collect()
@@ -515,7 +519,7 @@ class TestNoUpdateDeleteOnEvents(unittest.TestCase):
         db_path = os.path.join(tmpdir, "test.db")
         store, _ = open_store(db_path)
 
-        store.append_event("stream-x", b"orig", 0)
+        store.append_event("stream-x", b"orig", 0, "0"*64)
 
         # Our API has no UPDATE/DELETE methods — verify by attempting
         # direct SQL and confirming it's not in our public API
