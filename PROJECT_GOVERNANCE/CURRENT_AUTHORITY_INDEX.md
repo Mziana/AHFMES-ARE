@@ -42,8 +42,8 @@ Catatan kredit: seluruh rekaman CLEAN_PASS/PASS pra-V36 di ARE0/QUALIFICATION ad
 ARE-0 DESIGN CLOSED @03aec99
 ARE-1 SCIENTIFIC KERNEL CLOSED @a6711d6 (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
 ARE-2 EXPERIENCE INTELLIGENCE CLOSED @360cf76 (code 1b2a4fd, 214 tests, 342/342 blob, Manifest V41)
-ARE-3 AUTONOMOUS SCIENCE = INITIALIZED (DESIGN & READ-MODE ONLY)
-IMPLEMENTATION(ARE-3) = NOT AUTHORIZED (Awaiting IAQ Triage & Charter Ratification)
+ARE-3 AUTONOMOUS SCIENCE = IMPLEMENTATION AUTHORIZED (Charter T4 Ratified 2026-08-28)
+DELEGASI_010 = ISSUED (Coding Slice-1: Search Tree, Validation, Governor, Constants)
 DEEP_ANALYSIS = COMPLETED 2026-08-27 (5 P0, 5 P1, 7 P2 — remediation completed)
 DELEGASI_008 = COMPLETED & VERIFIED (hygiene + security fixes + architecture remediation)
 DELEGASI_009 = COMPLETED & VERIFIED (ExperienceStore reuse EventStore — ACC-9/ACC-18 fixed)
