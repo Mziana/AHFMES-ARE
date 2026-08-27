@@ -89,8 +89,7 @@ class EventStore:
                         if arg1 in ("events_no_update", "events_no_delete", "events_no_insert_replace",
                                     "nonce_ledger_no_update", "nonce_ledger_no_delete",
                                     "receipts_no_update", "receipts_no_delete", "receipts_no_replace",
-                                    "heads_no_update", "heads_no_delete", "stream_heads_no_replace",
-                                    "receipts_no_replace"):
+                                    "heads_no_delete", "stream_heads_no_replace"):
                             return 1  # SQLITE_DENY
                     if action == 24:  # SQLITE_ATTACH
                         return 1
