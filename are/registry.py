@@ -90,6 +90,96 @@ def _require_authority(authority: Optional[Dict[str,Any]]) -> Dict[str,Any]:
 # Registry
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Modular Sub-Managers (DEBT-01 / ACC-413)
+# ---------------------------------------------------------------------------
+
+class BaseRegistryManager:
+    def __init__(self, registry: "Registry"):
+        self.reg = registry
+
+
+class ProblemManager(BaseRegistryManager):
+    def create_problem(self, problem_id: str, statement: str, authority: Dict[str, Any], family_root: Optional[str] = None) -> Dict[str, Any]:
+        return self.reg._create_problem_impl(problem_id, statement, authority, family_root)
+
+    def transition_problem(self, problem_id: str, to_lifecycle: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str) -> Dict[str, Any]:
+        return self.reg._transition_problem_impl(problem_id, to_lifecycle, authority, expected_revision, expected_prev_hash)
+
+    def get_problem(self, problem_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_problem_impl(problem_id)
+
+    def create_episode(self, episode_id: str, problem_id: str, authority: Dict[str, Any]) -> Dict[str, Any]:
+        return self.reg._create_episode_impl(episode_id, problem_id, authority)
+
+    def transition_episode(self, episode_id: str, to_lifecycle: str, disposition: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str) -> Dict[str, Any]:
+        return self.reg._transition_episode_impl(episode_id, to_lifecycle, disposition, authority, expected_revision, expected_prev_hash)
+
+    def get_episode(self, episode_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_episode_impl(episode_id)
+
+
+class HypothesisManager(BaseRegistryManager):
+    def create_hypothesis(self, hypothesis_id: str, episode_id: str, authority: Dict[str, Any], family_root: Optional[str] = None) -> Dict[str, Any]:
+        return self.reg._create_hypothesis_impl(hypothesis_id, episode_id, authority, family_root)
+
+    def transition_hypothesis(self, hypothesis_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str) -> Dict[str, Any]:
+        return self.reg._transition_hypothesis_impl(hypothesis_id, to_lifecycle, to_disposition, authority, expected_revision, expected_prev_hash)
+
+    def create_contract(self, contract_id: str, family_root: str, authority: Dict[str, Any], spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.reg._create_contract_impl(contract_id, family_root, authority, spec)
+
+    def transition_contract(self, contract_id: str, to_lifecycle: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str, new_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.reg._transition_contract_impl(contract_id, to_lifecycle, authority, expected_revision, expected_prev_hash, new_spec)
+
+    def get_contract(self, contract_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_contract_impl(contract_id)
+
+
+class ExperimentManager(BaseRegistryManager):
+    def create_experiment(self, experiment_id: str, contract_id: str, authority: Dict[str, Any]) -> Dict[str, Any]:
+        return self.reg._create_experiment_impl(experiment_id, contract_id, authority)
+
+    def transition_experiment(self, experiment_id: str, to_lifecycle: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str, integrity: Optional[str] = None, result: Optional[str] = None) -> Dict[str, Any]:
+        return self.reg._transition_experiment_impl(experiment_id, to_lifecycle, authority, expected_revision, expected_prev_hash, integrity, result)
+
+    def get_experiment(self, experiment_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_experiment_impl(experiment_id)
+
+
+class CandidateManager(BaseRegistryManager):
+    def create_candidate(self, candidate_id: str, material: Dict[str, Any], family_root: str, authority: Dict[str, Any]) -> Dict[str, Any]:
+        return self.reg._create_candidate_impl(candidate_id, material, family_root, authority)
+
+    def transition_candidate(self, candidate_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str, material: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self.reg._transition_candidate_impl(candidate_id, to_lifecycle, to_disposition, authority, expected_revision, expected_prev_hash, material)
+
+    def get_candidate(self, candidate_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_candidate_impl(candidate_id)
+
+
+class CapabilityManager(BaseRegistryManager):
+    def create_capability(self, capability_id: str, kind: str, authority: Dict[str, Any], family_root: str = "default") -> Dict[str, Any]:
+        return self.reg._create_capability_impl(capability_id, kind, authority, family_root)
+
+    def transition_capability(self, capability_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str, Any], expected_revision: int, expected_prev_hash: str, gap_episode_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.reg._transition_capability_impl(capability_id, to_lifecycle, to_disposition, authority, expected_revision, expected_prev_hash, gap_episode_id)
+
+    def get_capability(self, capability_id: str) -> Optional[Dict[str, Any]]:
+        return self.reg._get_capability_impl(capability_id)
+
+
+class GraveyardManager(BaseRegistryManager):
+    def put(self, object_type: str, object_id: str, root_hash: str, disposition: str, reason: str):
+        return self.reg._graveyard_put_impl(object_type, object_id, root_hash, disposition, reason)
+
+    def is_in_graveyard(self, object_type: str, object_id: str) -> bool:
+        return self.reg._is_in_graveyard_impl(object_type, object_id)
+
+    def check_graveyard_retry_allowed(self, object_type: str, candidate_material: Dict[str, Any], family_root: str) -> bool:
+        return self.reg._check_graveyard_retry_allowed_impl(object_type, candidate_material, family_root)
+
 class Registry:
     """
     Scientific registry with SQLite + EventStore hash-chain CAS.
@@ -101,6 +191,13 @@ class Registry:
         self._init_schema()
         # in-memory SoD ledger per family: family_root -> {principal_id: set(classes)}
         self._sod: Dict[str, Dict[str, set]] = {}
+        # Strategy / Delegate Managers (DEBT-01)
+        self.problems = ProblemManager(self)
+        self.hypotheses = HypothesisManager(self)
+        self.experiments = ExperimentManager(self)
+        self.candidates = CandidateManager(self)
+        self.capabilities = CapabilityManager(self)
+        self.graveyard = GraveyardManager(self)
         # family debt counter
         # persisted in DB table family_debt
         # graveyard in DB
@@ -250,7 +347,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Problem
     # -----------------------------------------------------------------------
-    def create_problem(self, problem_id: str, statement: str, authority: Dict[str,Any], family_root: Optional[str]=None) -> Dict[str,Any]:
+    def _create_problem_impl(self, problem_id: str, statement: str, authority: Dict[str,Any], family_root: Optional[str]=None) -> Dict[str,Any]:
         _require_authority(authority)
         if not problem_id or not statement:
             raise RegistryError("G09_ILLEGAL_TRANSITION", "problem_id and statement required")
@@ -268,7 +365,7 @@ class Registry:
         self._upsert_object("problem", problem_id, "OBSERVED", "NONE", rev, eh, root_hash=None, retention="ACTIVE_RECORD", family_root=fam, debt=0)
         return {"problem_id":problem_id,"lifecycle":"OBSERVED","revision":rev,"last_event_hash":eh,"family_root":fam}
 
-    def transition_problem(self, problem_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
+    def _transition_problem_impl(self, problem_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("problem", problem_id)
         if row is None:
@@ -290,7 +387,7 @@ class Registry:
         self._upsert_object("problem", problem_id, to_lifecycle, disp, new_rev, new_hash, root_hash=root_hash, retention=retention, family_root=family_root, debt=debt)
         return {"problem_id":problem_id,"lifecycle":to_lifecycle,"revision":new_rev,"last_event_hash":new_hash}
 
-    def get_problem(self, problem_id: str) -> Optional[Dict[str,Any]]:
+    def _get_problem_impl(self, problem_id: str) -> Optional[Dict[str,Any]]:
         row = self._get_obj_row("problem", problem_id)
         if row is None:
             return None
@@ -300,7 +397,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Episode immutable (G03,G24)
     # -----------------------------------------------------------------------
-    def create_episode(self, episode_id: str, problem_id: str, authority: Dict[str,Any]) -> Dict[str,Any]:
+    def _create_episode_impl(self, episode_id: str, problem_id: str, authority: Dict[str,Any]) -> Dict[str,Any]:
         _require_authority(authority)
         if self._get_obj_row("episode", episode_id) is not None:
             raise RegistryError("G02_ANCESTRY_IMMUTABLE", "episode exists")
@@ -319,7 +416,7 @@ class Registry:
         # also record debt increment for new episode? debt tracks search actions; creation itself not counting but we keep family debt
         return {"episode_id":episode_id,"problem_id":problem_id,"lifecycle":"PLANNED","disposition":"NONE","revision":rev,"last_event_hash":eh,"family_root":family_root}
 
-    def transition_episode(self, episode_id: str, to_lifecycle: str, disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
+    def _transition_episode_impl(self, episode_id: str, to_lifecycle: str, disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("episode", episode_id)
         if row is None:
@@ -359,7 +456,7 @@ class Registry:
         self._upsert_object("episode", episode_id, to_lifecycle, disposition, new_rev, new_hash, retention=retention, family_root=family_root, debt=debt)
         return {"episode_id":episode_id,"lifecycle":to_lifecycle,"disposition":disposition,"revision":new_rev,"last_event_hash":new_hash}
 
-    def get_episode(self, episode_id: str) -> Optional[Dict[str,Any]]:
+    def _get_episode_impl(self, episode_id: str) -> Optional[Dict[str,Any]]:
         row = self._get_obj_row("episode", episode_id)
         if not row:
             return None
@@ -369,7 +466,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Hypothesis
     # -----------------------------------------------------------------------
-    def create_hypothesis(self, hypothesis_id: str, episode_id: str, authority: Dict[str,Any], family_root: Optional[str]=None) -> Dict[str,Any]:
+    def _create_hypothesis_impl(self, hypothesis_id: str, episode_id: str, authority: Dict[str,Any], family_root: Optional[str]=None) -> Dict[str,Any]:
         _require_authority(authority)
         if self._get_obj_row("hypothesis", hypothesis_id):
             raise RegistryError("G02_ANCESTRY_IMMUTABLE","hypothesis exists")
@@ -385,7 +482,7 @@ class Registry:
         self._upsert_object("hypothesis", hypothesis_id, "PROPOSED", "NONE", rev, eh, retention="ACTIVE_RECORD", family_root=fr, debt=debt)
         return {"hypothesis_id":hypothesis_id,"lifecycle":"PROPOSED","revision":rev,"last_event_hash":eh}
 
-    def transition_hypothesis(self, hypothesis_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
+    def _transition_hypothesis_impl(self, hypothesis_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("hypothesis", hypothesis_id)
         if not row:
@@ -420,7 +517,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Research Contract
     # -----------------------------------------------------------------------
-    def create_contract(self, contract_id: str, family_root: str, authority: Dict[str,Any], spec: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
+    def _create_contract_impl(self, contract_id: str, family_root: str, authority: Dict[str,Any], spec: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
         _require_authority(authority)
         if self._get_obj_row("contract", contract_id):
             raise RegistryError("G02_ANCESTRY_IMMUTABLE","contract exists")
@@ -440,7 +537,7 @@ class Registry:
         self._upsert_object("contract", contract_id, "DRAFT", "NONE", rev, eh, root_hash=root_hash, retention="ACTIVE_RECORD", family_root=family_root, debt=0)
         return {"contract_id":contract_id,"lifecycle":"DRAFT","revision":rev,"last_event_hash":eh,"root_hash":root_hash}
 
-    def transition_contract(self, contract_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, new_spec: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
+    def _transition_contract_impl(self, contract_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, new_spec: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("contract", contract_id)
         if not row:
@@ -502,7 +599,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Experiment (G22)
     # -----------------------------------------------------------------------
-    def create_experiment(self, experiment_id: str, contract_id: str, authority: Dict[str,Any]) -> Dict[str,Any]:
+    def _create_experiment_impl(self, experiment_id: str, contract_id: str, authority: Dict[str,Any]) -> Dict[str,Any]:
         _require_authority(authority)
         if self._get_obj_row("experiment", experiment_id):
             raise RegistryError("G02_ANCESTRY_IMMUTABLE","experiment exists")
@@ -523,7 +620,7 @@ class Registry:
         self._store.execute_write("UPDATE registry_objects SET root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", ("NOT_CHECKED","NONE", experiment_id))
         return {"experiment_id":experiment_id,"lifecycle":"PLANNED","integrity":"NOT_CHECKED","result":"NONE","revision":rev,"last_event_hash":eh}
 
-    def transition_experiment(self, experiment_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, integrity: Optional[str]=None, result: Optional[str]=None) -> Dict[str,Any]:
+    def _transition_experiment_impl(self, experiment_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, integrity: Optional[str]=None, result: Optional[str]=None) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("experiment", experiment_id)
         if not row:
@@ -555,7 +652,7 @@ class Registry:
         self._store.execute_write("UPDATE registry_objects SET lifecycle=?, revision=?, last_event_hash=?, root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", (to_lifecycle, new_rev, new_hash, new_integrity, new_result, experiment_id))
         return {"experiment_id":experiment_id,"lifecycle":to_lifecycle,"integrity":new_integrity,"result":new_result,"revision":new_rev,"last_event_hash":new_hash}
 
-    def get_experiment(self, experiment_id: str) -> Optional[Dict[str,Any]]:
+    def _get_experiment_impl(self, experiment_id: str) -> Optional[Dict[str,Any]]:
         row = self._get_obj_row("experiment", experiment_id)
         if not row:
             return None
@@ -565,7 +662,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Candidate / Challenger (G01,G15,CAS, closure)
     # -----------------------------------------------------------------------
-    def create_candidate(self, candidate_id: str, material: Dict[str,Any], family_root: str, authority: Dict[str,Any]) -> Dict[str,Any]:
+    def _create_candidate_impl(self, candidate_id: str, material: Dict[str,Any], family_root: str, authority: Dict[str,Any]) -> Dict[str,Any]:
         _require_authority(authority)
         if self._get_obj_row("candidate", candidate_id):
             raise RegistryError("G02_ANCESTRY_IMMUTABLE","candidate exists")
@@ -581,7 +678,7 @@ class Registry:
         self._upsert_object("candidate", candidate_id, "DRAFT", "NONE", rev, eh, root_hash=root_hash, retention="ACTIVE_RECORD", family_root=family_root, material_hash=root_hash, debt=debt)
         return {"candidate_id":candidate_id,"lifecycle":"DRAFT","disposition":"NONE","root_hash":root_hash,"revision":rev,"last_event_hash":eh,"family_root":family_root,"debt":debt}
 
-    def transition_candidate(self, candidate_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, material: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
+    def _transition_candidate_impl(self, candidate_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, material: Optional[Dict[str,Any]]=None) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("candidate", candidate_id)
         if not row:
@@ -656,7 +753,7 @@ class Registry:
         self._upsert_object("candidate", child_id, "DRAFT", "NONE", rev, eh, root_hash=new_root, retention="ACTIVE_RECORD", parent_id=parent_id, family_root=family_root, material_hash=new_root, debt=new_debt)
         return {"candidate_id":child_id,"parent_id":parent_id,"root_hash":new_root,"revision":rev,"last_event_hash":eh,"family_root":family_root,"debt":new_debt}
 
-    def get_candidate(self, candidate_id: str) -> Optional[Dict[str,Any]]:
+    def _get_candidate_impl(self, candidate_id: str) -> Optional[Dict[str,Any]]:
         row = self._get_obj_row("candidate", candidate_id)
         if not row:
             return None
@@ -666,7 +763,7 @@ class Registry:
     # -----------------------------------------------------------------------
     # Capability (G? requires gap episode)
     # -----------------------------------------------------------------------
-    def create_capability(self, capability_id: str, kind: str, authority: Dict[str,Any], family_root: str="default") -> Dict[str,Any]:
+    def _create_capability_impl(self, capability_id: str, kind: str, authority: Dict[str,Any], family_root: str="default") -> Dict[str,Any]:
         _require_authority(authority)
         if kind not in CAPABILITY_KINDS:
             raise RegistryError("G10_DENIED", f"unknown capability kind {kind}")
@@ -680,7 +777,7 @@ class Registry:
         self._store.execute_write("UPDATE registry_objects SET material_hash=? WHERE object_type='capability' AND object_id=?", (kind, capability_id))
         return {"capability_id":capability_id,"kind":kind,"lifecycle":"BASELINE_AVAILABLE","revision":rev,"last_event_hash":eh}
 
-    def transition_capability(self, capability_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, gap_episode_id: Optional[str]=None) -> Dict[str,Any]:
+    def _transition_capability_impl(self, capability_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, gap_episode_id: Optional[str]=None) -> Dict[str,Any]:
         _require_authority(authority)
         row = self._get_obj_row("capability", capability_id)
         if not row:
@@ -713,7 +810,7 @@ class Registry:
         self._store.execute_write("UPDATE registry_objects SET lifecycle=?, disposition=?, revision=?, last_event_hash=? WHERE object_type='capability' AND object_id=?", (to_lifecycle, to_disposition, new_rev, new_hash, capability_id))
         return {"capability_id":capability_id,"lifecycle":to_lifecycle,"disposition":to_disposition,"revision":new_rev,"last_event_hash":new_hash}
 
-    def get_capability(self, capability_id: str) -> Optional[Dict[str,Any]]:
+    def _get_capability_impl(self, capability_id: str) -> Optional[Dict[str,Any]]:
         row = self._get_obj_row("capability", capability_id)
         if not row:
             return None
@@ -723,13 +820,13 @@ class Registry:
     # -----------------------------------------------------------------------
     # Graveyard
     # -----------------------------------------------------------------------
-    def _graveyard_put(self, object_type: str, object_id: str, root_hash: str, disposition: str, reason: str):
+    def _graveyard_put_impl(self, object_type: str, object_id: str, root_hash: str, disposition: str, reason: str):
         self._store.execute_write("INSERT OR IGNORE INTO graveyard (object_type, object_id, root_hash, disposition, reason) VALUES (?,?,?,?,?)", (object_type, object_id, root_hash, disposition, reason))
 
-    def is_in_graveyard(self, object_type: str, object_id: str) -> bool:
+    def _is_in_graveyard_impl(self, object_type: str, object_id: str) -> bool:
         return self._store.fetch_one("SELECT 1 FROM graveyard WHERE object_type=? AND object_id=?", (object_type, object_id)) is not None
 
-    def check_graveyard_retry_allowed(self, object_type: str, candidate_material: Dict[str,Any], family_root: str) -> bool:
+    def _check_graveyard_retry_allowed_impl(self, object_type: str, candidate_material: Dict[str,Any], family_root: str) -> bool:
         # G18, retry only if materially different root hash not in graveyard for same family?
         _, new_root = self._material_hash_raw("CANDIDATE_ROOT", candidate_material)
         for (rh,) in self._store.fetch_all("SELECT root_hash FROM graveyard WHERE object_type=?", (object_type,)):
@@ -780,3 +877,73 @@ class Registry:
         if content.get("problem_id") == "P001" and content.get("answer") is not None:
             raise RegistryError("G25_P001_FIREWALL", "P001 answer cannot be produced by ARE-0 formalization (G25)")
 
+
+    # --- Backward-Compatible Facade Delegations (ACC-414) ---
+    def create_problem(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.problems.create_problem(*args, **kwargs)
+
+    def transition_problem(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.problems.transition_problem(*args, **kwargs)
+
+    def get_problem(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.problems.get_problem(*args, **kwargs)
+
+    def create_episode(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.problems.create_episode(*args, **kwargs)
+
+    def transition_episode(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.problems.transition_episode(*args, **kwargs)
+
+    def get_episode(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.problems.get_episode(*args, **kwargs)
+
+    def create_hypothesis(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.hypotheses.create_hypothesis(*args, **kwargs)
+
+    def transition_hypothesis(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.hypotheses.transition_hypothesis(*args, **kwargs)
+
+    def create_contract(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.hypotheses.create_contract(*args, **kwargs)
+
+    def transition_contract(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.hypotheses.transition_contract(*args, **kwargs)
+
+    def get_contract(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.hypotheses.get_contract(*args, **kwargs)
+
+    def create_experiment(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.experiments.create_experiment(*args, **kwargs)
+
+    def transition_experiment(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.experiments.transition_experiment(*args, **kwargs)
+
+    def get_experiment(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.experiments.get_experiment(*args, **kwargs)
+
+    def create_candidate(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.candidates.create_candidate(*args, **kwargs)
+
+    def transition_candidate(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.candidates.transition_candidate(*args, **kwargs)
+
+    def get_candidate(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.candidates.get_candidate(*args, **kwargs)
+
+    def create_capability(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.capabilities.create_capability(*args, **kwargs)
+
+    def transition_capability(self, *args, **kwargs) -> Dict[str, Any]:
+        return self.capabilities.transition_capability(*args, **kwargs)
+
+    def get_capability(self, *args, **kwargs) -> Optional[Dict[str, Any]]:
+        return self.capabilities.get_capability(*args, **kwargs)
+
+    def _graveyard_put(self, *args, **kwargs):
+        return self.graveyard.put(*args, **kwargs)
+
+    def is_in_graveyard(self, *args, **kwargs) -> bool:
+        return self.graveyard.is_in_graveyard(*args, **kwargs)
+
+    def check_graveyard_retry_allowed(self, *args, **kwargs) -> bool:
+        return self.graveyard.check_graveyard_retry_allowed(*args, **kwargs)
