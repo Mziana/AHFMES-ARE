@@ -12,6 +12,23 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-4 SLICE-2 CONTRACT FROZEN & DELEGASI_014 ISSUED
+
+```text
+KATEGORI : ARE4 + GLOBAL
+STATUS   : Kontrak SLICE_2_CONTRACT_ARE4.md dibekukan (T3). DELEGASI_014 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-2 ARE-4:
+     - are/evolution.py: EvolutionaryLoop, RegretAnalyzer, AdaptationTrigger, auto Problem registration, ResearchCoordinator slow loop triggering.
+     - are/registry.py: Modularisasi Strategy Pattern pada God Class Registry (Resolusi DEBT-01) dengan 100% backward-compatibility facade.
+  2. KRITERIA TERIMA:
+     - ACC-411 s/d ACC-420 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/ARE4/CONTRACTS/SLICE_2_CONTRACT_ARE4.md.
+     - Delegasi: PROJECT_GOVERNANCE/ARE4/AUTHORITY_AND_WORKFLOW/DELEGASI_014_CODING_SLICE2_ARE4.md.
+DAMPAK   : Paket spesifikasi evolusi adaptif lambat dan pembersihan hutang arsitektur DEBT-01 siap dieksekusi.
+```
+
 ## 2026-08-28 — ARE-4 SLICE-1 AUDIT SIGN-OFF (256 TESTS PASS & CSK QUALIFIED)
 
 ```text

@@ -24,8 +24,8 @@ Fokus Fase ARE-4:
 | Folder | Isi (ARE4) | Dokumen Awal yang Terpasang | Status |
 |---|---|---|:---:|
 | `GRAND_DESIGN/` | Desain evolusi operasional ARE-4 | — | `.gitkeep` |
-| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-4 | Charter ARE-4 (RATIFIED T4), DELEGASI_013 | 2 file |
-| `CONTRACTS/` | Kontrak formal & prasyarat ARE-4 | IAQ_LEDGER_ARE4.md, SLICE_1_CONTRACT_ARE4.md | 2 file |
+| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-4 | Charter ARE-4, DELEGASI_013, DELEGASI_014 | 3 file |
+| `CONTRACTS/` | Kontrak formal & prasyarat ARE-4 | IAQ_LEDGER_ARE4.md, SLICE_1 & SLICE_2_CONTRACT_ARE4.md | 3 file |
 | `MACHINE/` | Sumber mesin kanonikal ARE-4 | — | `.gitkeep` |
 | `MANIFEST/` | Manifest normatif ARE-4 | Manifest V41, Manifest Binding V41 | 2 file |
 | `COUNCIL_PROTOCOL/` | Protokol dewan audit ARE-4 | — | `.gitkeep` |
@@ -37,13 +37,13 @@ Fokus Fase ARE-4:
 
 ---
 
-## Titik Baca Cepat (Fase Eksekusi Slice-1 ARE-4, Baseline `@ebf931d`)
+## Titik Baca Cepat (Fase Eksekusi Slice-2 ARE-4, Baseline `@0ee66ed`)
 
 1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `IMPLEMENTATION(ARE-4) = AUTHORIZED`
-2. **IAQ Triase ARE-4:** `CONTRACTS/IAQ_LEDGER_ARE4.md` (12/12 answered-with-clause)
-3. **Kontrak Slice-1 (ACTIVE):** `CONTRACTS/SLICE_1_CONTRACT_ARE4.md` (ACC-401..410 FROZEN)
+2. **Kontrak Slice-1 (CERTIFIED):** `CONTRACTS/SLICE_1_CONTRACT_ARE4.md` (ACC-401..410 PASS)
+3. **Kontrak Slice-2 (ACTIVE):** `CONTRACTS/SLICE_2_CONTRACT_ARE4.md` (ACC-411..420 FROZEN)
 4. **Charter Otoritas:** `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE4.md` (RATIFIED T4)
-5. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_013_CODING_SLICE1_ARE4.md`
-6. **Hutang Arsitektur:** `RESIDUAL_REGISTER.md` (DEBT-01 & DEBT-02 target ARE-4)
+5. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_014_CODING_SLICE2_ARE4.md`
+6. **Hutang Arsitektur:** `RESIDUAL_REGISTER.md` (DEBT-01 target Slice-2)
 7. **Jurnal harian ARE-4:** `DIARY/2026-08-28-ARE4-OPENING-JURNAL.md`
 8. **Indeks Progres Global:** `../../PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md`
