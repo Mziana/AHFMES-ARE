@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from are.canonical import canonicalize_object, domain_hash
 from are.evidence import EvidenceLedger
+from are.storage import EventStore, Edge1Error
 
 # Named SQLite Authorizer Action Codes & Return Codes (ARCH-04)
 SQLITE_DROP_TABLE = 11
@@ -567,8 +568,7 @@ class ExperienceStore:
     """
     Append-only Experience Store (A1, B1, B2, B3):
     - SQLite WAL storage with 3 streams (decision_memory, regret_memory, anomaly_detection)
-    - CAS mutation via WHERE last_revision = ?
-    - Crash-matrix invariant: state always reconstructed from committed rows
+    - Re-uses EventStore (are/storage.py) for append-only triggers, CAS, and WAL management (ACC-9, ACC-18)
     - Pure function replay & What-If fork simulation
     """
 
@@ -577,68 +577,16 @@ class ExperienceStore:
     def __init__(self, db_path: str, wal_mode: bool = True):
         self._db_path = db_path
         self._wal_mode = wal_mode
-        self._local = threading.local()
-        self._init_schema()
-
-    def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            conn = sqlite3.connect(self._db_path, isolation_level=None)
-            conn.execute("PRAGMA foreign_keys = ON")
-            if self._wal_mode:
-                conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = FULL")
-            conn.execute("PRAGMA busy_timeout = 5000")
-            # Block dangerous operations via authorizer (FIX-01, ARCH-04)
-            def _auth(action, arg1, arg2, dbname, trigger):
-                if action == SQLITE_DROP_TABLE or action == SQLITE_DROP_TRIGGER:
-                    return SQLITE_DENY
-                if action == SQLITE_ATTACH:
-                    return SQLITE_DENY
-                return SQLITE_OK
-            conn.set_authorizer(_auth)
-            self._local.conn = conn
-        return self._local.conn
+        self._event_store = EventStore(db_path, wal_mode=wal_mode)
 
     def close(self) -> None:
-        if hasattr(self._local, "conn") and self._local.conn is not None:
-            try:
-                self._local.conn.close()
-            except Exception:
-                pass
-            self._local.conn = None
-
-    def _init_schema(self) -> None:
-        conn = self._get_conn()
-        with conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS experience_events (
-                    stream_id TEXT NOT NULL,
-                    revision INTEGER NOT NULL,
-                    entry_hash TEXT NOT NULL,
-                    previous_hash TEXT NOT NULL,
-                    data_bytes BLOB NOT NULL,
-                    provenance_json TEXT NOT NULL,
-                    PRIMARY KEY (stream_id, revision)
-                );
-
-                CREATE TABLE IF NOT EXISTS experience_heads (
-                    stream_id TEXT PRIMARY KEY,
-                    last_revision INTEGER NOT NULL,
-                    last_hash TEXT NOT NULL
-                );
-            """)
+        self._event_store.close()
 
     def get_head(self, stream_type: StreamType) -> Tuple[int, str]:
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT last_revision, last_hash FROM experience_heads WHERE stream_id = ?",
-            (stream_type.value,),
-        )
-        row = cursor.fetchone()
-        if row is None:
+        head = self._event_store.get_head(stream_type.value)
+        if head is None:
             return 0, self.GENESIS_HASH
-        return row[0], row[1]
+        return head[0], head[1]
 
     def append(
         self,
@@ -647,7 +595,6 @@ class ExperienceStore:
         provenance: Dict[str, Any],
         expected_revision: int,
     ) -> ExperienceRecord:
-        conn = self._get_conn()
         stream_id = stream_type.value
 
         tag_map = {
@@ -659,101 +606,65 @@ class ExperienceStore:
         canonical_payload = _to_canonical_payload(payload)
         data_bytes, payload_hash = canonicalize_object(canonical_payload, tag)
 
-        with conn:
-            conn.execute("BEGIN IMMEDIATE")
-            curr_rev, prev_hash = self.get_head(stream_type)
+        event_dict = {
+            "data_bytes_hex": data_bytes.hex(),
+            "payload_hash": payload_hash,
+            "provenance": _to_canonical_payload(provenance),
+        }
+        event_bytes = json.dumps(event_dict, sort_keys=True).encode("utf-8")
 
-            if curr_rev != expected_revision:
-                raise ExperienceStoreError(
-                    f"CAS mismatch on stream '{stream_id}': expected revision {expected_revision}, got {curr_rev}"
-                )
-
-            new_rev = curr_rev + 1
-
-            entry_bytes, entry_hash = canonicalize_object(
-                _to_canonical_payload({
-                    "stream_id": stream_id,
-                    "revision": new_rev,
-                    "previous_hash": prev_hash,
-                    "payload_hash": payload_hash,
-                }),
-                "EXPERIENCE_STORE_ENTRY",
+        curr_rev, prev_hash = self.get_head(stream_type)
+        if curr_rev != expected_revision:
+            raise ExperienceStoreError(
+                f"CAS mismatch on stream '{stream_id}': expected revision {expected_revision}, got {curr_rev}"
             )
 
-            provenance_json = json.dumps(_to_canonical_payload(provenance), sort_keys=True)
-
-            conn.execute(
-                """
-                INSERT INTO experience_events (stream_id, revision, entry_hash, previous_hash, data_bytes, provenance_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (stream_id, new_rev, entry_hash, prev_hash, data_bytes, provenance_json),
+        try:
+            ev_rec = self._event_store.append_event(
+                stream_id=stream_id,
+                event_data=event_bytes,
+                expected_revision=expected_revision,
+                prev_event_hash=prev_hash,
             )
-
-            if curr_rev == 0:
-                conn.execute(
-                    """
-                    INSERT INTO experience_heads (stream_id, last_revision, last_hash)
-                    VALUES (?, ?, ?)
-                    """,
-                    (stream_id, new_rev, entry_hash),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    UPDATE experience_heads
-                    SET last_revision = ?, last_hash = ?
-                    WHERE stream_id = ? AND last_revision = ?
-                    """,
-                    (new_rev, entry_hash, stream_id, curr_rev),
-                )
-                if cursor.rowcount == 0:
-                    raise ExperienceStoreError("CAS update failed on stream head")
+        except Edge1Error as e:
+            raise ExperienceStoreError(f"CAS mismatch on stream '{stream_id}': {e}") from e
 
         return ExperienceRecord(
             stream_id=stream_id,
-            revision=new_rev,
-            entry_hash=entry_hash,
-            previous_hash=prev_hash,
+            revision=ev_rec.revision,
+            entry_hash=ev_rec.event_hash,
+            previous_hash=ev_rec.previous_event_hash,
             data_bytes=data_bytes,
             provenance=provenance,
         )
 
     def get_records(self, stream_type: StreamType) -> List[ExperienceRecord]:
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT stream_id, revision, entry_hash, previous_hash, data_bytes, provenance_json
-            FROM experience_events
-            WHERE stream_id = ?
-            ORDER BY revision ASC
-            """,
-            (stream_type.value,),
-        )
+        stream_id = stream_type.value
+        head = self._event_store.get_head(stream_id)
+        if head is None:
+            return []
+        last_rev = head[0]
         results = []
-        for row in cursor.fetchall():
-            results.append(ExperienceRecord(
-                stream_id=row[0],
-                revision=row[1],
-                entry_hash=row[2],
-                previous_hash=row[3],
-                data_bytes=row[4],
-                provenance=json.loads(row[5]),
-            ))
+        for rev in range(1, last_rev + 1):
+            ev = self._event_store.get_event(stream_id, rev)
+            if ev is not None:
+                raw = json.loads(ev.event_data.decode("utf-8"))
+                data_bytes = bytes.fromhex(raw["data_bytes_hex"])
+                prov = raw.get("provenance", {})
+                results.append(
+                    ExperienceRecord(
+                        stream_id=ev.stream_id,
+                        revision=ev.revision,
+                        entry_hash=ev.event_hash,
+                        previous_hash=ev.previous_event_hash,
+                        data_bytes=data_bytes,
+                        provenance=prov,
+                    )
+                )
         return results
 
     def verify_chain(self, stream_type: StreamType) -> bool:
-        records = self.get_records(stream_type)
-        if not records:
-            return True
-
-        expected_prev = self.GENESIS_HASH
-        for rec in records:
-            if rec.previous_hash != expected_prev:
-                return False
-            expected_prev = rec.entry_hash
-        return True
+        return self._event_store.verify_chain(stream_type.value)
 
     def replay(
         self,
