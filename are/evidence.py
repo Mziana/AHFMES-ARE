@@ -281,9 +281,7 @@ class EvidenceLedger:
 
     # -- schema
     def _init_schema(self) -> None:
-        conn = self._store._get_conn()
-        with conn:
-            conn.executescript("""
+        self._store.execute_script("""
                 CREATE TABLE IF NOT EXISTS evidence_snapshots (
                     evidence_snapshot_id TEXT PRIMARY KEY,
                     root_hash TEXT NOT NULL UNIQUE,
@@ -386,18 +384,14 @@ class EvidenceLedger:
 
     # -- ledger head helpers (separate from EventStore stream head; this is evidence ledger revision)
     def _get_ledger_head(self) -> Tuple[int, str]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT revision, last_event_hash FROM ledger_head WHERE id=1")
-        row = cur.fetchone()
-        return (row[0], row[1])
+        row = self._store.fetch_one("SELECT revision, last_event_hash FROM ledger_head WHERE id=1")
+        return (row[0], row[1]) if row else (0, ZERO_HASH)
 
     def _advance_ledger_head(self, new_hash: str) -> int:
-        conn = self._store._get_conn()
-        # atomic increment
-        cur = conn.execute("SELECT revision FROM ledger_head WHERE id=1")
-        rev = cur.fetchone()[0]
+        row = self._store.fetch_one("SELECT revision FROM ledger_head WHERE id=1")
+        rev = row[0] if row else 0
         new_rev = rev + 1
-        conn.execute("UPDATE ledger_head SET revision=?, last_event_hash=? WHERE id=1", (new_rev, new_hash))
+        self._store.execute_write("UPDATE ledger_head SET revision=?, last_event_hash=? WHERE id=1", (new_rev, new_hash))
         return new_rev
 
     # -----------------------------------------------------------------------
@@ -434,9 +428,7 @@ class EvidenceLedger:
             raise EvidenceError("CONTRACT_REQUIRED", "information_time/row_identity/completeness hashes required")
         _validate_news_provenance(as_of_provenance)
         # check id uniqueness (fail-closed: duplicate id => error)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT 1 FROM evidence_snapshots WHERE evidence_snapshot_id=?", (evidence_snapshot_id,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM evidence_snapshots WHERE evidence_snapshot_id=?", (evidence_snapshot_id,)):
             raise EvidenceError("SNAPSHOT_EXISTS", f"snapshot {evidence_snapshot_id} already exists (immutable)")
 
         parent_roots = tuple(parent_roots) if parent_roots else tuple()
@@ -483,22 +475,21 @@ class EvidenceLedger:
         ledger_rev = rec.revision
 
         # persist snapshot row
-        with conn:
-            conn.execute("""
-                INSERT INTO evidence_snapshots
-                (evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch,
-                 information_time_contract_hash, row_identity_contract_hash, completeness_proof_hash,
-                 provenance_status, origin, retention, parent_roots, as_of_provenance,
-                 counterfactual_quality, canonical_bytes, information_time_valid, created_revision, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
-                evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch,
-                information_time_contract_hash, row_or_event_identity_contract_hash, completeness_proof_hash,
-                provenance_status, origin, retention, json.dumps(list(parent_roots)), json.dumps(as_of_provenance) if as_of_provenance else None,
-                counterfactual_quality, cbytes, 1 if information_time_valid else 0, ledger_rev, _utc_now()
-            ))
-            # also advance ledger_head table for independent_for ledger_revision tracking
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("""
+            INSERT INTO evidence_snapshots
+            (evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch,
+             information_time_contract_hash, row_identity_contract_hash, completeness_proof_hash,
+             provenance_status, origin, retention, parent_roots, as_of_provenance,
+             counterfactual_quality, canonical_bytes, information_time_valid, created_revision, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch,
+            information_time_contract_hash, row_or_event_identity_contract_hash, completeness_proof_hash,
+            provenance_status, origin, retention, json.dumps(list(parent_roots)), json.dumps(as_of_provenance) if as_of_provenance else None,
+            counterfactual_quality, cbytes, 1 if information_time_valid else 0, ledger_rev, _utc_now()
+        ))
+        # also advance ledger_head table for independent_for ledger_revision tracking
+        self._advance_ledger_head(rec.event_hash)
 
         return EvidenceSnapshot(
             evidence_snapshot_id=evidence_snapshot_id,
@@ -520,9 +511,7 @@ class EvidenceLedger:
         )
 
     def get_snapshot(self, evidence_snapshot_id: str) -> Optional[EvidenceSnapshot]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch, information_time_contract_hash, row_identity_contract_hash, completeness_proof_hash, provenance_status, origin, retention, parent_roots, as_of_provenance, counterfactual_quality, canonical_bytes, information_time_valid FROM evidence_snapshots WHERE evidence_snapshot_id=?", (evidence_snapshot_id,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT evidence_snapshot_id, root_hash, source_manifest_hash, source_kind, source_epoch, information_time_contract_hash, row_identity_contract_hash, completeness_proof_hash, provenance_status, origin, retention, parent_roots, as_of_provenance, counterfactual_quality, canonical_bytes, information_time_valid FROM evidence_snapshots WHERE evidence_snapshot_id=?", (evidence_snapshot_id,))
         if not row:
             return None
         (sid, rh, smh, sk, se, ith, rih, cph, prov, orig, ret, proots_json, asof_json, cfq, cbytes, itv) = row
@@ -536,9 +525,7 @@ class EvidenceLedger:
         )
 
     def get_snapshot_by_root(self, root_hash: str) -> Optional[EvidenceSnapshot]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT evidence_snapshot_id FROM evidence_snapshots WHERE root_hash=?", (root_hash,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT evidence_snapshot_id FROM evidence_snapshots WHERE root_hash=?", (root_hash,))
         if not row:
             return None
         return self.get_snapshot(row[0])
@@ -550,16 +537,14 @@ class EvidenceLedger:
         if snap.retention == "ARCHIVED_RECORD":
             raise EvidenceError("ALREADY_ARCHIVED", "already ARCHIVED_RECORD")
         # archival never changes root_hash/disposition/disp etc; just retention
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE evidence_snapshots SET retention='ARCHIVED_RECORD' WHERE evidence_snapshot_id=?", (evidence_snapshot_id,))
-            # ledger event for audit
-            stream_id = "evidence_ledger"
-            head_rev, head_hash = self._store.get_head(stream_id) or (0, ZERO_HASH)
-            ev = {"type": "SNAPSHOT_ARCHIVED", "evidence_snapshot_id": evidence_snapshot_id, "root_hash": snap.root_hash, "ledger_revision_before": head_rev}
-            c_ev = canonicalize_json(ev)
-            rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("UPDATE evidence_snapshots SET retention='ARCHIVED_RECORD' WHERE evidence_snapshot_id=?", (evidence_snapshot_id,))
+        # ledger event for audit
+        stream_id = "evidence_ledger"
+        head_rev, head_hash = self._store.get_head(stream_id) or (0, ZERO_HASH)
+        ev = {"type": "SNAPSHOT_ARCHIVED", "evidence_snapshot_id": evidence_snapshot_id, "root_hash": snap.root_hash, "ledger_revision_before": head_rev}
+        c_ev = canonicalize_json(ev)
+        rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
+        self._advance_ledger_head(rec.event_hash)
         return self.get_snapshot(evidence_snapshot_id)  # type: ignore
 
     def derive_snapshot(self,
@@ -627,9 +612,7 @@ class EvidenceLedger:
             raise EvidenceError("RELATION_AUTHORITY_INVALID", f"domain {decided_by_trust_domain} cannot issue UNRELATED_SUPPORTED")
 
         rkey = _relation_key(research_family_root, claim_family_root, candidate_batch_root_hash)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT decision FROM relation_decisions WHERE relation_key=?", (rkey,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT decision FROM relation_decisions WHERE relation_key=?", (rkey,)):
             raise EvidenceError("RELATION_SLOT_TAKEN", f"RelationRegistry one slot per RELATION_KEY violated for {rkey} (immutable)")
 
         manifest = manifest or {"research_family_root": research_family_root, "claim_family_root": claim_family_root, "candidate_batch": candidate_batch_root_hash, "decision": decision}
@@ -642,13 +625,12 @@ class EvidenceLedger:
         c_ev = canonicalize_json(ev)
         rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
 
-        with conn:
-            conn.execute("""
-                INSERT INTO relation_decisions
-                (relation_key, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, manifest_hash, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """, (rkey, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, mh, _utc_now()))
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("""
+            INSERT INTO relation_decisions
+            (relation_key, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, manifest_hash, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (rkey, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, mh, _utc_now()))
+        self._advance_ledger_head(rec.event_hash)
 
         return RelationDecision(
             relation_key=rkey, research_family_root=research_family_root, claim_family_root=claim_family_root,
@@ -659,9 +641,7 @@ class EvidenceLedger:
 
     def get_relation_decision(self, research_family_root: str, claim_family_root: str, candidate_batch_root_hash: Optional[str]=None) -> Optional[RelationDecision]:
         rkey = _relation_key(research_family_root, claim_family_root, candidate_batch_root_hash)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT relation_key, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, manifest_hash, created_at FROM relation_decisions WHERE relation_key=?", (rkey,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT relation_key, research_family_root, claim_family_root, candidate_batch_root_hash, decision, decided_by_trust_domain, decided_by_principal, manifest_hash, created_at FROM relation_decisions WHERE relation_key=?", (rkey,))
         if not row:
             return None
         return RelationDecision(relation_key=row[0], research_family_root=row[1], claim_family_root=row[2], candidate_batch_root_hash=row[3], decision=row[4], decided_by_trust_domain=row[5], decided_by_principal=row[6], manifest_hash=row[7], created_at=row[8])
@@ -687,25 +667,21 @@ class EvidenceLedger:
         multiplicity_plan_frozen: bool,
         search_tree_root_hash: Optional[str]=None,
     ) -> None:
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("""
-                INSERT INTO contract_locks
-                (research_contract_root_hash, locked, family_frozen, search_tree_root_hash, program_budget_valid, validation_family_frozen, multiplicity_plan_frozen)
-                VALUES (?,?,?,?,?,?,?)
-                ON CONFLICT(research_contract_root_hash) DO UPDATE SET
-                    locked=excluded.locked,
-                    family_frozen=excluded.family_frozen,
-                    search_tree_root_hash=excluded.search_tree_root_hash,
-                    program_budget_valid=excluded.program_budget_valid,
-                    validation_family_frozen=excluded.validation_family_frozen,
-                    multiplicity_plan_frozen=excluded.multiplicity_plan_frozen
-            """, (research_contract_root_hash, 1 if locked else 0, 1 if family_frozen else 0, search_tree_root_hash, 1 if program_budget_valid else 0, 1 if validation_family_frozen else 0, 1 if multiplicity_plan_frozen else 0))
+        self._store.execute_write("""
+            INSERT INTO contract_locks
+            (research_contract_root_hash, locked, family_frozen, search_tree_root_hash, program_budget_valid, validation_family_frozen, multiplicity_plan_frozen)
+            VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(research_contract_root_hash) DO UPDATE SET
+                locked=excluded.locked,
+                family_frozen=excluded.family_frozen,
+                search_tree_root_hash=excluded.search_tree_root_hash,
+                program_budget_valid=excluded.program_budget_valid,
+                validation_family_frozen=excluded.validation_family_frozen,
+                multiplicity_plan_frozen=excluded.multiplicity_plan_frozen
+        """, (research_contract_root_hash, 1 if locked else 0, 1 if family_frozen else 0, search_tree_root_hash, 1 if program_budget_valid else 0, 1 if validation_family_frozen else 0, 1 if multiplicity_plan_frozen else 0))
 
     def _get_contract_lock(self, research_contract_root_hash: str) -> Optional[Tuple[bool,bool,bool,bool,bool]]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT locked, family_frozen, program_budget_valid, validation_family_frozen, multiplicity_plan_frozen FROM contract_locks WHERE research_contract_root_hash=?", (research_contract_root_hash,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT locked, family_frozen, program_budget_valid, validation_family_frozen, multiplicity_plan_frozen FROM contract_locks WHERE research_contract_root_hash=?", (research_contract_root_hash,))
         if not row:
             return None
         return (bool(row[0]), bool(row[1]), bool(row[2]), bool(row[3]), bool(row[4]))
@@ -737,14 +713,11 @@ class EvidenceLedger:
             raise EvidenceError("RESERVATION_ID_REQUIRED", "reservation_id required")
         _validate_role(role)
         # check snapshot exists and exact
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT root_hash, provenance_status, origin, retention FROM evidence_snapshots WHERE root_hash=?", (evidence_snapshot_root_hash,))
-        srow = cur.fetchone()
+        srow = self._store.fetch_one("SELECT root_hash, provenance_status, origin, retention FROM evidence_snapshots WHERE root_hash=?", (evidence_snapshot_root_hash,))
         if not srow:
             raise EvidenceError("SNAPSHOT_MISMATCH", f"snapshot root {evidence_snapshot_root_hash} not found (exact snapshot required)")
         # check duplicate reservation id
-        cur = conn.execute("SELECT 1 FROM evidence_reservations WHERE reservation_id=?", (reservation_id,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM evidence_reservations WHERE reservation_id=?", (reservation_id,)):
             raise EvidenceError("RESERVATION_EXISTS", "reservation already exists")
         if not candidate_batch_root_hash or not validation_family_root_hash or not primary_estimand_root_hash or not multiplicity_plan_root_hash:
             raise EvidenceError("BATCH_REQUIRED", "candidate batch, validation family, estimand, multiplicity plan required (precommitted)")
@@ -763,18 +736,10 @@ class EvidenceLedger:
         if expected_prev_hash is not None and expected_prev_hash != head_hash:
             raise EvidenceError("LEDGER_STALE", "prev hash mismatch")
 
-        # Check for conflicting relevant reservation/exposure: if any exposure for same research_family_root+claim_family_root with outcome-aware before freeze
-        # AND if any existing reservation for same snapshot+family with overlapping batch?
-        cur = conn.execute("""
-            SELECT 1 FROM evidence_reservations
-            WHERE research_family_root=? AND claim_family_root=? AND evidence_snapshot_root_hash=? AND state IN ('RESERVED','ACTIVE','RESULT_COMMITTED')
-        """, (research_family_root, claim_family_root, evidence_snapshot_root_hash))
-        # We allow multiple reservations only if they are for different candidate batches? For strict fail-closed, if existing reservation exists for same family/claim/snapshot, deny unless batch different? Conservative: deny duplicate lineage reservation
-        # Let's check if exists with same candidate batch -> conflict
-        cur2 = conn.execute("""
+        # Check for conflicting relevant reservation/exposure
+        if self._store.fetch_one("""
             SELECT 1 FROM evidence_reservations WHERE candidate_batch_root_hash=? AND research_family_root=? AND claim_family_root=?
-        """, (candidate_batch_root_hash, research_family_root, claim_family_root))
-        if cur2.fetchone():
+        """, (candidate_batch_root_hash, research_family_root, claim_family_root)):
             raise EvidenceError("RESERVATION_CONFLICT", "conflicting relevant reservation exists (batch already reserved)")
 
         # Also check exposure already seen for RELATED lineage would not block reservation creation itself but will make independent_for false later
@@ -806,23 +771,20 @@ class EvidenceLedger:
         except Edge1Error as e:
             raise EvidenceError("RESERVATION_CONFLICT", str(e))
 
-        # Now insert reservation row and advance ledger_head atomically in same connection after EventStore commit
-        # This is not perfectly atomic across two tables but CAS ensures no lost update; for test purposes acceptable
-        with conn:
-            conn.execute("""
-                INSERT INTO evidence_reservations
-                (reservation_id, research_program_id, program_budget_envelope_root_hash, research_family_root, claim_family_root,
-                 research_contract_root_hash, evidence_snapshot_root_hash, ledger_revision_at_reservation, validation_family_root_hash,
-                 candidate_batch_root_hash, primary_estimand_root_hash, multiplicity_plan_root_hash, search_tree_root_hash,
-                 search_debt_root_hash, permitted_disclosures_root_hash, permitted_actor_ids, role, state, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
-                reservation_id, research_program_id, program_budget_envelope_root_hash, research_family_root, claim_family_root,
-                research_contract_root_hash, evidence_snapshot_root_hash, rec.revision, validation_family_root_hash,
-                candidate_batch_root_hash, primary_estimand_root_hash, multiplicity_plan_root_hash, search_tree_root_hash,
-                search_debt_root_hash, permitted_disclosures_root_hash, json.dumps(permitted_actor_ids), role, "RESERVED", _utc_now()
-            ))
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("""
+            INSERT INTO evidence_reservations
+            (reservation_id, research_program_id, program_budget_envelope_root_hash, research_family_root, claim_family_root,
+             research_contract_root_hash, evidence_snapshot_root_hash, ledger_revision_at_reservation, validation_family_root_hash,
+             candidate_batch_root_hash, primary_estimand_root_hash, multiplicity_plan_root_hash, search_tree_root_hash,
+             search_debt_root_hash, permitted_disclosures_root_hash, permitted_actor_ids, role, state, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            reservation_id, research_program_id, program_budget_envelope_root_hash, research_family_root, claim_family_root,
+            research_contract_root_hash, evidence_snapshot_root_hash, rec.revision, validation_family_root_hash,
+            candidate_batch_root_hash, primary_estimand_root_hash, multiplicity_plan_root_hash, search_tree_root_hash,
+            search_debt_root_hash, permitted_disclosures_root_hash, json.dumps(permitted_actor_ids), role, "RESERVED", _utc_now()
+        ))
+        self._advance_ledger_head(rec.event_hash)
 
         return ValidationReservation(
             reservation_id=reservation_id,
@@ -847,14 +809,12 @@ class EvidenceLedger:
         )
 
     def get_reservation(self, reservation_id: str) -> Optional[ValidationReservation]:
-        conn = self._store._get_conn()
-        cur = conn.execute("""
+        row = self._store.fetch_one("""
             SELECT reservation_id, research_program_id, program_budget_envelope_root_hash, research_family_root, claim_family_root,
                    research_contract_root_hash, evidence_snapshot_root_hash, ledger_revision_at_reservation, validation_family_root_hash,
                    candidate_batch_root_hash, primary_estimand_root_hash, multiplicity_plan_root_hash, search_tree_root_hash,
                    search_debt_root_hash, permitted_disclosures_root_hash, permitted_actor_ids, role, state, created_at
             FROM evidence_reservations WHERE reservation_id=?""", (reservation_id,))
-        row = cur.fetchone()
         if not row:
             return None
         return ValidationReservation(
@@ -898,14 +858,11 @@ class EvidenceLedger:
         disclosed_to_actor_ids = tuple(disclosed_to_actor_ids or [])
         disclosed_to_trust_domains = tuple(disclosed_to_trust_domains or [])
 
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT 1 FROM evidence_exposures WHERE exposure_event_id=?", (exposure_event_id,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM evidence_exposures WHERE exposure_event_id=?", (exposure_event_id,)):
             raise EvidenceError("EXPOSURE_EXISTS", "exposure already exists")
 
         # Verify snapshot exists
-        cur = conn.execute("SELECT root_hash FROM evidence_snapshots WHERE root_hash=?", (evidence_snapshot_root_hash,))
-        if not cur.fetchone():
+        if not self._store.fetch_one("SELECT root_hash FROM evidence_snapshots WHERE root_hash=?", (evidence_snapshot_root_hash,)):
             raise EvidenceError("SNAPSHOT_MISMATCH", "snapshot root not found for exposure")
 
         stream_id = "evidence_ledger"
@@ -944,21 +901,20 @@ class EvidenceLedger:
         except Edge1Error as e:
             raise EvidenceError("LEDGER_STALE", str(e))
 
-        with conn:
-            conn.execute("""
-                INSERT INTO evidence_exposures
-                (exposure_event_id, evidence_snapshot_root_hash, research_program_id, research_family_root, claim_family_root,
-                 research_contract_root_hash, candidate_batch_root_hash, validation_reservation_id, role, access_granularity,
-                 outcome_awareness, exposure_class, disclosed_metrics, disclosed_to_actor_ids, disclosed_to_trust_domains,
-                 ledger_revision_before, search_tree_root_before, timestamp_utc)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
-                exposure_event_id, evidence_snapshot_root_hash, research_program_id, research_family_root, claim_family_root,
-                research_contract_root_hash, candidate_or_batch_root_hash, validation_reservation_id, role, access_granularity,
-                outcome_awareness, exposure_class, json.dumps(list(disclosed_metrics)), json.dumps(list(disclosed_to_actor_ids)), json.dumps(list(disclosed_to_trust_domains)),
-                ledger_revision_before, search_tree_root_before, _utc_now()
-            ))
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("""
+            INSERT INTO evidence_exposures
+            (exposure_event_id, evidence_snapshot_root_hash, research_program_id, research_family_root, claim_family_root,
+             research_contract_root_hash, candidate_batch_root_hash, validation_reservation_id, role, access_granularity,
+             outcome_awareness, exposure_class, disclosed_metrics, disclosed_to_actor_ids, disclosed_to_trust_domains,
+             ledger_revision_before, search_tree_root_before, timestamp_utc)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            exposure_event_id, evidence_snapshot_root_hash, research_program_id, research_family_root, claim_family_root,
+            research_contract_root_hash, candidate_or_batch_root_hash, validation_reservation_id, role, access_granularity,
+            outcome_awareness, exposure_class, json.dumps(list(disclosed_metrics)), json.dumps(list(disclosed_to_actor_ids)), json.dumps(list(disclosed_to_trust_domains)),
+            ledger_revision_before, search_tree_root_before, _utc_now()
+        ))
+        self._advance_ledger_head(rec.event_hash)
 
         return ExposureEvent(
             exposure_event_id=exposure_event_id,
@@ -999,9 +955,7 @@ class EvidenceLedger:
             raise EvidenceError("PROSPECTIVE_CLASS_INVALID", klass)
         if state not in ("SEALED", "ACTIVE", "CLOSED", "SNAPSHOTTED", "RELEASED"):
             raise EvidenceError("EPOCH_STATE_INVALID", state)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT 1 FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,)):
             raise EvidenceError("EPOCH_EXISTS", prospective_epoch_id)
         # Validate contract lock for STRICT_BLIND: must have embargo
         if klass == "STRICT_BLIND" and not embargo_manifest_hash:
@@ -1012,13 +966,12 @@ class EvidenceLedger:
         ev = {"type": "PROSPECTIVE_EPOCH_CREATED", "prospective_epoch_id": prospective_epoch_id, "class": klass, "ledger_revision_before": head_rev}
         c_ev = canonicalize_json(ev)
         rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
-        with conn:
-            conn.execute("""
-                INSERT INTO prospective_epochs
-                (prospective_epoch_id, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """, (prospective_epoch_id, klass, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state))
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("""
+            INSERT INTO prospective_epochs
+            (prospective_epoch_id, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (prospective_epoch_id, klass, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state))
+        self._advance_ledger_head(rec.event_hash)
         return ProspectiveEpoch(
             prospective_epoch_id=prospective_epoch_id, klass=klass, start_utc=start_utc, end_rule_root_hash=end_rule_root_hash,
             source_contract_root_hash=source_contract_root_hash, research_program_id=research_program_id,
@@ -1026,18 +979,14 @@ class EvidenceLedger:
         )
 
     def get_prospective_epoch(self, prospective_epoch_id: str) -> Optional[ProspectiveEpoch]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT prospective_epoch_id, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT prospective_epoch_id, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline, state FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,))
         if not row:
             return None
         return ProspectiveEpoch(prospective_epoch_id=row[0], klass=row[1], start_utc=row[2], end_rule_root_hash=row[3], source_contract_root_hash=row[4], research_program_id=row[5], embargo_manifest_hash=row[6], candidate_freeze_deadline=row[7], state=row[8])
 
     def transition_prospective_epoch(self, prospective_epoch_id: str, to_state: str, actor_trust_domain: str = "TD-EVIDENCE") -> ProspectiveEpoch:
         valid = {"SEALED": ("ACTIVE",), "ACTIVE": ("CLOSED",), "CLOSED": ("SNAPSHOTTED",), "SNAPSHOTTED": ("RELEASED",)}
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT state, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,))
-        row = cur.fetchone()
+        row = self._store.fetch_one("SELECT state, class, start_utc, end_rule_root_hash, source_contract_root_hash, research_program_id, embargo_manifest_hash, candidate_freeze_deadline FROM prospective_epochs WHERE prospective_epoch_id=?", (prospective_epoch_id,))
         if not row:
             raise EvidenceError("EPOCH_NOT_FOUND", prospective_epoch_id)
         cur_state = row[0]
@@ -1049,9 +998,8 @@ class EvidenceLedger:
         ev = {"type": "PROSPECTIVE_EPOCH_TRANSITION", "prospective_epoch_id": prospective_epoch_id, "from_state": cur_state, "to_state": to_state, "ledger_revision_before": head_rev}
         c_ev = canonicalize_json(ev)
         rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
-        with conn:
-            conn.execute("UPDATE prospective_epochs SET state=? WHERE prospective_epoch_id=?", (to_state, prospective_epoch_id))
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("UPDATE prospective_epochs SET state=? WHERE prospective_epoch_id=?", (to_state, prospective_epoch_id))
+        self._advance_ledger_head(rec.event_hash)
         return self.get_prospective_epoch(prospective_epoch_id)  # type: ignore
 
     # -----------------------------------------------------------------------
@@ -1067,15 +1015,13 @@ class EvidenceLedger:
         snap = self.get_snapshot(evidence_snapshot_id)
         if not snap:
             raise EvidenceError("SNAPSHOT_NOT_FOUND", evidence_snapshot_id)
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE evidence_snapshots SET counterfactual_quality=? WHERE evidence_snapshot_id=?", (quality, evidence_snapshot_id))
-            stream_id = "evidence_ledger"
-            head_rev, head_hash = self._store.get_head(stream_id) or (0, ZERO_HASH)
-            ev = {"type": "CF_QUALITY_SET", "evidence_snapshot_id": evidence_snapshot_id, "quality": quality, "decided_by": decided_by_principal, "ledger_revision_before": head_rev}
-            c_ev = canonicalize_json(ev)
-            rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
-            self._advance_ledger_head(rec.event_hash)
+        self._store.execute_write("UPDATE evidence_snapshots SET counterfactual_quality=? WHERE evidence_snapshot_id=?", (quality, evidence_snapshot_id))
+        stream_id = "evidence_ledger"
+        head_rev, head_hash = self._store.get_head(stream_id) or (0, ZERO_HASH)
+        ev = {"type": "CF_QUALITY_SET", "evidence_snapshot_id": evidence_snapshot_id, "quality": quality, "decided_by": decided_by_principal, "ledger_revision_before": head_rev}
+        c_ev = canonicalize_json(ev)
+        rec = self._store.append_event(stream_id, c_ev, head_rev, head_hash)
+        self._advance_ledger_head(rec.event_hash)
         return self.get_snapshot(evidence_snapshot_id)  # type: ignore
 
     # -----------------------------------------------------------------------
@@ -1147,16 +1093,13 @@ class EvidenceLedger:
         if relation == "RELATED":
             # Check if any prior relevant outcome-aware exposure exists before freeze
             # need to see exposures for same research_family_root (since RELATED default) with outcome awareness != NONE before reservation
-            conn = self._store._get_conn()
-            # prior exposure before reservation ledger revision
             res = self.get_reservation(reservation_id)  # type: ignore
             assert res is not None
-            cur = conn.execute("""
+            row = self._store.fetch_one("""
                 SELECT exposure_event_id, exposure_class, outcome_awareness, ledger_revision_before
                 FROM evidence_exposures
                 WHERE research_family_root=? AND outcome_awareness != 'NONE' AND ledger_revision_before < ?
             """, (research_family_root, res.ledger_revision_at_reservation))
-            row = cur.fetchone()
             if row:
                 return (False, "RELATED_EXPOSURE_ALREADY_SEEN", f"prior outcome-aware exposure {row[0]} class {row[1]} before reservation")
             # also if caller is in same claim_family_root lineage, treat as holdout exhausted
@@ -1172,13 +1115,12 @@ class EvidenceLedger:
             # Even if UNRELATED_SUPPORTED, still need to verify that prior exposure for that specific unrelated claim lineage does not contaminate?
             # For UNRELATED_SUPPORTED we allow independent even if prior exposure in different claim lineage, so we don't block on same research_family alone
             # But we still need to ensure no exposure for same claim_family_root with outcome awareness before freeze (more specific)
-            conn = self._store._get_conn()
             res = self.get_reservation(reservation_id)  # type: ignore
-            cur = conn.execute("""
+            assert res is not None
+            if self._store.fetch_one("""
                 SELECT 1 FROM evidence_exposures
                 WHERE claim_family_root=? AND research_family_root=? AND outcome_awareness != 'NONE' AND ledger_revision_before < ?
-            """, (claim_family_root, research_family_root, res.ledger_revision_at_reservation))
-            if cur.fetchone():
+            """, (claim_family_root, research_family_root, res.ledger_revision_at_reservation)):
                 return (False, "RELATED_EXPOSURE_ALREADY_SEEN", "prior exposure for claim lineage (even unrelated gate, but same lineage exposure)")
 
         # contract locked
@@ -1209,9 +1151,7 @@ class EvidenceLedger:
         # Simplified: if exposure already logged for same reservation with disclosed metrics exceeding permitted_disclosures_root, fail
         # We approximate: if any exposure for this reservation has disclosed_metrics not subset of permitted, fail
         # Since we don't store permitted set content, we compare counts: if disclosed_to metrics logged exceed permitted, treat as scope exceeded when candidate batch is same but exposure class > permitted (E2/E3 vs E1)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT access_granularity, outcome_awareness FROM evidence_exposures WHERE validation_reservation_id=?", (reservation_id,))
-        for gran, aware in cur.fetchall():
+        for gran, aware in self._store.fetch_all("SELECT access_granularity, outcome_awareness FROM evidence_exposures WHERE validation_reservation_id=?", (reservation_id,)):
             # If reservation permitted is PRECOMMITTED_METRIC (E1) but exposure is E2/E3 with outcome awareness, then disclosure scope exceeded?
             # We treat any E2/E3 exposure as exceeding E1 permitted disclosure (conservative)
             # Need permitted_disclosures_root_hash to infer class? For simplicity, if reservation permitted_disclosures_root_hash exists and exposure is E2/E3 while reservation role expects E1, flag
@@ -1252,9 +1192,7 @@ class EvidenceLedger:
         snap = self.get_snapshot(evidence_snapshot_id)
         if not snap or snap.provenance_status != "VERIFIED":
             return False
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT 1 FROM evidence_exposures WHERE research_family_root=? AND claim_family_root=? AND outcome_awareness != 'NONE'", (research_family_root, claim_family_root))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM evidence_exposures WHERE research_family_root=? AND claim_family_root=? AND outcome_awareness != 'NONE'", (research_family_root, claim_family_root)):
             return False
         # relation defaults to RELATED => if exposure exists, not eligible; else need reservation
         relation = self.evaluate_relation(research_family_root, claim_family_root)
@@ -1267,9 +1205,8 @@ class EvidenceLedger:
     # Ledger introspection
     # -----------------------------------------------------------------------
     def list_snapshots(self) -> List[EvidenceSnapshot]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT evidence_snapshot_id FROM evidence_snapshots")
-        return [self.get_snapshot(r[0]) for r in cur.fetchall() if self.get_snapshot(r[0])]  # type: ignore
+        rows = self._store.fetch_all("SELECT evidence_snapshot_id FROM evidence_snapshots")
+        return [self.get_snapshot(r[0]) for r in rows if self.get_snapshot(r[0])]  # type: ignore
 
     def verify_chain(self, stream_id: str = "evidence_ledger") -> bool:
         return self._store.verify_chain(stream_id)
