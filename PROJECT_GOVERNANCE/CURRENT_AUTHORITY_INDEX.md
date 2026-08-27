@@ -41,10 +41,10 @@ Catatan kredit: seluruh rekaman CLEAN_PASS/PASS pra-V36 di ARE0/QUALIFICATION ad
 ARE-0 DESIGN CLOSED @03aec99
 ARE-1 SCIENTIFIC KERNEL CLOSED @a6711d6 (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
 IMPLEMENTATION(ARE-2) = AUTHORIZED (Charter T4 ratified 2026-08-27)
-DEEP_ANALYSIS = COMPLETED 2026-08-27 (5 P0, 5 P1, 7 P2 — remediation delegated)
-DELEGASI_008 = ISSUED (hygiene + security fixes + architecture remediation)
-ARE2_FORMAL_AUDIT = CONDITIONAL PASS (15 PASS, 2 FAIL [ACC-9, ACC-18], 2 NOT_TESTABLE, 1 PARTIAL)
-DELEGASI_009 = ISSUED (refactor ExperienceStore reuse EventStore — ACC-9/ACC-18 fix)
+DEEP_ANALYSIS = COMPLETED 2026-08-27 (5 P0, 5 P1, 7 P2 — remediation completed)
+DELEGASI_008 = COMPLETED & VERIFIED (hygiene + security fixes + architecture remediation)
+DELEGASI_009 = COMPLETED & VERIFIED (ExperienceStore reuse EventStore — ACC-9/ACC-18 fixed)
+ARE2_FORMAL_AUDIT = FULL PASS (18/18 code criteria PASS, qualified for Manifest V41)
 ARCH_DEBT_REGISTER = CREATED (8 entries — DEBT-01..08)
 P001 = NOT AUTHORIZED
 PRODUCTION = CLOSED

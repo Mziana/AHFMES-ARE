@@ -12,6 +12,35 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — VERIFIKASI REMEDIASI SELESAI: DELEGASI_008 & 009 PASS (ARE-2 FULL PASS)
+
+```text
+KATEGORI : ARE2 + ENGINEERING + GLOBAL
+STATUS   : Eksekusi DELEGASI_008 (Hygiene/Security) dan DELEGASI_009 (ExperienceStore Refactor)
+           selesai dieksekusi oleh Engineer AI dan diverifikasi 100% oleh Auditor.
+           Status ARE-2 meningkat dari CONDITIONAL PASS menjadi FULL PASS.
+DETAIL   :
+  VERIFIKASI INDEPENDEN AUDITOR:
+  - Test Suite: 214 passed, 105 subtests passed (37.39s) — 100% HIJAU.
+  - DELEGASI_008 VERIFIED:
+    * FIX-01: Silent authorizer error handling dihilangkan, authorizer aktif langsung.
+    * FIX-02: Dead code guard_G16 dihapus, penegakan SoD DISCOVERY vs VALIDATE aktif.
+    * FIX-03: guard_G12 memvalidasi larangan kata kunci resolutif pada caller labels.
+    * FIX-04: CapabilityToken ditingkatkan menggunakan HMAC-SHA256 ber-secret key.
+    * FIX-05: migrate_event_store_var_ref menyertakan automated backup & rollback.
+    * ARCH-01..04: Package markers __init__.py terpasang, .gitignore diperkuat, path traversal TOOLS ditutup.
+    * HYG-01..05: Branch temp-accept dihapus, fix_*.py dipindahkan ke tmp/, working tree clean.
+  - DELEGASI_009 VERIFIED:
+    * ExperienceStore refactored menjadi wrapper di atas EventStore (are/storage.py).
+    * Nol raw SQL mutations (INSERT/UPDATE experience_* dihapus total).
+    * 100% trigger append-only SQLite WAL terwarisi.
+    * ACC-9 dan ACC-18 RESOLVED menjadi PASS.
+  - LAPORAN AUDIT:
+    * are2_audit_report.md diperbarui: FULL PASS (18 PASS, 2 NOT_TESTABLE [Manifest V41]).
+DAMPAK   : Seluruh implementasi teknis ARE-2 telah tuntas, kokoh, dan lolos audit.
+           Langkah berikutnya: Integrasi dan penerbitan Manifest V41.
+```
+
 ## 2026-08-27 — AUDIT FORMAL ARE-2 EXPERIENCE INTELLIGENCE + DELEGASI_009
 
 ```text
