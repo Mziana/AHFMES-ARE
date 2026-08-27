@@ -399,7 +399,7 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `PROJECT_GOVERNANCE/ARE4/QUARANTINE/.gitkeep` | e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 | 0 |
 | `PROJECT_GOVERNANCE/ARE4/R9_CORRECTIONS/.gitkeep` | e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 | 0 |
 | `PROJECT_GOVERNANCE/ARE4/README.md` | 3b230ec6bdd6c3c28822a50d16d75d56ce9e1214 | 3027 |
-| `PROJECT_GOVERNANCE/ARE4/RESIDUAL_REGISTER.md` | 2af5d1ea595f35378fd0b5bb6f33b4a72a783331 | 1526 |
+| `PROJECT_GOVERNANCE/ARE4/RESIDUAL_REGISTER.md` | 43664ad39fdac881e460c034a07f93ee2523996e | 1557 |
 | `PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md` | 37bec1975e0a312283279dce943d2719c43de5f9 | 2724 |
 | `PROJECT_GOVERNANCE/GOVERNANCE_FOLDER_STRUCTURE_RULES.md` | bac4a9094cd5adfdc48bf7cf1de735953dc49505 | 16243 |
 | `are/__init__.py` | d754fdfe582ca63befb9580b459167a0a428fd34 | 16 |
@@ -408,11 +408,12 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `are/constants.py` | e63e747259c03d0df3040e5c28688b5c8a2a2de5 | 11141 |
 | `are/coordinator.py` | 6e36a09e7fe9d314486547b763a144665d39bee9 | 8348 |
 | `are/evidence.py` | 4e78053954d3f62c61080a9ab0109fdd59ea5f2b | 71535 |
+| `are/evolution.py` | c058f080290daabaca10f121fa8d274c7ebc47de | 5614 |
 | `are/experience.py` | 27979c86988cdebb7b5ab445338c0523f469f8c7 | 42990 |
 | `are/governor.py` | 2f33d033165547593a13373d363958f95dc6067a | 6111 |
 | `are/habitat.py` | b7ff0b0eef71c15cca0be76496f2746785bfa324 | 4517 |
 | `are/operational.py` | 82367cf9212ab87ed1e2f92a596ec16c4b151a39 | 6406 |
-| `are/registry.py` | b15d194da75663f2d317c0199959cdef470c4f53 | 55222 |
+| `are/registry.py` | dd644b828edcf9f0bd8808e14ce321fbaab0a96c | 65024 |
 | `are/safety.py` | 43aeb854715bb0033df8bdf03a90001602e20919 | 4043 |
 | `are/sandbox.py` | 8d32cae8f0534a34f678d58bb5dc1bd178d925e0 | 4482 |
 | `are/search_tree.py` | 3dd53b029d867b637259406aa6843d7d617d9d11 | 6923 |
@@ -436,6 +437,8 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `tests/are/test_are3_telemetry.py` | b32e2ba7d28dbea025a75a779f8f17c197016dbf | 2962 |
 | `tests/are/test_are3_validation.py` | 78d5adbd06ede09f436872cde20beee7a36d6ed4 | 2509 |
 | `tests/are/test_are4_e2e_slice1.py` | e942df19c837ec2400017d96370719d25dfb771e | 4705 |
+| `tests/are/test_are4_e2e_slice2.py` | aea476de5fd66bb4e19102a771b514032f8233f4 | 6266 |
+| `tests/are/test_are4_evolution.py` | 0e584e8a6a68215bb49c22e29344fa863cffb4f9 | 5716 |
 | `tests/are/test_are4_operational.py` | ed6674600e510fed6e4ee4b5112184fb444d72bc | 4259 |
 | `tests/are/test_are4_safety.py` | be37bac09e22bd09d6bee8619bab04a1339108fa | 3127 |
 | `tests/are/test_canonical.py` | d207ec12a4ffb74cb06d1bebd65f57ac4f4d9b0a | 16094 |
