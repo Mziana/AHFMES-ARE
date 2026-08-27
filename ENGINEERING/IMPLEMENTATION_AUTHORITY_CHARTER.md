@@ -57,14 +57,14 @@ T2 IAQ LEDGER TUNTAS    : file ENGINEERING/IAQ_LEDGER.md memuat >= entri
                           tiap entri berdisposisi ANSWERED-WITH-CLAUSE |
                           NEEDS-NEW-GENERATION | DEFERRED(justified);
                           ditriase Lead Architect; nol blocker terbuka;
-                          direkam sebagai QAO pembuka gelombang ARE-1  [BELUM]
+                          direkam sebagai QAO pembuka gelombang ARE-1  [TERPENUHI 2026-08-26, triase 4917631]
 T3 SLICE-1 CONTRACT     : unit kerja pertama ditulis eksplisit (modul,
                           kriteria terima, test fail-closed) dan diratifikasi
-                          arsitek                              [BELUM]
+                          arsitek                              [TERPENUHI 2026-08-26, frozen 1d567fa]
 T4 RATIFIKASI OWNER     : satu commit khusus oleh pemilik proyek yang
                           mengubah baris RATIFIKASI di file ini menjadi
                           YES + memperbarui CURRENT_AUTHORITY_INDEX:
-                          IMPLEMENTATION(ARE-1) = AUTHORIZED   [BELUM]
+                          IMPLEMENTATION(ARE-1) = AUTHORIZED   [TERPENUHI 2026-08-26, commit 22c585b]
 ```
 
 Otoritas LAHIR pada commit T4 — bukan pada tanggal dokumen ini.

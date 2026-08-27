@@ -38,11 +38,24 @@ PROJECT_GOVERNANCE/
 ├── ENGINEERING/                           (working agreement Engineering AI)
 ├── ARE0/                                  (semua dokumen ARE-0)
 │   └── ... (11 kategori + DIARY, lihat §3)
-└── ARE1/                                  (semua dokumen ARE-1 — Scientific Kernel) [S2 2026-08-27]
-    ├── README.md                          (index kategori ARE0)
+├── ARE1/                                  (semua dokumen ARE-1 — Scientific Kernel) [S2 2026-08-27]
+│   ├── README.md                          (index kategori ARE1)
+│   ├── GRAND_DESIGN/                      desain menyeluruh human-readable
+│   ├── AUTHORITY_AND_WORKFLOW/            otoritas fase + workflow kerja
+│   ├── CONTRACTS/                         kontrak formal 0A–0F
+│   ├── MACHINE/                           Matrix + Inventory (sumber mesin)
+│   ├── MANIFEST/                          manifest normatif + stable binding
+│   ├── COUNCIL_PROTOCOL/                  protokol Self-Audit Council
+│   ├── QUARANTINE/                        kebijakan & record karantina legacy
+│   ├── R9_CORRECTIONS/                    paket koreksi R9 + impact attack record
+│   ├── EXTERNAL_AUDIT/                    handoff, pass record, paket koreksi audit eksternal
+│   ├── QUALIFICATION/                     bukti kualifikasi internal (clean pass, regresi, konsistensi)
+│   └── DIARY/                             diary khusus ARE-1 (lokal per kategori)
+└── ARE2/                                  (semua dokumen ARE-2 — Experience Intelligence) [S2 2026-08-27]
+    ├── README.md                          (index kategori ARE2)
     ├── GRAND_DESIGN/                      desain menyeluruh human-readable
     ├── AUTHORITY_AND_WORKFLOW/            otoritas fase + workflow kerja
-    ├── CONTRACTS/                         kontrak formal 0A–0F
+    ├── CONTRACTS/                         kontrak formal (Slice Contract, IAQ, HASH_DOMAIN_TAGS)
     ├── MACHINE/                           Matrix + Inventory (sumber mesin)
     ├── MANIFEST/                          manifest normatif + stable binding
     ├── COUNCIL_PROTOCOL/                  protokol Self-Audit Council
@@ -50,15 +63,15 @@ PROJECT_GOVERNANCE/
     ├── R9_CORRECTIONS/                    paket koreksi R9 + impact attack record
     ├── EXTERNAL_AUDIT/                    handoff, pass record, paket koreksi audit eksternal
     ├── QUALIFICATION/                     bukti kualifikasi internal (clean pass, regresi, konsistensi)
-    └── DIARY/                             diary khusus ARE-0 (lokal per kategori)
+    └── DIARY/                             diary khusus ARE-2 (lokal per kategori)
 ```
 
-Folder kategori lain (misal `ARE1/`, `ARE2/`, ...) mengikuti pola yang sama
-ketika fasenya dibuka, dengan `README.md` index dan subfolder `DIARY/`
+Folder kategori lain (misal `ARE3/`, `ARE4/`, ...) mengikuti pola yang sama
+khi fasenya dibuka, dengan `README.md` index dan subfolder `DIARY/`
 tersendiri.
 
-**S2 aktif (2026-08-27):** `ARE1/` telah dibuka per deklarasi STRUCTURAL_GENERATION_S2
-(Lampiran R3). Struktur `ARE1/` mirror `ARE0/` — 11 kategori + `DIARY/` + ledger
+**S2 aktif (2026-08-27):** `ARE1/` dan `ARE2/` telah dibuka per deklarasi STRUCTURAL_GENERATION_S2
+(Lampiran R3 + R4). Struktur `ARE1/` dan `ARE2/` mirror `ARE0/` — 11 kategori + `DIARY/` + ledger
 `RESIDUAL_REGISTER.md` untuk sistem FIX/DEFERRED/CATAT.
 
 ## 3. Definisi kategori
@@ -197,8 +210,36 @@ BYTE CHANGES         = NONE (relokasi murni, blob SHA tidak berubah)
 ROOT SETELAH         = GOVERNANCE_FOLDER_STRUCTURE_RULES.md, CURRENT_AUTHORITY_INDEX.md, ARE0/
 GLOBAL DIARY         = PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md (baru)
 ```
-
-## LAMPIRAN R3 — Rekap eksekusi STRUCTURAL_GENERATION_S2 (ARE1 arsip)
+ 
+## LAMPIRAN R4 — Rekap eksekusi STRUCTURAL_GENERATION_S2 (ARE2 arsip)
+ 
+```text
+TANGGAL              = 2026-08-27
+DEKLARASI            = STRUCTURAL_GENERATION_S2 — pembukaan arsip fase ARE-2
+PEMICU               = ARE-1 CLOSED @a6711d6 (ACCEPT), ARE-2 DESAIN dibuka
+DASAR                = §1.6(a) sebelum S0-ARE2 dibekukan + §2 "ARE2/ mirror ARE0"
+FOLDER DIBUAT        = PROJECT_GOVERNANCE/ARE2/ (11 kategori mirror ARE0)
+                      ├── README.md                          (index ARE2, 63 baris)
+                      ├── GRAND_DESIGN/                      (kosong, siap isi)
+                      ├── AUTHORITY_AND_WORKFLOW/            (kosong, siap isi)
+                      ├── CONTRACTS/                         (kosong, siap isi)
+                      ├── MACHINE/                           (kosong, siap isi)
+                      ├── MANIFEST/                          (kosong, siap isi)
+                      ├── COUNCIL_PROTOCOL/                  (kosong, siap isi)
+                      ├── QUARANTINE/                        (kosong, siap isi)
+                      ├── R9_CORRECTIONS/                    (kosong, siap isi)
+                      ├── EXTERNAL_AUDIT/                    (kosong, siap isi)
+                      ├── QUALIFICATION/                     (kosong, siap isi)
+                      └── DIARY/
+                          └── .gitkeep                       (placeholder)
+LEDGER BARU          = PROJECT_GOVERNANCE/ARE1/RESIDUAL_REGISTER.md (FIX/DEFERRED/CATAT, 158+ baris)
+                      — ledger terpusat agar DEFERRED tidak PR lupa (G07/G18 persist)
+BYTE CHANGES         = README.md baru + 11× .gitkeep (0 bytes each)
+                       Tidak ada manifest member lama yang diubah byte-nya
+ROOT SETELAH         = GOVERNANCE_FOLDER_STRUCTURE_RULES.md, CURRENT_AUTHORITY_INDEX.md, ARE0/, ARE1/, ARE2/
+NEXT                 = Generasi manifest V40+ wajib pakai path ARE2/MANIFEST/ per tabel R1 (update R1 next)
+                       Diary ARE2 selanjutnya langsung di ARE2/DIARY/ (bukan ARE0/ARE1)
+```
 
 ```text
 TANGGAL              = 2026-08-27
