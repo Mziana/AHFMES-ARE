@@ -378,7 +378,9 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `PROJECT_GOVERNANCE/GOVERNANCE_FOLDER_STRUCTURE_RULES.md` | bac4a9094cd5adfdc48bf7cf1de735953dc49505 | 16243 |
 | `are/__init__.py` | d754fdfe582ca63befb9580b459167a0a428fd34 | 16 |
 | `are/canonical.py` | 295adfa5d4d787b4896d86bcb8acda96aaf673f8 | 15625 |
+| `are/champion.py` | ded161a0011eb4c84609cac082e80be62bbc141b | 8450 |
 | `are/constants.py` | e63e747259c03d0df3040e5c28688b5c8a2a2de5 | 11141 |
+| `are/coordinator.py` | 6e36a09e7fe9d314486547b763a144665d39bee9 | 8348 |
 | `are/evidence.py` | 4e78053954d3f62c61080a9ab0109fdd59ea5f2b | 71535 |
 | `are/experience.py` | 27979c86988cdebb7b5ab445338c0523f469f8c7 | 42990 |
 | `are/governor.py` | 2f33d033165547593a13373d363958f95dc6067a | 6111 |
@@ -389,12 +391,15 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `are/state_machine.py` | 2e6abb16d0a580e8962a24e76fa7abd4d6ceaa3d | 54986 |
 | `are/storage.py` | 4be4c3052639a0f57722812472140adeb5944295 | 35496 |
 | `are/telemetry.py` | 0fc55fd9ef7199e6fe32a6a3c0ce89c942bfa152 | 5409 |
-| `are/validation.py` | 1414eac82f9113577cc4b3437f048f78794d6659 | 5441 |
+| `are/validation.py` | 4506ef4ebcac55a3200f50e91eeb363419d8626c | 5534 |
 | `tests/__init__.py` | 9db25ed0b5e7c220a222c55c7bac2fa82aa07208 | 21 |
 | `tests/are/__init__.py` | 9db25ed0b5e7c220a222c55c7bac2fa82aa07208 | 21 |
+| `tests/are/test_are3_champion.py` | 095ccbb37e2482473504872a4e823a15bbfa5191 | 4343 |
 | `tests/are/test_are3_constants.py` | d04b29eb1bf4c4f16cce03f17a85f1150089d665 | 1735 |
+| `tests/are/test_are3_coordinator.py` | 5bbb5125b252e03be10f8ec02e6a73262ba59679 | 4105 |
 | `tests/are/test_are3_e2e_slice1.py` | 89ade47c51ff5887e28bd427e37a407db9c0e466 | 4165 |
 | `tests/are/test_are3_e2e_slice2.py` | 7571243b6027fd4e89666c341e6456e4ca236402 | 4945 |
+| `tests/are/test_are3_e2e_slice3.py` | 7663648451bde2efe00ab9c311aea2121ad6d928 | 6247 |
 | `tests/are/test_are3_governor.py` | 72e7ccf5db893b2352a939681c9f827a7b779509 | 3512 |
 | `tests/are/test_are3_habitat.py` | f319662be44a96a3edc9c4e89bbdb445490486fd | 2556 |
 | `tests/are/test_are3_sandbox.py` | 2011a2533fa8084a55d3e227ccf6987e939c8fa5 | 1572 |
