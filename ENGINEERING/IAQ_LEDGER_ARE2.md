@@ -3,7 +3,7 @@
 ```text
 STATUS   = ENGINEERING DELIVERABLE / DELEGASI_005 / ZERO AUTHORITY
 DIBUAT   = 2026-08-27
-SUBJEK   = HEAD 6958905 (ARE-1 CLOSED @a6711d6, ARE-2 NOT AUTHORIZED)
+SUBJEK   = HEAD 6958905 (ARE-1 CLOSED @a6711d6, ARE-2 AUTHORIZED @267a1a4)
 SCOPE    = Read-mode analysis only; recommendations below are not decisions.
 ATURAN   = ENGINEERING/RULES.md; DELEGASI_005_ARE2_READMODE_IAQ.md
 ```
@@ -11,6 +11,30 @@ ATURAN   = ENGINEERING/RULES.md; DELEGASI_005_ARE2_READMODE_IAQ.md
 > Ledger ini adalah evidence/chronology untuk triase Lead Architect. Ia tidak
 > memberi implementation authority, tidak mengubah dokumen normatif, tidak
 > menjawab P001, dan tidak memilih strategi trading.
+
+**TRIASE LEAD ARCHITECT — HASIL: 17/17 ANSWERED-WITH-CLAUSE**
+
+| ID | DISPOSISI | KEPUTUSAN ARSITEK |
+|----|-----------|-------------------|
+| IAQ-001 | ANSWERED-WITH-CLAUSE | TERIMA (a) — reuse EventStore 3 stream |
+| IAQ-002 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b) — ingestion + middleware |
+| IAQ-003 | ANSWERED-WITH-CLAUSE | TERIMA (a) — deterministic threshold, fixed-seed |
+| IAQ-004 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b) — pure replay + fork snapshot |
+| IAQ-005 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(c) — derived snapshots + Owner approval |
+| IAQ-006 | ANSWERED-WITH-CLAUSE | TERIMA (a) — consumer via reservation API |
+| IAQ-007 | ANSWERED-WITH-CLAUSE | TERIMA (a) — adapter pattern, zero mod |
+| IAQ-008 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b) — gates + quarantine + review |
+| IAQ-009 | ANSWERED-WITH-CLAUSE | TERIMA (a) — rule-based CF mapping |
+| IAQ-010 | ANSWERED-WITH-CLAUSE | TERIMA (a) — reuse EventStore 2 stream |
+| IAQ-011 | ANSWERED-WITH-CLAUSE | TERIMA (a) — import ARE-1 storage API |
+| IAQ-012 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b) — observability only, NO emergency-flat |
+| IAQ-013 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(c) — config bounds + quota |
+| IAQ-014 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b) — JSONL audit + dual-check |
+| IAQ-015 | ANSWERED-WITH-CLAUSE | TERIMA (a) — frozen typed config, hash via canonical |
+| IAQ-016 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b)+(c) — tags + IAQ QAO + triase→contract→charter |
+| IAQ-017 | ANSWERED-WITH-CLAUSE | TERIMA (a)+(b)+(c) — dependency doc + feedback + defensive |
+
+**HASIL: 17/17 ANSWERED-WITH-CLAUSE — 0 NEEDS-NEW-GENERATION, 0 DEFERRED, 0 BLOCKER**
 
 ## IAQ-001 - Experience Store Schema & Storage
 
@@ -186,9 +210,10 @@ USULAN     : (a)+(b)+(c) secara terbatas; ARE-2 tidak boleh menyamarkan deferred
 
 ```text
 JUMLAH ENTRI = 17
-BLOCKER      = Belum ditriase Lead Architect; tidak ada entry yang memberi authority.
-STATUS       = ZERO AUTHORITY / READ-MODE / NON-NORMATIF
-NEXT         = Triase arsitek per IAQ, penetapan disposition, lalu Slice Contract ARE-2.
+TRIASE       = SELESAI — 17/17 ANSWERED-WITH-CLAUSE
+DISPOSISI    = 17 ANSWERED-WITH-CLAUSE, 0 NEEDS-NEW-GENERATION, 0 DEFERRED, 0 BLOCKER
+STATUS       = ZERO AUTHORITY / READ-MODE / NON-NORMATIF / TRIASE SELESAI
+NEXT         = Slice Contract ARE-2 → Charter T4 → DELEGASI_006 coding
 LARANGAN     = Tidak coding, tidak mengubah dokumen normatif, tidak menjawab P001,
                tidak memilih strategi trading atau ACT behavior.
 ```
