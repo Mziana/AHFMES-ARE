@@ -36,8 +36,8 @@ Gelombang **P001** adalah fase operasionalisasi mesin riset sains otonom AHFMES-
 | `QUARANTINE/` | Kebijakan karantina data/model | `.gitkeep` |
 | `R9_CORRECTIONS/` | Koreksi dampak | `.gitkeep` |
 | `EXTERNAL_AUDIT/` | Handoff & audit eksternal P001 | `.gitkeep` |
-| `QUALIFICATION/` | Bukti kualifikasi internal P001 | `.gitkeep` |
-| `DIARY/` | Diary harian P001 | 2026-08-28-P001-OPENING-JURNAL.md |
+| `QUALIFICATION/` | Bukti kualifikasi internal P001 | AHFMES_P001_SLICE1_AUDIT_REPORT.md (10/10 PASS) | 1 file |
+| `DIARY/` | Diary harian P001 | 2026-08-28-P001-OPENING-JURNAL.md | 1 file |
 
 ---
 
