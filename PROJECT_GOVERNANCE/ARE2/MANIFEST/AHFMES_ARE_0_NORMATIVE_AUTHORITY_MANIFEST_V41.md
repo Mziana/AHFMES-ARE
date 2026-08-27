@@ -408,7 +408,9 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `are/experience.py` | 27979c86988cdebb7b5ab445338c0523f469f8c7 | 42990 |
 | `are/governor.py` | 2f33d033165547593a13373d363958f95dc6067a | 6111 |
 | `are/habitat.py` | b7ff0b0eef71c15cca0be76496f2746785bfa324 | 4517 |
+| `are/operational.py` | 82367cf9212ab87ed1e2f92a596ec16c4b151a39 | 6406 |
 | `are/registry.py` | b15d194da75663f2d317c0199959cdef470c4f53 | 55222 |
+| `are/safety.py` | 43aeb854715bb0033df8bdf03a90001602e20919 | 4043 |
 | `are/sandbox.py` | 8d32cae8f0534a34f678d58bb5dc1bd178d925e0 | 4482 |
 | `are/search_tree.py` | 3dd53b029d867b637259406aa6843d7d617d9d11 | 6923 |
 | `are/state_machine.py` | 2e6abb16d0a580e8962a24e76fa7abd4d6ceaa3d | 54986 |
@@ -430,6 +432,9 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `tests/are/test_are3_storage_api.py` | b778a936b43a8ed3cf8d47f947491a1df8340ac8 | 2463 |
 | `tests/are/test_are3_telemetry.py` | b32e2ba7d28dbea025a75a779f8f17c197016dbf | 2962 |
 | `tests/are/test_are3_validation.py` | 78d5adbd06ede09f436872cde20beee7a36d6ed4 | 2509 |
+| `tests/are/test_are4_e2e_slice1.py` | e942df19c837ec2400017d96370719d25dfb771e | 4705 |
+| `tests/are/test_are4_operational.py` | ed6674600e510fed6e4ee4b5112184fb444d72bc | 4259 |
+| `tests/are/test_are4_safety.py` | be37bac09e22bd09d6bee8619bab04a1339108fa | 3127 |
 | `tests/are/test_canonical.py` | d207ec12a4ffb74cb06d1bebd65f57ac4f4d9b0a | 16094 |
 | `tests/are/test_evidence.py` | 1270ce01786648c2f8b24cc0815e6081cce7abb7 | 32432 |
 | `tests/are/test_experience.py` | 60f347e9e9bb71c1e1d0f9b7c55b666f632416f8 | 9824 |

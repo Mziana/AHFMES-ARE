@@ -32,7 +32,7 @@ Fokus Fase ARE-4:
 | `QUARANTINE/` | Kebijakan & record karantina legacy (jika ada) | — | `.gitkeep` |
 | `R9_CORRECTIONS/` | Koreksi & impact record (jika ada) | — | `.gitkeep` |
 | `EXTERNAL_AUDIT/` | Handoff & audit eksternal ARE-4 | — | `.gitkeep` |
-| `QUALIFICATION/` | Bukti kualifikasi internal ARE-4 | — | `.gitkeep` |
+| `QUALIFICATION/` | Bukti kualifikasi internal ARE-4 | AHFMES_ARE_4_SLICE1_AUDIT_REPORT.md (10/10 PASS) | 1 file |
 | `DIARY/` | Diary harian ARE-4 (lokal per kategori) | 2026-08-28-ARE4-OPENING-JURNAL.md, template | 2 file |
 
 ---
