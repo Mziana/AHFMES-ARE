@@ -215,3 +215,29 @@ DAMPAK   : Pemicu charter T2 terpenuhi; menunggu: adjudikasi silang auditor,
 ```
 
 ## 2026-08-26 - T3 TERPENUHI: slice-1 contract beku; menunggu T4 ratifikasi owner.
+
+## 2026-08-27 — ARE-1 Perbaiki yang Bisa, Tunda yang Harus — Jurnal Harian
+
+```text
+KATEGORI : ARE1 + ENGINEERING + GLOBAL
+STATUS   : 9ca5289 (hygiene RES-02) → 83f73c0 (fix RES-01) — 5 ephemeral agents sesi
+DETAIL   :
+  - DELEGASI_003 hygiene RES-02 DONE: are/storage.py:89 allowlist 12→10 (dup receipts_no_replace + phantom heads_no_update) — 71e50b6 QAO
+  - DELEGASI_004 fix RES-01 DONE: are/storage.py:86 authorizer DENY ALL DROP TABLE 11/TRIGGER 16 (2+10-) — 83f73c0
+    Verif: 172 tests, TRIGGER 10, manifest 60bc57 dual, blob 136/136
+  - DEFERRED dicatat agar tidak PR lupa:
+    IC-5 ROLLBACK_CAUSE (scope Slice-1 are/ only → Slice-2 ACC) — auditor 4 otak PASS→DEFERRED diambil (1 baris)
+    RES-03 var_ref tidak di-hash are/storage.py:229 breaking → generasi baru
+    RES-01 sisa raw bypass OS-level → production hardening chmod 600 + keeper IAQ-003
+  - Pencatatan: ARE0/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md (harian) + ENGINEERING/DELEGASI_003/004 (jejak)
+DAMPAK   : SA-11 PASS (60bc57/136) → Impact CLEAN (IC-5 DEFERRED) → CP1/2 PASS → Regresi 369/369 (172) → Final Consistency → candidate 83f73c0 → external audit
+```
+
+## 2026-08-27 — Jurnal Harian ARE-1: Detail Residual (mirror)
+
+```text
+KATEGORI : ARE1
+STATUS   : Lihat ARE0/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md untuk detail lengkap perbaiki/tunda + debt G07/G18
+DETAIL   : Jurnal harian adalah buku PR agar tidak lupa — semua DEFERRED punya ticket Slice-2, semua FIX punya bukti by-data file:line
+DAMPAK   : Next: Final Consistency (IC-5 wording) → binder → external audit pada exact SHA 83f73c0
+```
