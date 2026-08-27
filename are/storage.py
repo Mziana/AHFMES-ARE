@@ -83,12 +83,14 @@ class EventStore:
                 def _authorizer(action, arg1, arg2, dbname, trigger):
                     # SQLITE_DROP_TRIGGER = 11, SQLITE_ATTACH = 24, SQLITE_DROP_TABLE = 11? Use constants
                     # Deny DROP TRIGGER and ATTACH
-                    if action == 11:  # SQLITE_DROP_TRIGGER / DROP_TABLE etc - be conservative
+# Deny DROP TRIGGER/TABLE (11) and DROP TRIGGER (16) etc - be conservative
+                    if action == 11 or action == 16:  # SQLITE_DROP_TABLE (11) / SQLITE_DROP_TRIGGER (16)
                         # allow only if not dropping our protection triggers
                         if arg1 in ("events_no_update", "events_no_delete", "events_no_insert_replace",
                                     "nonce_ledger_no_update", "nonce_ledger_no_delete",
                                     "receipts_no_update", "receipts_no_delete", "receipts_no_replace",
-                                    "heads_no_update", "heads_no_delete"):
+                                    "heads_no_update", "heads_no_delete", "stream_heads_no_replace",
+                                    "receipts_no_replace"):
                             return 1  # SQLITE_DENY
                     if action == 24:  # SQLITE_ATTACH
                         return 1
@@ -189,6 +191,20 @@ class EventStore:
                 BEFORE DELETE ON stream_heads
                 BEGIN
                     SELECT RAISE(ABORT, 'stream_heads is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS stream_heads_no_replace
+                BEFORE INSERT ON stream_heads
+                WHEN EXISTS (SELECT 1 FROM stream_heads WHERE stream_id = NEW.stream_id)
+                BEGIN
+                    SELECT RAISE(ABORT, 'stream_heads is append-only via CAS');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS receipts_no_replace
+                BEFORE INSERT ON receipts
+                WHEN EXISTS (SELECT 1 FROM receipts WHERE recovery_subject = NEW.recovery_subject)
+                BEGIN
+                    SELECT RAISE(ABORT, 'receipts is append-only via CAS');
                 END;
             """)
 
