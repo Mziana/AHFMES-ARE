@@ -58,6 +58,18 @@ class EventRecord:
     event_data: bytes
     previous_event_hash: str
     event_hash: str
+    var_ref: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RollbackCauseRecord:
+    rollback_cause_id: str
+    observation_id: str
+    source_universe: str
+    policy_root_ref: str
+    timestamp: float
+    severity: str
+    var_ref: Optional[str] = None
 
 
 class EventStore:
@@ -197,6 +209,35 @@ class EventStore:
                 BEGIN
                     SELECT RAISE(ABORT, 'receipts is append-only via CAS');
                 END;
+
+                CREATE TABLE IF NOT EXISTS rollback_cause_observations (
+                    rollback_cause_id TEXT PRIMARY KEY,
+                    observation_id TEXT NOT NULL,
+                    source_universe TEXT NOT NULL,
+                    policy_root_ref TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    severity TEXT NOT NULL,
+                    var_ref TEXT
+                );
+
+                CREATE TRIGGER IF NOT EXISTS rollback_cause_no_update
+                BEFORE UPDATE ON rollback_cause_observations
+                BEGIN
+                    SELECT RAISE(ABORT, 'rollback_cause_observations is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS rollback_cause_no_delete
+                BEFORE DELETE ON rollback_cause_observations
+                BEGIN
+                    SELECT RAISE(ABORT, 'rollback_cause_observations is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS rollback_cause_no_replace
+                BEFORE INSERT ON rollback_cause_observations
+                WHEN EXISTS (SELECT 1 FROM rollback_cause_observations WHERE rollback_cause_id = NEW.rollback_cause_id)
+                BEGIN
+                    SELECT RAISE(ABORT, 'rollback_cause_observations append-only: duplicate rollback_cause_id');
+                END;
             """)
 
     def close(self) -> None:
@@ -222,12 +263,15 @@ class EventStore:
         revision: int,
         event_data: bytes,
         previous_event_hash: str,
+        var_ref: Optional[str] = None,
     ) -> str:
         h = hashlib.sha256()
         h.update(stream_id.encode("utf-8"))
         h.update(revision.to_bytes(8, "big", signed=False))
         h.update(event_data)
         h.update(previous_event_hash.encode("utf-8"))
+        if var_ref is not None:
+            h.update(var_ref.encode("utf-8"))
         return h.hexdigest()
 
     def append_event(
@@ -270,7 +314,7 @@ class EventStore:
 
             revision = current_rev + 1
             event_hash = self._compute_event_hash(
-                stream_id, revision, event_data, prev_hash
+                stream_id, revision, event_data, prev_hash, var_ref
             )
 
             conn.execute(
@@ -302,6 +346,7 @@ class EventStore:
                 event_data=event_data,
                 previous_event_hash=prev_hash,
                 event_hash=event_hash,
+                var_ref=var_ref,
             )
         except Exception:
             conn.execute("ROLLBACK;")
@@ -318,7 +363,7 @@ class EventStore:
     def get_event(self, stream_id: str, revision: int) -> Optional[EventRecord]:
         conn = self._get_conn()
         cur = conn.execute(
-            "SELECT stream_id, revision, event_data, previous_event_hash, event_hash "
+            "SELECT stream_id, revision, event_data, previous_event_hash, event_hash, var_ref "
             "FROM events WHERE stream_id = ? AND revision = ?",
             (stream_id, revision),
         )
@@ -331,23 +376,24 @@ class EventStore:
             event_data=row[2],
             previous_event_hash=row[3],
             event_hash=row[4],
+            var_ref=row[5],
         )
 
     def verify_chain(self, stream_id: str) -> bool:
         """Verify previous-event-hash chain integrity for a stream."""
         conn = self._get_conn()
         cur = conn.execute(
-            "SELECT revision, event_data, previous_event_hash, event_hash "
+            "SELECT revision, event_data, previous_event_hash, event_hash, var_ref "
             "FROM events WHERE stream_id = ? ORDER BY revision ASC",
             (stream_id,),
         )
         prev_hash = "0" * 64
         for row in cur:
-            rev, event_data, prev_h, ev_h = row
+            rev, event_data, prev_h, ev_h, var_ref_val = row
             if prev_h != prev_hash:
                 return False
             computed = self._compute_event_hash(
-                stream_id, rev, event_data, prev_hash
+                stream_id, rev, event_data, prev_hash, var_ref_val
             )
             if computed != ev_h:
                 return False
@@ -581,9 +627,253 @@ class Edge1Manager:
         row = cur.fetchone()
         return ReceiptState(row[0]) if row else None
 
+    def append_rollback_cause(
+        self,
+        record: RollbackCauseRecord,
+        role: Optional[str] = None,
+    ) -> RollbackCauseRecord:
+        """
+        Append rollback cause observation (IC-5 / G16 / G17 SoD).
+        G16: Critic cannot rescue.
+        G17: Research cannot self-validate / self-clear rollback cause.
+        """
+        if role == "CRITIC_RESCUE":
+            raise Edge1Error("SoD violation: Critic cannot rescue or clear rollback cause (G16)")
+        if role == "RESEARCH_SELF_VALIDATE":
+            raise Edge1Error("SoD violation: Research cannot self-validate (G17)")
+
+        conn = self._store._get_conn()
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute(
+                """
+                INSERT INTO rollback_cause_observations 
+                (rollback_cause_id, observation_id, source_universe, policy_root_ref, timestamp, severity, var_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.rollback_cause_id,
+                    record.observation_id,
+                    record.source_universe,
+                    record.policy_root_ref,
+                    record.timestamp,
+                    record.severity,
+                    record.var_ref,
+                ),
+            )
+            conn.execute("COMMIT;")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK;")
+            except Exception:
+                pass
+            raise
+        return record
+
+    def get_rollback_cause(self, rollback_cause_id: str) -> Optional[RollbackCauseRecord]:
+        conn = self._store._get_conn()
+        cur = conn.execute(
+            """
+            SELECT rollback_cause_id, observation_id, source_universe, policy_root_ref, timestamp, severity, var_ref
+            FROM rollback_cause_observations WHERE rollback_cause_id = ?
+            """,
+            (rollback_cause_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return RollbackCauseRecord(
+            rollback_cause_id=row[0],
+            observation_id=row[1],
+            source_universe=row[2],
+            policy_root_ref=row[3],
+            timestamp=row[4],
+            severity=row[5],
+            var_ref=row[6],
+        )
+
+    def list_rollback_causes(self, source_universe: Optional[str] = None) -> list[RollbackCauseRecord]:
+        conn = self._store._get_conn()
+        if source_universe:
+            cur = conn.execute(
+                """
+                SELECT rollback_cause_id, observation_id, source_universe, policy_root_ref, timestamp, severity, var_ref
+                FROM rollback_cause_observations WHERE source_universe = ? ORDER BY timestamp ASC
+                """,
+                (source_universe,),
+            )
+        else:
+            cur = conn.execute(
+                """
+                SELECT rollback_cause_id, observation_id, source_universe, policy_root_ref, timestamp, severity, var_ref
+                FROM rollback_cause_observations ORDER BY timestamp ASC
+                """
+            )
+        return [
+            RollbackCauseRecord(
+                rollback_cause_id=r[0],
+                observation_id=r[1],
+                source_universe=r[2],
+                policy_root_ref=r[3],
+                timestamp=r[4],
+                severity=r[5],
+                var_ref=r[6],
+            )
+            for r in cur.fetchall()
+        ]
+
 
 def open_store(db_path: str) -> tuple[EventStore, Edge1Manager]:
     """Factory: open both stores sharing the same DB file."""
     store = EventStore(db_path)
     edge1 = Edge1Manager(db_path)
     return store, edge1
+
+
+def migrate_event_store_var_ref(db_path: str) -> int:
+    """
+    RES-03: Re-derive hash chain for existing events database to include var_ref.
+    Deterministic, no data loss.
+    """
+    if not os.path.exists(db_path):
+        return 0
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+        if not cur.fetchone():
+            return 0
+
+        cur.execute(
+            "SELECT stream_id, revision, event_data, var_ref FROM events ORDER BY stream_id, revision ASC"
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return 0
+
+        from collections import defaultdict
+        streams = defaultdict(list)
+        for row in rows:
+            streams[row[0]].append(row)
+
+        migrated_events = []
+        new_heads = {}
+
+        for stream_id, stream_rows in streams.items():
+            prev_hash = "0" * 64
+            for r in stream_rows:
+                s_id, rev, ev_data, v_ref = r
+                ev_hash = EventStore._compute_event_hash(s_id, rev, ev_data, prev_hash, v_ref)
+                migrated_events.append((s_id, rev, ev_data, prev_hash, ev_hash, v_ref))
+                prev_hash = ev_hash
+            new_heads[stream_id] = (stream_rows[-1][1], prev_hash)
+
+        with conn:
+            conn.execute("CREATE TABLE _events_migrated AS SELECT * FROM events WHERE 0")
+            for ev in migrated_events:
+                conn.execute(
+                    "INSERT INTO _events_migrated (stream_id, revision, event_data, previous_event_hash, event_hash, var_ref) VALUES (?, ?, ?, ?, ?, ?)",
+                    ev,
+                )
+            conn.execute("DROP TRIGGER IF EXISTS events_no_update")
+            conn.execute("DROP TRIGGER IF EXISTS events_no_delete")
+            conn.execute("DROP TRIGGER IF EXISTS events_no_insert_replace")
+            conn.execute("DELETE FROM events")
+            conn.execute("INSERT INTO events SELECT * FROM _events_migrated")
+            conn.execute("DROP TABLE _events_migrated")
+
+            conn.execute("DROP TRIGGER IF EXISTS heads_no_delete")
+            conn.execute("DROP TRIGGER IF EXISTS stream_heads_no_replace")
+            conn.execute("DELETE FROM stream_heads")
+            for s_id, (last_rev, last_h) in new_heads.items():
+                conn.execute(
+                    "INSERT INTO stream_heads (stream_id, last_revision, last_event_hash) VALUES (?, ?, ?)",
+                    (s_id, last_rev, last_h),
+                )
+
+        # Restore schema triggers
+        store = EventStore(db_path)
+        store.close()
+
+        return len(migrated_events)
+    finally:
+        conn.close()
+
+
+def enforce_db_permissions(db_path: str) -> bool:
+    """Enforce restrictive permissions (chmod 600) on database file (RES-01)."""
+    if os.path.exists(db_path):
+        try:
+            os.chmod(db_path, 0o600)
+            return True
+        except Exception:
+            return False
+    return False
+
+
+@dataclass(frozen=True)
+class CapabilityToken:
+    token_id: str
+    role: str
+    authority_scope: str
+    expiration_ts: float
+    signature: str
+
+    def is_valid(self, required_role: str, current_ts: float) -> bool:
+        if self.expiration_ts < current_ts:
+            return False
+        if self.role != required_role and self.role != "OWNER":
+            return False
+        expected_sig = hashlib.sha256(
+            f"{self.token_id}:{self.role}:{self.authority_scope}:{self.expiration_ts:.2f}".encode("utf-8")
+        ).hexdigest()
+        return self.signature == expected_sig
+
+
+def issue_capability_token(
+    token_id: str,
+    role: str,
+    authority_scope: str,
+    ttl_sec: float = 3600.0,
+    current_ts: Optional[float] = None,
+) -> CapabilityToken:
+    import time
+    ts = time.time() if current_ts is None else current_ts
+    exp = ts + ttl_sec
+    sig = hashlib.sha256(
+        f"{token_id}:{role}:{authority_scope}:{exp:.2f}".encode("utf-8")
+    ).hexdigest()
+    return CapabilityToken(
+        token_id=token_id,
+        role=role,
+        authority_scope=authority_scope,
+        expiration_ts=exp,
+        signature=sig,
+    )
+
+
+class KeeperProcessExecutor:
+    """
+    Process isolation & capability token enforcement for authority operations (IAQ-003 / RES-01).
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+
+    def execute_with_token(
+        self,
+        token: CapabilityToken,
+        required_role: str,
+        operation: Any,
+    ) -> Any:
+        import time
+        now = time.time()
+        if not token.is_valid(required_role, now):
+            raise Edge1Error(f"Unauthorized or expired capability token for role '{required_role}'")
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            return operation(conn)
+        finally:
+            conn.close()

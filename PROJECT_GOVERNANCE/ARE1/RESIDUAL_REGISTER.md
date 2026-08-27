@@ -205,3 +205,71 @@ TIDAK ADA PR ngambang — semua DEFERRED punya ticket, semua FIX punya file:line
 ```
 
 *Ledger ini append-only. Entri baru ditambah di bawah, histori tidak rewrite.*
+
+---
+
+## 6. DEEP ANALYSIS — 2026-08-27 (Lead Architect & Auditor)
+
+> Analisis mendalam multi-agent mengidentifikasi temuan baru yang terhubung
+> dengan residual yang sudah tercatat, serta temuan baru yang didelegasikan
+> via DELEGASI_008. Referensi: `ENGINEERING/DELEGASI_008_HYGIENE_AND_ARCH_FIX.md`
+
+### Temuan terhubung ke residual existing
+
+```text
+RES-01-sisa (authorizer) → DELEGASI_008 FIX-01 (silent failure except:pass)
+  - Temuan baru: except Exception: pass menelan error set_authorizer
+  - Jika set_authorizer gagal, DB beroperasi TANPA proteksi DROP TABLE
+  - FIX-01 menghapus try/except yang menelan error
+  - Status: DELEGATED → DELEGASI_008 Bagian A
+
+RES-03 (var_ref hash) → DELEGASI_008 FIX-05 (migration backup)
+  - Temuan baru: migrate_event_store_var_ref DELETE FROM events tanpa backup
+  - Jika crash antara DELETE dan INSERT, data hilang permanen
+  - FIX-05 menambahkan backup sebelum operasi destructive
+  - Status: FIX-05 DELEGATED, RES-03 core issue tetap DEFERRED
+```
+
+### Temuan baru (tidak di residual sebelumnya)
+
+```text
+NEW-P0-01: Dead code guard_G16 (are/state_machine.py)
+  - if False else False: pass — guard tidak berfungsi
+  - G16 (Research cannot self-validate) tidak ditegakkan
+  - DELEGASI_008 FIX-02
+
+NEW-P0-02: Dead code guard_G12 (are/state_machine.py)
+  - _ = fields.get("caller_label") — variable read lalu dibuang
+  - G12 (labels descriptive only) tidak ditegakkan
+  - DELEGASI_008 FIX-03
+
+NEW-P0-03: CapabilityToken tanpa secret (are/storage.py:816-853)
+  - "signature" = SHA-256 data publik, bukan HMAC — bisa di-forge
+  - DELEGASI_008 FIX-04
+
+NEW-P1-01..04: __init__.py, gitignore, path traversal, magic numbers
+  - DELEGASI_008 Bagian B (ARCH-01..04)
+
+NEW-ARCH-DEBT: God Class, God File, DB bypass, konstanta duplikat
+  - Dicatat di ENGINEERING/ARCH_DEBT_REGISTER.md (DEBT-01..08)
+  - DEFERRED — breaking changes memerlukan generasi baru
+
+PENCATATAN:
+  - ENGINEERING/DELEGASI_008_HYGIENE_AND_ARCH_FIX.md
+  - ENGINEERING/ARCH_DEBT_REGISTER.md
+  - PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md 2026-08-27 entry
+  - PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md updated
+```
+
+### Cross-reference dokumen
+
+| Dokumen | Status | Terhubung ke |
+|---------|--------|--------------|
+| `ENGINEERING/DELEGASI_008_HYGIENE_AND_ARCH_FIX.md` | AKTIF | FIX-01..05, ARCH-01..04, HYG-01..05 |
+| `ENGINEERING/DELEGASI_009_REFACTOR_EXPERIENCE_STORE.md` | AKTIF | ACC-9/ACC-18 fix (ExperienceStore reuse EventStore) |
+| `ENGINEERING/ARCH_DEBT_REGISTER.md` | AKTIF | DEBT-01..08 |
+| `PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md` | Updated | Entri 2026-08-27 deep analysis & audit ARE-2 |
+| `PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md` | Updated | DEEP_ANALYSIS, DELEGASI_008, ARE2_FORMAL_AUDIT, DELEGASI_009 |
+| `ENGINEERING/DELEGASI_007_CODING_SLICE2_ARE2.md` | AKTIF | ARE-2 Slice-2 (paralel, scope berbeda) |
+
+
