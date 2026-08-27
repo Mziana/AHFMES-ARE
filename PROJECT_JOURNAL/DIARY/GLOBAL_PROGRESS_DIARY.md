@@ -12,6 +12,31 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-3 SLICE-1 DESIGN & GOVERNANCE GATE (IAQ + CONTRACT + DELEGASI_010)
+
+```text
+KATEGORI : ARE3 + GLOBAL
+STATUS   : Triase IAQ ARE-3 selesai (12/12 ANSWERED). Kontrak SLICE_1_CONTRACT_ARE3.md dibekukan (T3).
+           Implementation Authority Charter ARE-3 disiapkan (T1-T3 PASS, T4 pending).
+           DELEGASI_010 (Search Tree, Validation, Governor, Constants) siap diserahkan ke Engineer AI.
+DETAIL   :
+  1. IAQ LEDGER ARE-3:
+     - 12 pertanyaan implementabilitas tuntas ditriase dengan klausul normatif tertutup.
+     - Search Tree genealogy, holdout consumption, SoD penegakan G16/G17, dan isolasi sandbox.
+  2. KONTRAK SLICE-1 ARE-3:
+     - Modul: are/search_tree.py, are/validation.py, are/governor.py, are/constants.py.
+     - Kriteria Terima: ACC-301 s/d ACC-310.
+     - Resolusi DEBT-04: Sentralisasi konstanta siklus hidup ke are/constants.py.
+  3. GERBANG OTORITAS ARE-3:
+     - T1 (ARE-2 CLOSED @7f57d12): TERPENUHI.
+     - T2 (IAQ Ledger Answered): TERPENUHI.
+     - T3 (Slice-1 Contract Frozen): TERPENUHI.
+     - T4 (Ratifikasi Owner): MENUNGGU PERSETUJUAN OWNER.
+  4. DELEGASI_010:
+     - Prompt self-contained disiapkan di PROJECT_GOVERNANCE/ARE3/AUTHORITY_AND_WORKFLOW/.
+DAMPAK   : Seluruh fondasi desain & tata kelola Slice-1 ARE-3 tuntas; siap masuk fase implementasi pasca ratifikasi T4.
+```
+
 ## 2026-08-28 — MANIFEST V41 TERBIT (ARE-2 CLOSED @360cf76) + INISIALISASI ARE-3
 
 ```text
