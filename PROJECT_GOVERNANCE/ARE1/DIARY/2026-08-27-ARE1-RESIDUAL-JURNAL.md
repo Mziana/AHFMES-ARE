@@ -57,17 +57,40 @@ NEXT          : Final Consistency (IC-5 wording DEFERRED) → candidate freeze e
 ```
 
 ---
-
-## Snapshot status saat entry ini
-
+ 
+## 2026-08-27 — EXTERNAL AUDIT ACCEPT: ARE-1 SCIENTIFIC KERNEL CLOSED
+ 
+```text
+TANGGAL  : 2026-08-27 (selesai jam ~11:53)
+SUBJEK   : a6711d6 (code 83f73c0 + S2 7dbc926) — ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED
+AUDITOR  : 4 otak independen, by-data reproduksi
+DISPOSISI: ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED
+GATE     : SA-11 PASS (60bc57 dual 136/136) | Impact CLEAN (IC-5 DEFERRED) | CP1/2 PASS | Regresi 369/369 (172) | Final Consistency PASS
+DISPOSISI RESIDUAL: IC-5 DEFERRED (Slice-2), RES-03 DEFERRED (generasi baru), RES-01 raw sisa DEFERRED (OS-level) — all recorded
+DAMPAK   : ARE-1 CLOSED @a6711d6 | ARE-2 TERBUKA DESAIN | binder 697b53a → external ACCEPT
+```
+ 
+### Pencatatan (update pasca-ACCEPT)
+ 
+```text
+JURNAL HARIAN : file ini (ARE1/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md) — canonical
+GLOBAL DIARY  : PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md 2026-08-27 (mirror updated)
+DELEGASI      : ENGINEERING/DELEGASI_003 + 004 (jejak by-data)
+QAO           : 71e50b6 → 83f73c0 → 28e8a4d → a6711d6 → 697b53a
+DEBT          : family_debt/G18 persist, graveyard G07
+NEXT          : DELEGASI_005 ARE-2 read-mode + IAQ ledger (pra-charter)
+```
+ 
+## Snapshot status saat ACCEPT
+ 
 ```text
 ARE-0 CLOSED              = YES @03aec99 (ROOT 3affbbf0)
-ARE-1 Scientific Kernel   = IN PROGRESS — Slice-1 done 83f73c0 (hygiene+RES-01), SA-11 PASS, Impact CLEAN (IC-5 DEFERRED), CP1/2 PASS, Regresi 369/369 (172 tests), QAO 71e50b6→83f73c0
-ARE-2 Experience Intel    = LOCKED
+ARE-1 Scientific Kernel   = CLOSED @a6711d6 (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
+ARE-2 Experience Intel    = TERBUKA untuk DESAIN (read-mode + IAQ)
 ARE-3 Autonomous Science  = LOCKED
 ARE-4 Governed Evolution  = LOCKED
-IMPLEMENTATION(ARE-1)     = AUTHORIZED (22c585b)
+IMPLEMENTATION(ARE-1)     = CLOSED (audit ACCEPT)
 P001                      = NOT AUTHORIZED
 PRODUCTION                = CLOSED
-EPHEMERAL AGENTS          = 5 file .opencode/agent/*-ephemeral.md (mode:subagent, 4/5 edit:deny) — hapus belakangan
+EPHEMERAL AGENTS          = 5 file .opencode/agent/*-ephemeral.md (mode:subagent, 4/5 edit:deny) — hapus sekarang
 ```
