@@ -60,6 +60,11 @@ Fase ARE-3 (Autonomous Science & Direction Intelligence) akan berfokus pada:
 - **Laporan Audit:** [`QUALIFICATION/AHFMES_ARE_3_SLICE2_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_ARE_3_SLICE2_AUDIT_REPORT.md).
 - **Status Akhir:** **ARE-3 SLICE-2 CERTIFIED & COMPLETE** 🏁
 
+## 8. Persiapan Slice-3 ARE-3 (Final Slice: Multi-Agent Coordinator & Champion Registry)
+- **Kontrak Slice-3:** [`CONTRACTS/SLICE_3_CONTRACT_ARE3.md`](../CONTRACTS/SLICE_3_CONTRACT_ARE3.md) (Kriteria ACC-321 s/d ACC-330 dibekukan).
+- **Mandat Delegasi:** [`AUTHORITY_AND_WORKFLOW/DELEGASI_012_CODING_SLICE3_ARE3.md`](../AUTHORITY_AND_WORKFLOW/DELEGASI_012_CODING_SLICE3_ARE3.md).
+
+
 
 
 
