@@ -36,6 +36,15 @@ Fase ARE-3 (Autonomous Science & Direction Intelligence) akan berfokus pada:
 ## 4. Dokumen yang Siap Eksekusi
 1. `CONTRACTS/IAQ_LEDGER_ARE3.md` — Triase Arsitek selesai.
 2. `CONTRACTS/SLICE_1_CONTRACT_ARE3.md` — Kontrak Slice-1 (Search Tree, Validation, Governor, Constants).
-3. `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` — Draft piagam T4.
-4. `AUTHORITY_AND_WORKFLOW/DELEGASI_010_CODING_SLICE1_ARE3.md` — Prompt mandiri untuk Engineering AI.
+3. `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` — Piagam T4 (RATIFIED 2026-08-28).
+4. `AUTHORITY_AND_WORKFLOW/DELEGASI_010_CODING_SLICE1_ARE3.md` — Mandat eksekusi (SELESAI).
+
+## 5. Audit Formal & Sign-Off Slice-1 ARE-3
+- **Commit Baseline:** `@b39f559`
+- **Hasil Audit:** 10/10 Kriteria Terima PASS (ACC-301 s/d ACC-310).
+- **Test Suite:** **226 Passed / 105 Subtests Passed** (100% Hijau).
+- **Hutang Selesai:** `DEBT-04` (Sentralisasi `are/constants.py` tuntas).
+- **Laporan Audit:** [`QUALIFICATION/AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md).
+- **Status Akhir:** **ARE-3 SLICE-1 CERTIFIED & COMPLETE** 🏁
+
 
