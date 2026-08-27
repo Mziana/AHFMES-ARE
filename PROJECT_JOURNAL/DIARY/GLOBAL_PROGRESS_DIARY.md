@@ -241,3 +241,31 @@ STATUS   : Lihat ARE0/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md untuk detail leng
 DETAIL   : Jurnal harian adalah buku PR agar tidak lupa — semua DEFERRED punya ticket Slice-2, semua FIX punya bukti by-data file:line
 DAMPAK   : Next: Final Consistency (IC-5 wording) → binder → external audit pada exact SHA 83f73c0
 ```
+
+## 2026-08-27 — EXTERNAL AUDIT ACCEPT: ARE-1 SCIENTIFIC KERNEL CLOSED
+
+```text
+KATEGORI : ARE1 + GLOBAL
+STATUS   : EXTERNAL AUDITOR ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED pada exact SHA a6711d6
+DETAIL   :
+  - Candidate a6711d6 (code 83f73c0 + S2 7dbc926) ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED
+  - SA-11 PASS (60bc57 dual 136/136) | Impact CLEAN (IC-5 DEFERRED) | CP1/2 PASS | Regresi 369 PASS
+  - Final Consistency PASS 28e8a4d → Candidate 28e8a4d → Binder 697b53a → ACCEPT
+  - RES-01 FIXED 83f73c0, RES-02 FIXED 9ca5289, IC-5 DEFERRED (Slice-2), RES-03 DEFERRED (generasi baru)
+  - RESIDUAL_REGISTER.md + ARE1/DIARY/2026-08-27 + GLOBAL DIARY 2026-08-27 updated
+DAMPAK   : ARE-1 CLOSED @a6711d6 | ARE-2 TERBUKA untuk DESAIN | CURRENT_AUTHORITY_INDEX.md update pending
+```
+
+## Snapshot status proyek saat entry ini
+
+```text
+ARE-0 CLOSED              = YES @03aec99 (ROOT 3affbbf0)
+ARE-1 Scientific Kernel   = CLOSED @a6711d6 (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
+ARE-2 Experience Intel    = TERBUKA untuk DESAIN (read-mode + IAQ)
+ARE-3 Autonomous Science  = LOCKED
+ARE-4 Governed Evolution  = LOCKED
+IMPLEMENTATION(ARE-1)     = CLOSED (audit ACCEPT)
+P001                      = NOT AUTHORIZED
+PRODUCTION                = CLOSED
+LIVE/PAPER TRADING        = NOT AUTHORIZED
+```

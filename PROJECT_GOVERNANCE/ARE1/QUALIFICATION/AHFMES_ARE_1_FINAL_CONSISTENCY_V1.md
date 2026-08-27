@@ -40,7 +40,8 @@ Ephemeral .opencode/agent/*-ephemeral.md 5 file untracked — not in tree, not i
 ```text
 SA-11 PASS | Impact CLEAN (IC-5 DEFERRED justified) | CP1 PASS | CP2 PASS | Regresi 369 PASS | Final Consistency PASS
 RES-01 FIXED 83f73c0, RES-02 FIXED 9ca5289, RES-03 DEFERRED (breaking var_ref hash → generasi baru), RES-01 sisa raw file bypass OS-level DEFERRED → all recorded in ARE1/RESIDUAL_REGISTER.md + ARE1/DIARY/2026-08-27 + GLOBAL DIARY 2026-08-27
-NEXT: candidate 7dbc926 is self-consistent → binder → external audit
+EXTERNAL AUDIT: ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED (2026-08-27)
+NEXT: candidate 7dbc926 is self-consistent → binder → external audit → ACCEPTED
 ```
 
 ## 5. Firewall

@@ -24,6 +24,7 @@ Candidate is self-reference-free (no file embeds its own SHA). Built from `71e50
 ```text
 SA-11 PASS (dual 60bc57, 136/136) | Impact CLEAN (IC-5 DEFERRED) | CP1 PASS | CP2 PASS | Regresi 369 PASS (172) | Final Consistency PASS
 RESIDUAL: RES-01 FIXED 83f73c0, RES-02 FIXED 9ca5289, IC-5 DEFERRED Slice-2, RES-03 DEFERRED generasi baru, raw file sisa DEFERRED OS-level — all in ARE1/RESIDUAL_REGISTER.md + ARE1/DIARY/2026-08-27
+EXTERNAL AUDIT: ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED (2026-08-27)
 ```
 
 ## External audit instruction
