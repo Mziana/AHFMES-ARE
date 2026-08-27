@@ -140,6 +140,10 @@ def _verify_worktree(members, manifest_path: str, worktree: str | None):
             # we already checked length via manifest file, not worktree copy
             # additionally if worktree contains that path, verify it matches manifest file content
             full_self = os.path.join(worktree, *path.split("/"))
+            full_self = os.path.abspath(full_self)
+            if not full_self.startswith(os.path.abspath(worktree) + os.sep):
+                print(f"error: path traversal detected: {path}", file=sys.stderr)
+                sys.exit(3)
             if os.path.isfile(full_self):
                 try:
                     data = open(full_self, "rb").read()
@@ -152,6 +156,10 @@ def _verify_worktree(members, manifest_path: str, worktree: str | None):
                 # no sha check for SELF (literal)
             continue
         full = os.path.join(worktree, *path.split("/"))
+        full = os.path.abspath(full)
+        if not full.startswith(os.path.abspath(worktree) + os.sep):
+            print(f"error: path traversal detected: {path}", file=sys.stderr)
+            sys.exit(3)
         if not os.path.isfile(full):
             print(f"error: missing file in worktree: {path}", file=sys.stderr)
             sys.exit(3)

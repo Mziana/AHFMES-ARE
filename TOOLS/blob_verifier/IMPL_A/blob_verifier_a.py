@@ -123,6 +123,14 @@ def main():
     for path, expected_sha, bstr in sorted_members:
         expected_len = int(bstr)
         full = os.path.join(worktree, *path.split("/"))
+        full = os.path.abspath(full)
+        if not full.startswith(os.path.abspath(worktree) + os.sep):
+            actual_sha = "TRAVERSAL"
+            actual_bytes_str = "TRAVERSAL"
+            status = "FAIL"
+            fail_cnt += 1
+            rows.append((path, expected_sha, actual_sha, actual_bytes_str, status))
+            continue
         actual_sha = ""
         actual_bytes_str = ""
         status = "FAIL"

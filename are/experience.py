@@ -26,6 +26,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from are.canonical import canonicalize_object, domain_hash
 from are.evidence import EvidenceLedger
 
+# Named SQLite Authorizer Action Codes & Return Codes (ARCH-04)
+SQLITE_DROP_TABLE = 11
+SQLITE_DROP_TRIGGER = 16
+SQLITE_ATTACH = 24
+SQLITE_DENY = 1
+SQLITE_OK = 0
+
 
 # ============================================================
 # EXCEPTIONS
@@ -581,10 +588,13 @@ class ExperienceStore:
                 conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = FULL")
             conn.execute("PRAGMA busy_timeout = 5000")
+            # Block dangerous operations via authorizer (FIX-01, ARCH-04)
             def _auth(action, arg1, arg2, dbname, trigger):
-                if action in (11, 16):
-                    return 1
-                return 0
+                if action == SQLITE_DROP_TABLE or action == SQLITE_DROP_TRIGGER:
+                    return SQLITE_DENY
+                if action == SQLITE_ATTACH:
+                    return SQLITE_DENY
+                return SQLITE_OK
             conn.set_authorizer(_auth)
             self._local.conn = conn
         return self._local.conn
