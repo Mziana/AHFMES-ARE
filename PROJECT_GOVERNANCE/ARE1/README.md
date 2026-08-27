@@ -9,19 +9,20 @@ Mirror `ARE0/` untuk kemudahan arsip & pembelajaran lintas fase (`ARE0`, `ARE1`,
 
 ## Subfolder (mirror ARE0)
 
-| Folder | Isi (ARE1) | Contoh | Jumlah |
+| Folder | Isi (ARE1) | Contoh Dokumen Terarsip | Jumlah File |
 |---|---|---|---:|
-| `GRAND_DESIGN/` | Desain menyeluruh ARE-1 (human-readable, non-normatif) | Wave Design S1, Grand Design V1 slice ARE-1 | 0 |
-| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-1 | Implementation Authority Charter T4 `22c585b`, Slice-1 Contract `1d567fa` | 0 |
-| `CONTRACTS/` | Kontrak formal & prasyarat ARE-1 | IAQ Ledger `4917631` (9 ANSWERED/1 NEEDS_NEW_GEN), HASH_DOMAIN_TAGS V1 | 0 |
-| `MACHINE/` | Sumber mesin kanonikal ARE-1 | Matrix V30, Register V30, HASH_DOMAIN_TAGS V1 | 0 |
-| `MANIFEST/` | Manifest normatif ARE-1 | Manifest V39 (136 members, ROOT 60bc57...), V40+ next | 0 |
-| `COUNCIL_PROTOCOL/` | Protokol dewan audit ARE-1 | Protocol V36 (reuse dari ARE0) | 0 |
-| `QUARANTINE/` | Karantina legacy (jika ada) | — | 0 |
-| `R9_CORRECTIONS/` | Koreksi & impact record (jika ada) | — | 0 |
-| `EXTERNAL_AUDIT/` | Handoff & audit eksternal ARE-1 | — (akan: candidate `83f73c0` binder) | 0 |
-| `QUALIFICATION/` | Bukti kualifikasi internal ARE-1 | SA-11, Impact IC-5 DEFERRED, CP1/CP2, Regresi 369/369, Final Consistency | 0 |
-| `DIARY/` | Diary harian ARE-1 (lokal) | `2026-08-27-ARE1-RESIDUAL-JURNAL.md` + ledger FIX/DEFERRED | 1 |
+| `GRAND_DESIGN/` | Desain menyeluruh ARE-1 (human-readable, non-normatif) | Grand Design V1 slice ARE-1 | `.gitkeep` |
+| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-1 | Charter T4 `22c585b`, DELEGASI_001 s/d 004 | 5 |
+| `CONTRACTS/` | Kontrak formal & prasyarat ARE-1 | SLICE_1_CONTRACT.md, IAQ_LEDGER.md | 2 |
+| `MACHINE/` | Sumber mesin kanonikal ARE-1 | Matrix V30, Register V30, HASH_DOMAIN_TAGS V1 | `.gitkeep` |
+| `MANIFEST/` | Manifest normatif ARE-1 | Manifest V39 | `.gitkeep` |
+| `COUNCIL_PROTOCOL/` | Protokol dewan audit ARE-1 | Protocol V36 | `.gitkeep` |
+| `QUARANTINE/` | Karantina legacy (jika ada) | — | `.gitkeep` |
+| `R9_CORRECTIONS/` | Koreksi & impact record (jika ada) | — | `.gitkeep` |
+| `EXTERNAL_AUDIT/` | Handoff & audit eksternal ARE-1 | AHFMES_ARE_1_CANDIDATE_HANDOFF.md | 1 |
+| `QUALIFICATION/` | Bukti kualifikasi internal ARE-1 | AHFMES_ARE_1_FINAL_CONSISTENCY_V1.md, ARE1_SELF_AUDIT_REPORT.md | 2 |
+| `DIARY/` | Diary harian ARE-1 (lokal) | 2026-08-27-ARE1-RESIDUAL-JURNAL.md, template | 2 |
+
 
 ## Titik baca cepat (current generation = 39, code `83f73c0`)
 
