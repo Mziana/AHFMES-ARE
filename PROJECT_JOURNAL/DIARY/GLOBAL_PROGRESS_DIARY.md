@@ -12,6 +12,25 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — P001 SLICE-2 CONTRACT FROZEN & DELEGASI_017 ISSUED
+
+```text
+KATEGORI : P001 + GLOBAL
+STATUS   : Kontrak SLICE_2_CONTRACT_P001.md dibekukan (T3). DELEGASI_017 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-2 P001:
+     - are/features.py: Ekstraksi fitur kuantitatif matematis (Orderbook Imbalance, Realized Volatility, Momentum, Mean Reversion Z-Score).
+     - are/alpha_generator.py: Generator formula alpha kuantitatif kompatibel SearchTreeEngine.
+     - are/ingestion.py: Pipeline pencatatan dataset pasar ke EvidenceLedger (Snapshot CAS) & ExperienceStore.
+     - are/p001_program.py: P001ProgramRunner mengorkestrasikan riset otonom end-to-end hingga melahirkan P001 Champion v1.
+  2. KRITERIA TERIMA:
+     - ACC-511 s/d ACC-520 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/P001/CONTRACTS/SLICE_2_CONTRACT_P001.md.
+     - Delegasi: PROJECT_GOVERNANCE/P001/AUTHORITY_AND_WORKFLOW/DELEGASI_017_CODING_SLICE2_P001.md.
+DAMPAK   : Mesin riset sains kuantitatif P001 siap dibangun dan dieksekusi oleh Engineering AI.
+```
+
 ## 2026-08-28 — P001 SLICE-1 AUDIT SIGN-OFF (269 TESTS PASS & OPERATIONAL CLI CERTIFIED)
 
 ```text
