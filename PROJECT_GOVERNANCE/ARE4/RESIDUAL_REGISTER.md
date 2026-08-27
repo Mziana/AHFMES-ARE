@@ -12,7 +12,7 @@ Daftar hutang arsitektur yang tersisa dan dilacak di fase ARE-4:
 | ID | Kategori | Ringkasan Deskripsi | Status di ARE-4 |
 |---|---|---|:---:|
 | `DEBT-01` | High | God Class `Registry` (~700 baris, 8 lifecycle entitas) | **RESOLVED & VERIFIED** (ARE-4 Slice-2 Strategy Managers) ✅ |
-| `DEBT-02` | High | God File `experience.py` (43 kelas dalam 1 file) | TARGET SLICE-2 / SLICE-3 ARE-4 |
+| `DEBT-02` | High | God File `experience.py` (43 kelas dalam 1 file) | **RESOLVED & VERIFIED** (ARE-4 Slice-3 Submodules & Facade) ✅ |
 | `DEBT-03` | Critical | Enkapsulasi DB: `evidence.py` & `registry.py` memanggil `_get_conn()` | **RESOLVED & VERIFIED** (ARE-3 Slice-2) ✅ |
 | `DEBT-04` | Medium | Duplikasi konstanta lifecycle `state_machine.py` ↔ `registry.py` | **RESOLVED & VERIFIED** (ARE-3 Slice-1) ✅ |
 | `DEBT-05` | Low | Folder `GRAND DESIGN` (spasi dalam nama direktori) | DEFERRED |
