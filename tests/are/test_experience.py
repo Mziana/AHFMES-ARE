@@ -261,8 +261,8 @@ class TestExperienceStore(unittest.TestCase):
         try:
             conn.execute("BEGIN TRANSACTION")
             conn.execute(
-                "INSERT INTO experience_events (stream_id, revision, entry_hash, previous_hash, data_bytes, provenance_json) VALUES (?, ?, ?, ?, ?, ?)",
-                ("anomaly_detection", 99, "bad_hash", "prev", b"data", "{}"),
+                "INSERT INTO events (stream_id, revision, event_data, previous_event_hash, event_hash) VALUES (?, ?, ?, ?, ?)",
+                ("anomaly_detection", 99, b'{"data_bytes_hex":"00","payload_hash":"h","provenance":{}}', "prev", "bad_hash"),
             )
             # Simulate crash before commit
             conn.close()
