@@ -26,7 +26,16 @@ Fase ARE-3 (Autonomous Science & Direction Intelligence) akan berfokus pada:
 4. **Micro-Executor & Execution Boundary:** Pembatasan ketat eksekusi kode riset tanpa akses ke kapital/order/broker.
 5. **Remediasi Hutang Arsitektur Terpilih:** Meninjau penyelesaian bertahap atas `DEBT-01` s/d `DEBT-08` di `ENGINEERING/ARCH_DEBT_REGISTER.md`.
 
-## 3. Status Otoritas
-- `ARE-2` = **CLOSED** @360cf76 (FULL PASS).
-- `ARE-3` = **DESIGN / READ-MODE ONLY** (Implementasi kode runtime terkunci sampai IAQ Triase $\rightarrow$ Slice Contract $\rightarrow$ Charter T4 diratifikasi).
-- `P001` / `Trading` / `Produksi` = **STRICTLY NOT AUTHORIZED**.
+## 3. Status Otoritas & Gerbang Otoritas (T1 s/d T4)
+- `ARE-2` = **CLOSED** @7f57d12 (FULL PASS, Manifest V41 364 members).
+- **T1:** `ACCEPT_ARE2_EXPERIENCE_INTELLIGENCE_CLOSED` [TERPENUHI]
+- **T2:** `IAQ_LEDGER_ARE3.md` (12/12 ANSWERED-WITH-CLAUSE) [TERPENUHI]
+- **T3:** `SLICE_1_CONTRACT_ARE3.md` (ACC-301..310 Frozen) [TERPENUHI]
+- **T4:** `IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` [MENUNGGU RATIFIKASI OWNER]
+
+## 4. Dokumen yang Siap Eksekusi
+1. `CONTRACTS/IAQ_LEDGER_ARE3.md` — Triase Arsitek selesai.
+2. `CONTRACTS/SLICE_1_CONTRACT_ARE3.md` — Kontrak Slice-1 (Search Tree, Validation, Governor, Constants).
+3. `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` — Draft piagam T4.
+4. `AUTHORITY_AND_WORKFLOW/DELEGASI_010_CODING_SLICE1_ARE3.md` — Prompt mandiri untuk Engineering AI.
+
