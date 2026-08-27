@@ -12,6 +12,23 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-4 SLICE-3 CONTRACT FROZEN & DELEGASI_015 ISSUED
+
+```text
+KATEGORI : ARE4 + GLOBAL
+STATUS   : Kontrak SLICE_3_CONTRACT_ARE4.md dibekukan (T3). DELEGASI_015 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-3 (FINAL SLICE ARE-4):
+     - are/experience.py modularization (DEBT-02) -> 4 cohesive submodules: are/experience_store.py, are/anomaly.py, are/replay.py, are/adapters.py with 100% backward-compatible facade.
+     - tests/are/test_are4_system_qualification.py: Comprehensive 4-generation unified system qualification test.
+  2. KRITERIA TERIMA:
+     - ACC-421 s/d ACC-430 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/ARE4/CONTRACTS/SLICE_3_CONTRACT_ARE4.md.
+     - Delegasi: PROJECT_GOVERNANCE/ARE4/AUTHORITY_AND_WORKFLOW/DELEGASI_015_CODING_SLICE3_ARE4.md.
+DAMPAK   : Paket spesifikasi final gelombang ARE-4 tuntas 100%; siap dieksekusi oleh Engineering AI.
+```
+
 ## 2026-08-28 — ARE-4 SLICE-2 AUDIT SIGN-OFF (259 TESTS PASS & DEBT-01 RESOLVED)
 
 ```text

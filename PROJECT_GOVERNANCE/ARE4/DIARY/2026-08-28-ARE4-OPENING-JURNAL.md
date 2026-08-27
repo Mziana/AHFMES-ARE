@@ -42,5 +42,11 @@ Gelombang ARE-4 menghubungkan loop cepat kecerdasan operasional (*Fast Loop*) de
 - **Laporan Audit:** [`QUALIFICATION/AHFMES_ARE_4_SLICE2_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_ARE_4_SLICE2_AUDIT_REPORT.md).
 - **Status Akhir:** **ARE-4 SLICE-2 CERTIFIED & COMPLETE** 🏁
 
+## 6. Persiapan Slice-3 ARE-4 (Final Slice: Modularisasi Experience DEBT-02 & Kualifikasi Penuh)
+- **Kontrak Slice-3:** [`CONTRACTS/SLICE_3_CONTRACT_ARE4.md`](../CONTRACTS/SLICE_3_CONTRACT_ARE4.md) (Kriteria ACC-421 s/d ACC-430 dibekukan).
+- **Mandat Delegasi:** [`AUTHORITY_AND_WORKFLOW/DELEGASI_015_CODING_SLICE3_ARE4.md`](../AUTHORITY_AND_WORKFLOW/DELEGASI_015_CODING_SLICE3_ARE4.md).
+- **Target Hutang:** `DEBT-02` (God File `experience.py` pemecahan ke 4 submodul kohesif: `experience_store.py`, `anomaly.py`, `replay.py`, `adapters.py`).
+
+
 
 
