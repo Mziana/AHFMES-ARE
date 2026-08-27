@@ -395,11 +395,19 @@ def guard_G11_verified_authority(authority: Optional[Dict[str, Any]]) -> None:
     if authority.get("authority_class") in single_use and not authority.get("nonce"):
         raise IllegalTransition("G11", _CLAUSES["G11"], f"single-use {authority.get('authority_class')} requires nonce/proof")
 
+RESOLUTIVE_KEYWORDS: FrozenSet[str] = frozenset({"APPROVED", "REJECTED", "FINAL", "CONFIRMED"})
+
+
 def guard_G12_labels_descriptive_only(fields: Dict[str, Any]) -> None:
-    # Caller labels are descriptive only; we ignore them for canonical decision.
-    # Guard passes but documents that label fields like \"caller_label\" never drive predicate.
-    _ = fields.get("caller_label")  # intentionally ignored
+    # Caller labels are descriptive only; cannot contain resolutive status keywords (G12, FIX-03)
+    caller_label = fields.get("caller_label")
+    if caller_label and isinstance(caller_label, str):
+        upper_label = caller_label.upper()
+        for kw in RESOLUTIVE_KEYWORDS:
+            if kw in upper_label:
+                raise IllegalTransition("G12", _CLAUSES["G12"], f"resolutive label '{caller_label}' forbidden under G12")
     return
+
 
 def guard_G13_descendants_inherit_debt(parent_debt: int, child_debt: int) -> None:
     if child_debt < parent_debt:
@@ -409,9 +417,11 @@ def guard_G13_descendants_inherit_debt(parent_debt: int, child_debt: int) -> Non
         # We allow equal if not yet incremented, but for material descendant we require +1; caller enforces
         pass
 
+
 def guard_G14_descendants_never_rewrite_parent(parent_hash: Optional[str], child_hash: Optional[str]) -> None:
     if parent_hash is not None and child_hash is not None and parent_hash == child_hash:
         raise IllegalTransition("G14", _CLAUSES["G14"], "descendant material must differ from parent; parent never rewritten")
+
 
 def guard_G15_proof_mutation_requires_descendant_or_invalid(state: ObjectState, new_material_hash: Optional[str], creating_descendant: bool = False, to_disposition: str = "NONE") -> None:
     frozen = (state.lifecycle in CANDIDATE_FROZEN_SET) or (state.lifecycle in CONTRACT_FROZEN_SET)
@@ -420,17 +430,15 @@ def guard_G15_proof_mutation_requires_descendant_or_invalid(state: ObjectState, 
             raise IllegalTransition("G15", _CLAUSES["G15"],
                 f"proof-phase mutation {state.object_type}:{state.object_id} after {state.lifecycle} requires descendant or INVALID, not in-place edit")
 
+
 def guard_G16_research_cannot_self_validate(family_ledger: Dict[str, Dict[str, Set[str]]], family_root: str, principal_id: str, authority_class: str) -> None:
     ledger = family_ledger.setdefault(family_root, {})
     existing = ledger.get(principal_id, set())
-    if frozenset({authority_class, "A-DISCOVERY"}) in (frozenset({c, authority_class}) for c in existing) if False else False:
-        pass  # placeholder
     for cls in existing:
         if frozenset({cls, authority_class}) in FORBIDDEN_SOD_PAIRS and "A-DISCOVERY" in {cls, authority_class} and "A-VALIDATE" in {cls, authority_class}:
             raise IllegalTransition("G16", _CLAUSES["G16"],
                 f"principal {principal_id} cannot combine DISCOVERY+VALIDATE/PROMOTE in family {family_root} — Research cannot self-validate")
         if frozenset({cls, authority_class}) in FORBIDDEN_SOD_PAIRS:
-            # generic SoD but G16 specifically for DISCOVERY+VALIDATE
             if {cls, authority_class} == {"A-DISCOVERY", "A-VALIDATE"}:
                 raise IllegalTransition("G16", _CLAUSES["G16"], f"SoD violation {cls}+{authority_class} for {principal_id}")
 

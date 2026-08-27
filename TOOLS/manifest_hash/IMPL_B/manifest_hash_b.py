@@ -155,6 +155,9 @@ def _verify_b(members, manifest_path: str, worktree: str | None):
             if exp_len != m_len:
                 _die(3, f"error: SELF byte length mismatch for {path}: expected {exp_len} actual {m_len}")
             full_self = os.path.join(worktree, *path.split("/"))
+            full_self = os.path.abspath(full_self)
+            if not full_self.startswith(os.path.abspath(worktree) + os.sep):
+                _die(3, f"error: path traversal detected: {path}")
             if os.path.isfile(full_self):
                 try:
                     data = open(full_self, "rb").read()
@@ -164,6 +167,9 @@ def _verify_b(members, manifest_path: str, worktree: str | None):
                     _die(3, f"error: SELF file length mismatch {path}: expected {exp_len} actual {len(data)}")
             continue
         full = os.path.join(worktree, *path.split("/"))
+        full = os.path.abspath(full)
+        if not full.startswith(os.path.abspath(worktree) + os.sep):
+            _die(3, f"error: path traversal detected: {path}")
         if not os.path.isfile(full):
             _die(3, f"error: missing file in worktree: {path}")
         try:

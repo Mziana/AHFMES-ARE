@@ -275,6 +275,19 @@ def main():
             new_path = folder + basename
 
         full_new = os.path.join(worktree, *new_path.split("/"))
+        full_new = os.path.abspath(full_new)
+        if not full_new.startswith(os.path.abspath(worktree) + os.sep):
+            results.append({
+                "old_path": old_path,
+                "new_path": new_path,
+                "matched_pattern": pat,
+                "old_blob_sha": old_sha,
+                "new_blob_sha": "TRAVERSAL",
+                "byte_length_equal": False,
+                "status": "UNMATCHED"
+            })
+            has_ambiguous = True
+            continue
 
         if old_sha == "SELF":
             # for SELF, we consider byte identical if new file exists and length matches manifest file length?

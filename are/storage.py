@@ -11,13 +11,22 @@ Zero external dependencies (stdlib only: sqlite3, hashlib, json, os, threading).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import shutil
 import sqlite3
 import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
+
+# Named SQLite Authorizer Action Codes & Return Codes (ARCH-04)
+SQLITE_DROP_TABLE = 11
+SQLITE_DROP_TRIGGER = 16
+SQLITE_ATTACH = 24
+SQLITE_DENY = 1
+SQLITE_OK = 0
 
 
 class ReceiptState(Enum):
@@ -90,17 +99,14 @@ class EventStore:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = FULL")
             conn.execute("PRAGMA busy_timeout = 5000")
-            # Block dangerous operations via authorizer (P0-02, P0-10)
-            try:
-                def _authorizer(action, arg1, arg2, dbname, trigger):
-                    if action == 11 or action == 16:  # SQLITE_DROP_TABLE (11) / SQLITE_DROP_TRIGGER (16) — DENY ALL
-                        return 1  # SQLITE_DENY
-                    if action == 24:  # SQLITE_ATTACH
-                        return 1
-                    return 0  # SQLITE_OK
-                conn.set_authorizer(_authorizer)
-            except Exception:
-                pass
+            # Block dangerous operations via authorizer (P0-02, P0-10, FIX-01, ARCH-04)
+            def _authorizer(action, arg1, arg2, dbname, trigger):
+                if action == SQLITE_DROP_TABLE or action == SQLITE_DROP_TRIGGER:
+                    return SQLITE_DENY
+                if action == SQLITE_ATTACH:
+                    return SQLITE_DENY
+                return SQLITE_OK
+            conn.set_authorizer(_authorizer)
             self._local.conn = conn
         return self._local.conn
 
@@ -733,72 +739,92 @@ def open_store(db_path: str) -> tuple[EventStore, Edge1Manager]:
 def migrate_event_store_var_ref(db_path: str) -> int:
     """
     RES-03: Re-derive hash chain for existing events database to include var_ref.
-    Deterministic, no data loss.
+    Deterministic, no data loss with automated backup and rollback on failure (FIX-05).
     """
     if not os.path.exists(db_path):
         return 0
 
-    conn = sqlite3.connect(db_path)
+    backup_path = db_path + ".backup"
+    shutil.copy2(db_path, backup_path)
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
-        if not cur.fetchone():
-            return 0
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+            if not cur.fetchone():
+                if os.path.exists(backup_path):
+                    os.unlink(backup_path)
+                return 0
 
-        cur.execute(
-            "SELECT stream_id, revision, event_data, var_ref FROM events ORDER BY stream_id, revision ASC"
-        )
-        rows = cur.fetchall()
-        if not rows:
-            return 0
+            cur.execute(
+                "SELECT stream_id, revision, event_data, var_ref FROM events ORDER BY stream_id, revision ASC"
+            )
+            rows = cur.fetchall()
+            if not rows:
+                if os.path.exists(backup_path):
+                    os.unlink(backup_path)
+                return 0
 
-        from collections import defaultdict
-        streams = defaultdict(list)
-        for row in rows:
-            streams[row[0]].append(row)
+            from collections import defaultdict
+            streams = defaultdict(list)
+            for row in rows:
+                streams[row[0]].append(row)
 
-        migrated_events = []
-        new_heads = {}
+            migrated_events = []
+            new_heads = {}
 
-        for stream_id, stream_rows in streams.items():
-            prev_hash = "0" * 64
-            for r in stream_rows:
-                s_id, rev, ev_data, v_ref = r
-                ev_hash = EventStore._compute_event_hash(s_id, rev, ev_data, prev_hash, v_ref)
-                migrated_events.append((s_id, rev, ev_data, prev_hash, ev_hash, v_ref))
-                prev_hash = ev_hash
-            new_heads[stream_id] = (stream_rows[-1][1], prev_hash)
+            for stream_id, stream_rows in streams.items():
+                prev_hash = "0" * 64
+                for r in stream_rows:
+                    s_id, rev, ev_data, v_ref = r
+                    ev_hash = EventStore._compute_event_hash(s_id, rev, ev_data, prev_hash, v_ref)
+                    migrated_events.append((s_id, rev, ev_data, prev_hash, ev_hash, v_ref))
+                    prev_hash = ev_hash
+                new_heads[stream_id] = (stream_rows[-1][1], prev_hash)
 
-        with conn:
-            conn.execute("CREATE TABLE _events_migrated AS SELECT * FROM events WHERE 0")
-            for ev in migrated_events:
-                conn.execute(
-                    "INSERT INTO _events_migrated (stream_id, revision, event_data, previous_event_hash, event_hash, var_ref) VALUES (?, ?, ?, ?, ?, ?)",
-                    ev,
-                )
-            conn.execute("DROP TRIGGER IF EXISTS events_no_update")
-            conn.execute("DROP TRIGGER IF EXISTS events_no_delete")
-            conn.execute("DROP TRIGGER IF EXISTS events_no_insert_replace")
-            conn.execute("DELETE FROM events")
-            conn.execute("INSERT INTO events SELECT * FROM _events_migrated")
-            conn.execute("DROP TABLE _events_migrated")
+            with conn:
+                conn.execute("CREATE TABLE _events_migrated AS SELECT * FROM events WHERE 0")
+                for ev in migrated_events:
+                    conn.execute(
+                        "INSERT INTO _events_migrated (stream_id, revision, event_data, previous_event_hash, event_hash, var_ref) VALUES (?, ?, ?, ?, ?, ?)",
+                        ev,
+                    )
+                conn.execute("DROP TRIGGER IF EXISTS events_no_update")
+                conn.execute("DROP TRIGGER IF EXISTS events_no_delete")
+                conn.execute("DROP TRIGGER IF EXISTS events_no_insert_replace")
+                conn.execute("DELETE FROM events")
+                conn.execute("INSERT INTO events SELECT * FROM _events_migrated")
+                conn.execute("DROP TABLE _events_migrated")
 
-            conn.execute("DROP TRIGGER IF EXISTS heads_no_delete")
-            conn.execute("DROP TRIGGER IF EXISTS stream_heads_no_replace")
-            conn.execute("DELETE FROM stream_heads")
-            for s_id, (last_rev, last_h) in new_heads.items():
-                conn.execute(
-                    "INSERT INTO stream_heads (stream_id, last_revision, last_event_hash) VALUES (?, ?, ?)",
-                    (s_id, last_rev, last_h),
-                )
+                conn.execute("DROP TRIGGER IF EXISTS heads_no_delete")
+                conn.execute("DROP TRIGGER IF EXISTS stream_heads_no_replace")
+                conn.execute("DELETE FROM stream_heads")
+                for s_id, (last_rev, last_h) in new_heads.items():
+                    conn.execute(
+                        "INSERT INTO stream_heads (stream_id, last_revision, last_event_hash) VALUES (?, ?, ?)",
+                        (s_id, last_rev, last_h),
+                    )
 
-        # Restore schema triggers
-        store = EventStore(db_path)
-        store.close()
+            # Restore schema triggers
+            store = EventStore(db_path)
+            store.close()
 
-        return len(migrated_events)
-    finally:
-        conn.close()
+            # Migration succeeded: clean up backup file
+            if os.path.exists(backup_path):
+                os.unlink(backup_path)
+
+            return len(migrated_events)
+        finally:
+            conn.close()
+    except Exception:
+        # Restore original database from backup on any failure
+        if os.path.exists(backup_path):
+            shutil.copy2(backup_path, db_path)
+            try:
+                os.unlink(backup_path)
+            except Exception:
+                pass
+        raise
 
 
 def enforce_db_permissions(db_path: str) -> bool:
@@ -820,15 +846,17 @@ class CapabilityToken:
     expiration_ts: float
     signature: str
 
-    def is_valid(self, required_role: str, current_ts: float) -> bool:
+    def is_valid(self, required_role: str, current_ts: float, secret_key: str = "") -> bool:
         if self.expiration_ts < current_ts:
             return False
         if self.role != required_role and self.role != "OWNER":
             return False
-        expected_sig = hashlib.sha256(
-            f"{self.token_id}:{self.role}:{self.authority_scope}:{self.expiration_ts:.2f}".encode("utf-8")
+        expected_sig = hmac.new(
+            secret_key.encode("utf-8"),
+            f"{self.token_id}:{self.role}:{self.authority_scope}:{self.expiration_ts:.2f}".encode("utf-8"),
+            hashlib.sha256,
         ).hexdigest()
-        return self.signature == expected_sig
+        return hmac.compare_digest(self.signature, expected_sig)
 
 
 def issue_capability_token(
@@ -837,12 +865,15 @@ def issue_capability_token(
     authority_scope: str,
     ttl_sec: float = 3600.0,
     current_ts: Optional[float] = None,
+    secret_key: str = "",
 ) -> CapabilityToken:
     import time
     ts = time.time() if current_ts is None else current_ts
     exp = ts + ttl_sec
-    sig = hashlib.sha256(
-        f"{token_id}:{role}:{authority_scope}:{exp:.2f}".encode("utf-8")
+    sig = hmac.new(
+        secret_key.encode("utf-8"),
+        f"{token_id}:{role}:{authority_scope}:{exp:.2f}".encode("utf-8"),
+        hashlib.sha256,
     ).hexdigest()
     return CapabilityToken(
         token_id=token_id,
@@ -858,18 +889,21 @@ class KeeperProcessExecutor:
     Process isolation & capability token enforcement for authority operations (IAQ-003 / RES-01).
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, secret_key: str = ""):
         self.db_path = db_path
+        self.secret_key = secret_key
 
     def execute_with_token(
         self,
         token: CapabilityToken,
         required_role: str,
         operation: Any,
+        secret_key: Optional[str] = None,
     ) -> Any:
         import time
         now = time.time()
-        if not token.is_valid(required_role, now):
+        s_key = self.secret_key if secret_key is None else secret_key
+        if not token.is_valid(required_role, now, s_key):
             raise Edge1Error(f"Unauthorized or expired capability token for role '{required_role}'")
 
         conn = sqlite3.connect(self.db_path)

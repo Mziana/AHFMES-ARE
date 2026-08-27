@@ -190,6 +190,14 @@ def main():
     for path, exp_sha, bstr in sorted_members:
         exp_len = int(bstr)
         full = os.path.join(worktree, *path.split("/"))
+        full = os.path.abspath(full)
+        if not full.startswith(os.path.abspath(worktree) + os.sep):
+            act_sha = "TRAVERSAL"
+            act_bytes = "TRAVERSAL"
+            st = "FAIL"
+            fcnt += 1
+            rows.append((path, exp_sha, act_sha, act_bytes, st))
+            continue
         act_sha = ""
         act_bytes = ""
         st = "FAIL"
