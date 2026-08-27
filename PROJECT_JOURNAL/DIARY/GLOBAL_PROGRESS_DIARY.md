@@ -12,6 +12,26 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-4 GOVERNED EVOLUTION INITIALIZED & DELEGASI_013 ISSUED
+
+```text
+KATEGORI : ARE4 + GLOBAL
+STATUS   : Gelombang ARE-4 (Governed Evolution & Capital Safety) diinisialisasi secara resmi.
+           Kontrak SLICE_1_CONTRACT_ARE4.md dibekukan (T3). DELEGASI_013 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-1 ARE-4:
+     - are/safety.py: CapitalSafetyKernel, SafetyLimits, SafetyDecision, emergency kill switch, drawdown/volatility/rate veto.
+     - are/operational.py: OperationalBrain, fast-loop market tick processing, Champion model integration, CSK filter, stream logging.
+  2. TATA KELOLA:
+     - Struktur 11 subfolder ARE4 dibuat lengkap dan dimirror.
+     - Kontrak Slice-1 (ACC-401..410) & IAQ Ledger (12/12 answered) dibekukan.
+     - Piagam Otoritas Charter T4 diratifikasi.
+  3. DOKUMEN MANDAT:
+     - Kontrak: PROJECT_GOVERNANCE/ARE4/CONTRACTS/SLICE_1_CONTRACT_ARE4.md.
+     - Delegasi: PROJECT_GOVERNANCE/ARE4/AUTHORITY_AND_WORKFLOW/DELEGASI_013_CODING_SLICE1_ARE4.md.
+DAMPAK   : Ekosistem ARE-4 resmi dibuka dan siap dieksekusi oleh Engineering AI.
+```
+
 ## 2026-08-28 — ARE-3 AUTONOMOUS SCIENCE WAVE CLOSED & QUALIFIED (246 TESTS PASS)
 
 ```text
