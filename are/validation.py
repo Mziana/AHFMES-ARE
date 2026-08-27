@@ -93,6 +93,7 @@ class ValidationService:
             origin="PROSPECTIVE_STRICT_BLIND",
         )
 
+        batch_root = hashlib.sha256(f"BATCH_{candidate_id}".encode("utf-8")).hexdigest()
         res_id = f"RES_VAL_{candidate_id}_{int(as_of_ts)}"
         reservation = self.evidence_ledger.create_reservation(
             reservation_id=res_id,
@@ -103,7 +104,7 @@ class ValidationService:
             research_contract_root_hash="0" * 64,
             evidence_snapshot_root_hash=snapshot.root_hash,
             validation_family_root_hash="0" * 64,
-            candidate_batch_root_hash="0" * 64,
+            candidate_batch_root_hash=batch_root,
             primary_estimand_root_hash="0" * 64,
             multiplicity_plan_root_hash="0" * 64,
             search_tree_root_hash="0" * 64,
@@ -121,7 +122,7 @@ class ValidationService:
             research_family_root="0" * 64,
             claim_family_root="0" * 64,
             research_contract_root_hash="0" * 64,
-            candidate_or_batch_root_hash="0" * 64,
+            candidate_or_batch_root_hash=batch_root,
             validation_reservation_id=reservation.reservation_id,
             role=role,
             access_granularity="ROW_OUTCOME",
