@@ -33,3 +33,9 @@ Dengan selesainya 4 gelombang arsitektur inti (ARE-1 s/d ARE-4), sistem AHFMES-A
 - **Laporan Audit:** [`QUALIFICATION/AHFMES_P001_SLICE1_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_P001_SLICE1_AUDIT_REPORT.md).
 - **Status Akhir:** **P001 SLICE-1 CERTIFIED & COMPLETE** 🏁
 
+## 4. Persiapan Slice-2 P001 (Alpha Discovery Engine, Feature Library & Ingestion Pipeline)
+- **Kontrak Slice-2:** [`CONTRACTS/SLICE_2_CONTRACT_P001.md`](../CONTRACTS/SLICE_2_CONTRACT_P001.md) (Kriteria ACC-511 s/d ACC-520 dibekukan).
+- **Mandat Delegasi:** [`AUTHORITY_AND_WORKFLOW/DELEGASI_017_CODING_SLICE2_P001.md`](../AUTHORITY_AND_WORKFLOW/DELEGASI_017_CODING_SLICE2_P001.md).
+- **Lingkup Implementasi:** `are/features.py` (ekstraksi fitur kuantitatif), `are/alpha_generator.py` (generator hipotesis kuantitatif), `are/ingestion.py` (ingestion pasar ke EvidenceLedger & ExperienceStore), `are/p001_program.py` (runner program riset otonom terpadu).
+
+
