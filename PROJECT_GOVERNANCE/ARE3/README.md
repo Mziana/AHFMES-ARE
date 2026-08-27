@@ -22,7 +22,7 @@ Mirror struktur `ARE0/`, `ARE1/`, dan `ARE2/` untuk kemudahan arsip & pembelajar
 | `QUARANTINE/` | Kebijakan & record karantina legacy (jika ada) | — | `.gitkeep` |
 | `R9_CORRECTIONS/` | Koreksi & impact record (jika ada) | — | `.gitkeep` |
 | `EXTERNAL_AUDIT/` | Handoff & audit eksternal ARE-3 | — | `.gitkeep` |
-| `QUALIFICATION/` | Bukti kualifikasi internal ARE-3 | AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md (10/10 PASS) | 1 file |
+| `QUALIFICATION/` | Bukti kualifikasi internal ARE-3 | AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md, AHFMES_ARE_3_SLICE2_AUDIT_REPORT.md | 2 file |
 | `DIARY/` | Diary harian ARE-3 (lokal per kategori) | 2026-08-28-ARE3-OPENING-JURNAL.md, template | 2 file |
 
 ---
