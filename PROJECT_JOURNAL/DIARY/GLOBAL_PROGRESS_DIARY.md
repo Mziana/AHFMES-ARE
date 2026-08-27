@@ -12,6 +12,25 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-3 SLICE-2 CONTRACT FROZEN & DELEGASI_011 ISSUED
+
+```text
+KATEGORI : ARE3 + GLOBAL
+STATUS   : Kontrak SLICE_2_CONTRACT_ARE3.md dibekukan (T3). DELEGASI_011 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-2:
+     - are/sandbox.py: CapabilitySandbox, isolasi socket/network, timeout execution.
+     - are/telemetry.py: TelemetryAggregator, EventStore trace recording, kalkulasi agregat.
+     - are/habitat.py: HabitatAdapter, ConditionAtlas regime classification, Information-Time enforcement.
+     - are/storage.py: EventStore public query API & resolusi DEBT-03 (eliminasi _get_conn bypass).
+  2. KRITERIA TERIMA:
+     - ACC-311 s/d ACC-320 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/ARE3/CONTRACTS/SLICE_2_CONTRACT_ARE3.md.
+     - Delegasi: PROJECT_GOVERNANCE/ARE3/AUTHORITY_AND_WORKFLOW/DELEGASI_011_CODING_SLICE2_ARE3.md.
+DAMPAK   : Paket spesifikasi dan mandat Slice-2 ARE-3 tuntas 100%; siap dieksekusi oleh Engineering AI.
+```
+
 ## 2026-08-28 — ARE-3 SLICE-1 AUDIT SIGN-OFF (226 TESTS PASS & DEBT-04 RESOLVED)
 
 ```text

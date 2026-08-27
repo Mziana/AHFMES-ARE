@@ -14,8 +14,8 @@ Mirror struktur `ARE0/`, `ARE1/`, dan `ARE2/` untuk kemudahan arsip & pembelajar
 | Folder | Isi (ARE3) | Dokumen Awal yang Terpasang | Status |
 |---|---|---|:---:|
 | `GRAND_DESIGN/` | Desain menyeluruh ARE-3 (human-readable, non-normatif) | Peta Desain Autonomous Science | `.gitkeep` |
-| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-3 | Charter ARE-3 (T1-T3 PASS, T4 pending), DELEGASI_010 | 2 file |
-| `CONTRACTS/` | Kontrak formal & prasyarat ARE-3 | IAQ_LEDGER_ARE3.md (12 QAO), SLICE_1_CONTRACT_ARE3.md | 2 file |
+| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-3 | Charter ARE-3 (RATIFIED T4), DELEGASI_010, DELEGASI_011 | 3 file |
+| `CONTRACTS/` | Kontrak formal & prasyarat ARE-3 | IAQ_LEDGER_ARE3.md, SLICE_1_CONTRACT_ARE3.md, SLICE_2_CONTRACT_ARE3.md | 3 file |
 | `MACHINE/` | Sumber mesin kanonikal ARE-3 | Matrix, Inventory, Domain Tags ARE-3 | `.gitkeep` |
 | `MANIFEST/` | Manifest normatif ARE-3 | Manifest V41, Manifest Binding V41 | 2 file |
 | `COUNCIL_PROTOCOL/` | Protokol dewan audit ARE-3 | Protocol V36+ | `.gitkeep` |
@@ -27,14 +27,14 @@ Mirror struktur `ARE0/`, `ARE1/`, dan `ARE2/` untuk kemudahan arsip & pembelajar
 
 ---
 
-## Titik Baca Cepat (Fase Pembukaan ARE-3, Baseline `@7f57d12`)
+## Titik Baca Cepat (Fase Eksekusi Slice-2, Baseline `@b93b7e9`)
 
-1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `ARE-3 INITIALIZED (DESIGN / READ-MODE)`
-2. **IAQ Ledger ARE-3:** `CONTRACTS/IAQ_LEDGER_ARE3.md` (12/12 ANSWERED)
-3. **Kontrak Slice-1 ARE-3:** `CONTRACTS/SLICE_1_CONTRACT_ARE3.md` (ACC-301 s/d ACC-310)
-4. **Charter Otoritas:** `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` (T1-T3 Terpenuhi, Menunggu T4 Owner)
-5. **Delegasi Siap Eksekusi:** `AUTHORITY_AND_WORKFLOW/DELEGASI_010_CODING_SLICE1_ARE3.md`
-6. **Hutang Arsitektur Terbawa:** `RESIDUAL_REGISTER.md` (DEBT-01 s/d DEBT-08)
+1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `IMPLEMENTATION(ARE-3) = AUTHORIZED`
+2. **Kontrak Slice-1 (CERTIFIED):** `CONTRACTS/SLICE_1_CONTRACT_ARE3.md` (ACC-301..310 PASS)
+3. **Kontrak Slice-2 (ACTIVE):** `CONTRACTS/SLICE_2_CONTRACT_ARE3.md` (ACC-311..320 FROZEN)
+4. **Charter Otoritas:** `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE3.md` (RATIFIED T4)
+5. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_011_CODING_SLICE2_ARE3.md`
+6. **Hutang Arsitektur:** `RESIDUAL_REGISTER.md` (DEBT-04 RESOLVED, DEBT-03 target Slice-2)
 7. **Jurnal harian ARE-3:** `DIARY/2026-08-28-ARE3-OPENING-JURNAL.md`
 8. **Indeks Progres Global:** `../../PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md`
 

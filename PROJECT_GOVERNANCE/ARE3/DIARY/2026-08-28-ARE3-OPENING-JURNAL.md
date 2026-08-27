@@ -47,4 +47,10 @@ Fase ARE-3 (Autonomous Science & Direction Intelligence) akan berfokus pada:
 - **Laporan Audit:** [`QUALIFICATION/AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_ARE_3_SLICE1_AUDIT_REPORT.md).
 - **Status Akhir:** **ARE-3 SLICE-1 CERTIFIED & COMPLETE** 🏁
 
+## 6. Persiapan Slice-2 ARE-3 (Sandbox, Telemetry, Habitat & DB Encapsulation)
+- **Kontrak Slice-2:** [`CONTRACTS/SLICE_2_CONTRACT_ARE3.md`](../CONTRACTS/SLICE_2_CONTRACT_ARE3.md) (Kriteria ACC-311 s/d ACC-320 dibekukan).
+- **Mandat Delegasi:** [`AUTHORITY_AND_WORKFLOW/DELEGASI_011_CODING_SLICE2_ARE3.md`](../AUTHORITY_AND_WORKFLOW/DELEGASI_011_CODING_SLICE2_ARE3.md).
+- **Target Hutang:** `DEBT-03` (Enkapsulasi EventStore public query API dan eliminasi pemanggilan `_get_conn`).
+
+
 
