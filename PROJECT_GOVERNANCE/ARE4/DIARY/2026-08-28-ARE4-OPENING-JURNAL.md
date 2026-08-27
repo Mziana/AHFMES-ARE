@@ -29,3 +29,9 @@ Gelombang ARE-4 menghubungkan loop cepat kecerdasan operasional (*Fast Loop*) de
 - **Laporan Audit:** [`QUALIFICATION/AHFMES_ARE_4_SLICE1_AUDIT_REPORT.md`](../QUALIFICATION/AHFMES_ARE_4_SLICE1_AUDIT_REPORT.md).
 - **Status Akhir:** **ARE-4 SLICE-1 CERTIFIED & COMPLETE** 🏁
 
+## 4. Persiapan Slice-2 ARE-4 (Evolutionary Slow Loop & Modularisasi Registry DEBT-01)
+- **Kontrak Slice-2:** [`CONTRACTS/SLICE_2_CONTRACT_ARE4.md`](../CONTRACTS/SLICE_2_CONTRACT_ARE4.md) (Kriteria ACC-411 s/d ACC-420 dibekukan).
+- **Mandat Delegasi:** [`AUTHORITY_AND_WORKFLOW/DELEGASI_014_CODING_SLICE2_ARE4.md`](../AUTHORITY_AND_WORKFLOW/DELEGASI_014_CODING_SLICE2_ARE4.md).
+- **Target Hutang:** `DEBT-01` (God Class `Registry` pemecahan ke Strategy Pattern delegate sub-managers).
+
+
