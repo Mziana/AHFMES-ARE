@@ -1,7 +1,7 @@
 # GOVERNANCE FOLDER STRUCTURE RULES
 
-Status: **ORGANIZATION RULE / STRUCTURAL_GENERATION_S1 / ZERO MACHINE-CLOSURE-AUDIT-RULE AUTHORITY**  
-Effective date: **2026-08-26**
+Status: **ORGANIZATION RULE / STRUCTURAL_GENERATION_S2 / ZERO MACHINE-CLOSURE-AUDIT-RULE AUTHORITY**  
+Effective date: **2026-08-26** (S1) · **2026-08-27** (S2: ARE1 arsip)
 
 Aturan ini mengatur struktur folder `PROJECT_GOVERNANCE/` dan sistem diary
 dua tingkat. Aturan ini TIDAK memberikan otoritas machine/closure/audit-rule,
@@ -34,8 +34,11 @@ Reorganisasi fisik ini dideklarasikan sebagai **STRUCTURAL_GENERATION_S1**:
 ```text
 PROJECT_GOVERNANCE/
 ├── GOVERNANCE_FOLDER_STRUCTURE_RULES.md   (file ini)
-├── CURRENT_AUTHORITY_INDEX.md             (entry point orientasi — tetap di root)`n├── ENGINEERING/                           (working agreement Engineering AI)
-└── ARE0/                                  (semua dokumen ARE-0)
+├── CURRENT_AUTHORITY_INDEX.md             (entry point orientasi — tetap di root)
+├── ENGINEERING/                           (working agreement Engineering AI)
+├── ARE0/                                  (semua dokumen ARE-0)
+│   └── ... (11 kategori + DIARY, lihat §3)
+└── ARE1/                                  (semua dokumen ARE-1 — Scientific Kernel) [S2 2026-08-27]
     ├── README.md                          (index kategori ARE0)
     ├── GRAND_DESIGN/                      desain menyeluruh human-readable
     ├── AUTHORITY_AND_WORKFLOW/            otoritas fase + workflow kerja
@@ -53,6 +56,10 @@ PROJECT_GOVERNANCE/
 Folder kategori lain (misal `ARE1/`, `ARE2/`, ...) mengikuti pola yang sama
 ketika fasenya dibuka, dengan `README.md` index dan subfolder `DIARY/`
 tersendiri.
+
+**S2 aktif (2026-08-27):** `ARE1/` telah dibuka per deklarasi STRUCTURAL_GENERATION_S2
+(Lampiran R3). Struktur `ARE1/` mirror `ARE0/` — 11 kategori + `DIARY/` + ledger
+`RESIDUAL_REGISTER.md` untuk sistem FIX/DEFERRED/CATAT.
 
 ## 3. Definisi kategori
 
@@ -189,4 +196,39 @@ FILE DIRLOKASI       = 223 (governance) + 8 (diary ARE0 dari PROJECT_JOURNAL/DIA
 BYTE CHANGES         = NONE (relokasi murni, blob SHA tidak berubah)
 ROOT SETELAH         = GOVERNANCE_FOLDER_STRUCTURE_RULES.md, CURRENT_AUTHORITY_INDEX.md, ARE0/
 GLOBAL DIARY         = PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md (baru)
+```
+
+## LAMPIRAN R3 — Rekap eksekusi STRUCTURAL_GENERATION_S2 (ARE1 arsip)
+
+```text
+TANGGAL              = 2026-08-27
+DEKLARASI            = STRUCTURAL_GENERATION_S2 — pembukaan arsip fase ARE-1
+PEMICU               = ARE-1 Scientific Kernel selesai 83f73c0 (HEAD d0d24af), perlu arsip
+                      terpisah agar pembelajaran lintas fase (ARE0/ARE1/ARE2...) mudah
+DASAR                = §1.6(a) sebelum S0-ARE1 dibekukan + §2 "ARE1/ mirror ARE0"
+FOLDER DIBUAT        = PROJECT_GOVERNANCE/ARE1/ (11 kategori mirror ARE0)
+                      ├── README.md                          (index ARE1, 38 baris)
+                      ├── GRAND_DESIGN/                      (kosong, siap isi)
+                      ├── AUTHORITY_AND_WORKFLOW/
+                      ├── CONTRACTS/
+                      ├── MACHINE/
+                      ├── MANIFEST/
+                      ├── COUNCIL_PROTOCOL/
+                      ├── QUARANTINE/
+                      ├── R9_CORRECTIONS/
+                      ├── EXTERNAL_AUDIT/
+                      ├── QUALIFICATION/
+                      └── DIARY/
+                          ├── 2026-08-27-ARE1-RESIDUAL-JURNAL.md (73 baris, relokasi byte-identical dari ARE0/DIARY/)
+                          └── _TEMPLATE_HARIAN.md            (template 2-tingkat)
+LEDGER BARU          = PROJECT_GOVERNANCE/ARE1/RESIDUAL_REGISTER.md (FIX/DEFERRED/CATAT, 158+ baris)
+                      — ledger terpusat agar DEFERRED tidak PR lupa (G07/G18 persist)
+RELOKASI             = 1 file byte-identical: ARE0/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md
+                      → ARE1/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md (SHA1 8481C84F...)
+                      + patch internal path ARE0→ARE1 (1 baris) — ARE0 copy dipertahankan sebagai jejak S2
+BYTE CHANGES         = README.md baru + RESIDUAL_REGISTER.md baru + TEMPLATE baru + relokasi 1 file (copy)
+                      Tidak ada manifest member lama yang diubah byte-nya
+ROOT SETELAH         = GOVERNANCE_FOLDER_STRUCTURE_RULES.md, CURRENT_AUTHORITY_INDEX.md, ARE0/, ARE1/
+NEXT                 = Generasi manifest V40+ wajib pakai path ARE1/MANIFEST/ per tabel R1 (update R1 next)
+                       Diary ARE1 selanjutnya langsung di ARE1/DIARY/ (bukan ARE0)
 ```
