@@ -24,26 +24,26 @@ Fokus Fase ARE-4:
 | Folder | Isi (ARE4) | Dokumen Awal yang Terpasang | Status |
 |---|---|---|:---:|
 | `GRAND_DESIGN/` | Desain evolusi operasional ARE-4 | — | `.gitkeep` |
-| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-4 | Charter ARE-4, DELEGASI_013, DELEGASI_014 | 3 file |
-| `CONTRACTS/` | Kontrak formal & prasyarat ARE-4 | IAQ_LEDGER_ARE4.md, SLICE_1 & SLICE_2_CONTRACT_ARE4.md | 3 file |
+| `AUTHORITY_AND_WORKFLOW/` | Otoritas fase & workflow kerja ARE-4 | Charter ARE-4, DELEGASI_013 s/d DELEGASI_015 | 4 file |
+| `CONTRACTS/` | Kontrak formal & prasyarat ARE-4 | IAQ_LEDGER_ARE4.md, SLICE_1 s/d SLICE_3_CONTRACT_ARE4.md | 4 file |
 | `MACHINE/` | Sumber mesin kanonikal ARE-4 | — | `.gitkeep` |
 | `MANIFEST/` | Manifest normatif ARE-4 | Manifest V41, Manifest Binding V41 | 2 file |
 | `COUNCIL_PROTOCOL/` | Protokol dewan audit ARE-4 | — | `.gitkeep` |
 | `QUARANTINE/` | Kebijakan & record karantina legacy (jika ada) | — | `.gitkeep` |
 | `R9_CORRECTIONS/` | Koreksi & impact record (jika ada) | — | `.gitkeep` |
 | `EXTERNAL_AUDIT/` | Handoff & audit eksternal ARE-4 | — | `.gitkeep` |
-| `QUALIFICATION/` | Bukti kualifikasi internal ARE-4 | AHFMES_ARE_4_SLICE1_AUDIT_REPORT.md, AHFMES_ARE_4_SLICE2_AUDIT_REPORT.md | 2 file |
+| `QUALIFICATION/` | Bukti kualifikasi internal ARE-4 | AHFMES_ARE_4_SLICE1 & SLICE2_AUDIT_REPORT.md | 2 file |
 | `DIARY/` | Diary harian ARE-4 (lokal per kategori) | 2026-08-28-ARE4-OPENING-JURNAL.md, template | 2 file |
 
 ---
 
-## Titik Baca Cepat (Fase Eksekusi Slice-2 ARE-4, Baseline `@0ee66ed`)
+## Titik Baca Cepat (Fase Eksekusi Slice-3 Final ARE-4, Baseline `@1fc57c9`)
 
 1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `IMPLEMENTATION(ARE-4) = AUTHORIZED`
-2. **Kontrak Slice-1 (CERTIFIED):** `CONTRACTS/SLICE_1_CONTRACT_ARE4.md` (ACC-401..410 PASS)
-3. **Kontrak Slice-2 (ACTIVE):** `CONTRACTS/SLICE_2_CONTRACT_ARE4.md` (ACC-411..420 FROZEN)
+2. **Kontrak Slice-1 & 2 (CERTIFIED):** `CONTRACTS/SLICE_1_CONTRACT_ARE4.md` & `SLICE_2_CONTRACT_ARE4.md`
+3. **Kontrak Slice-3 (ACTIVE):** `CONTRACTS/SLICE_3_CONTRACT_ARE4.md` (ACC-421..430 FROZEN)
 4. **Charter Otoritas:** `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_ARE4.md` (RATIFIED T4)
-5. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_014_CODING_SLICE2_ARE4.md`
-6. **Hutang Arsitektur:** `RESIDUAL_REGISTER.md` (DEBT-01 target Slice-2)
+5. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_015_CODING_SLICE3_ARE4.md`
+6. **Hutang Arsitektur:** `RESIDUAL_REGISTER.md` (DEBT-01, DEBT-03, DEBT-04 RESOLVED, DEBT-02 target Slice-3)
 7. **Jurnal harian ARE-4:** `DIARY/2026-08-28-ARE4-OPENING-JURNAL.md`
 8. **Indeks Progres Global:** `../../PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md`
