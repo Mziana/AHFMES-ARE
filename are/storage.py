@@ -257,6 +257,47 @@ class EventStore:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def fetch_all(self, query: str, params: tuple = ()) -> List[Tuple[Any, ...]]:
+        """Executes a read query and returns all matching rows as tuples."""
+        conn = self._get_conn()
+        cur = conn.execute(query, params)
+        return cur.fetchall()
+
+    def fetch_one(self, query: str, params: tuple = ()) -> Optional[Tuple[Any, ...]]:
+        """Executes a read query and returns the first matching row or None."""
+        conn = self._get_conn()
+        cur = conn.execute(query, params)
+        return cur.fetchone()
+
+    def execute_write(self, query: str, params: tuple = ()) -> int:
+        """Executes a write query within an auto-committed transaction."""
+        conn = self._get_conn()
+        with conn:
+            cur = conn.execute(query, params)
+            return cur.rowcount
+
+    def execute_script(self, script: str) -> None:
+        """Executes a multi-statement DDL/DML script."""
+        conn = self._get_conn()
+        with conn:
+            conn.executescript(script)
+
+    def table_exists(self, table_name: str) -> bool:
+        """Checks if a table exists in sqlite_master."""
+        row = self.fetch_one(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        )
+        return row is not None
+
+    def count_events(self, stream_id: str) -> int:
+        """Counts total committed events in a given stream."""
+        row = self.fetch_one(
+            "SELECT COUNT(1) FROM events WHERE stream_id = ?",
+            (stream_id,),
+        )
+        return row[0] if row else 0
+
     def _reset_connection(self) -> None:
         """Force close and reset thread-local connection (for testing/recovery)."""
         if hasattr(self._local, "conn") and self._local.conn is not None:

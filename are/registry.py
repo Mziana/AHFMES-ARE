@@ -115,9 +115,7 @@ class Registry:
 
     # -- schema
     def _init_schema(self):
-        conn = self._store._get_conn()
-        with conn:
-            conn.executescript("""
+        self._store.execute_script("""
                 CREATE TABLE IF NOT EXISTS registry_objects (
                     object_type TEXT NOT NULL,
                     object_id TEXT NOT NULL,
@@ -152,11 +150,8 @@ class Registry:
             """)
 
     # internal helpers
-    def _get_obj_row(self, object_type: str, object_id: str) -> Optional[sqlite3.Row]:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT object_type, object_id, lifecycle, disposition, revision, last_event_hash, root_hash, retention, parent_id, family_root, material_hash, debt FROM registry_objects WHERE object_type=? AND object_id=?", (object_type, object_id))
-        row = cur.fetchone()
-        return row
+    def _get_obj_row(self, object_type: str, object_id: str) -> Optional[Tuple[Any, ...]]:
+        return self._store.fetch_one("SELECT object_type, object_id, lifecycle, disposition, revision, last_event_hash, root_hash, retention, parent_id, family_root, material_hash, debt FROM registry_objects WHERE object_type=? AND object_id=?", (object_type, object_id))
 
     def _get_head_info(self, stream_id: str) -> Tuple[int,str]:
         head = self._store.get_head(stream_id)
@@ -177,10 +172,7 @@ class Registry:
         nonce = authority.get("nonce")
         if nonce is None:
             return
-        conn = self._store._get_conn()
-        # simple in-DB nonce check
-        cur = conn.execute("SELECT 1 FROM nonce_seen WHERE nonce=?", (nonce,))
-        if cur.fetchone():
+        if self._store.fetch_one("SELECT 1 FROM nonce_seen WHERE nonce=?", (nonce,)):
             raise RegistryError("G20_STALE_AUTHORITY", f"nonce {nonce} already consumed (replay) (G20)")
         # we will insert after successful transition atomically? For now insert immediately via separate txn
         # To keep atomic with event append, we do it inside transaction below via raw conn?
@@ -195,49 +187,40 @@ class Registry:
         # no float already enforced; also check previous hash chain via store
         # nonce replay check
         nonce = authority.get("nonce")
-        conn = self._store._get_conn()
-        # Use EventStore append which does CAS
         try:
             rec = self._store.append_event(stream_id, canonical, expected_revision, expected_prev_hash, var_ref=authority.get("principal_id"))
         except Edge1Error as e:
-            # Map to G19/G20
             msg = str(e)
             if "CAS failed" in msg or "concurrent" in msg:
                 raise RegistryError("G19_CAS_CONFLICT", msg)
             if "Previous event hash mismatch" in msg:
                 raise RegistryError("G20_STALE_AUTHORITY", msg)
             raise RegistryError("G09_ILLEGAL_TRANSITION", msg)
-        # insert nonce after success (if not already)
         if nonce:
             try:
-                conn.execute("INSERT INTO nonce_seen (nonce, principal_id) VALUES (?,?)", (nonce, authority.get("principal_id")))
-                conn.commit()
-            except sqlite3.IntegrityError:
+                self._store.execute_write("INSERT INTO nonce_seen (nonce, principal_id) VALUES (?,?)", (nonce, authority.get("principal_id")))
+            except Exception:
                 raise RegistryError("G20_STALE_AUTHORITY", f"nonce replay {nonce}")
         return (rec.revision, rec.event_hash)
 
     def _upsert_object(self, object_type: str, object_id: str, lifecycle: str, disposition: str, revision: int, event_hash: str, root_hash: Optional[str]=None, retention: str="ACTIVE_RECORD", parent_id: Optional[str]=None, family_root: Optional[str]=None, material_hash: Optional[str]=None, debt: int=0):
-        conn = self._store._get_conn()
-        # use INSERT OR REPLACE? But we need CAS semantics already validated
-        with conn:
-            conn.execute("""
-                INSERT INTO registry_objects (object_type, object_id, lifecycle, disposition, revision, last_event_hash, root_hash, retention, parent_id, family_root, material_hash, debt)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(object_type, object_id) DO UPDATE SET
-                    lifecycle=excluded.lifecycle,
-                    disposition=excluded.disposition,
-                    revision=excluded.revision,
-                    last_event_hash=excluded.last_event_hash,
-                    root_hash=excluded.root_hash,
-                    retention=excluded.retention,
-                    parent_id=excluded.parent_id,
-                    family_root=excluded.family_root,
-                    material_hash=excluded.material_hash,
-                    debt=excluded.debt
-            """, (object_type, object_id, lifecycle, disposition, revision, event_hash, root_hash, retention, parent_id, family_root, material_hash, debt))
-            if family_root:
-                # ensure family_debt exists
-                conn.execute("INSERT INTO family_debt (family_root, debt) VALUES (?,?) ON CONFLICT(family_root) DO UPDATE SET debt=MAX(debt, excluded.debt)", (family_root, debt))
+        self._store.execute_write("""
+            INSERT INTO registry_objects (object_type, object_id, lifecycle, disposition, revision, last_event_hash, root_hash, retention, parent_id, family_root, material_hash, debt)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(object_type, object_id) DO UPDATE SET
+                lifecycle=excluded.lifecycle,
+                disposition=excluded.disposition,
+                revision=excluded.revision,
+                last_event_hash=excluded.last_event_hash,
+                root_hash=excluded.root_hash,
+                retention=excluded.retention,
+                parent_id=excluded.parent_id,
+                family_root=excluded.family_root,
+                material_hash=excluded.material_hash,
+                debt=excluded.debt
+        """, (object_type, object_id, lifecycle, disposition, revision, event_hash, root_hash, retention, parent_id, family_root, material_hash, debt))
+        if family_root:
+            self._store.execute_write("INSERT INTO family_debt (family_root, debt) VALUES (?,?) ON CONFLICT(family_root) DO UPDATE SET debt=MAX(debt, excluded.debt)", (family_root, debt))
 
     # -----------------------------------------------------------------------
     # Generic invariants helpers
@@ -249,8 +232,6 @@ class Registry:
     def _compute_material_hash(self, object_type: str, material: Dict[str,Any]) -> str:
         tag = TAG_FOR.get(object_type, "CANDIDATE_ROOT")
         try:
-            canonical, h = self._store._get_conn() and (None, None)  # placeholder
-            # use canonical helpers
             cbytes, h = self._material_hash_raw(tag, material)
             return h
         except VerificationError as e:
@@ -539,9 +520,7 @@ class Registry:
         # store integrity/result separately in extra columns? we encode in disposition field as integrity/result combo for simplicity, but need separate
         # For G22 we keep separate table? We'll use root_hash to store integrity, material_hash to store result for query convenience
         # Actually store in registry_objects root_hash=integrity, material_hash=result
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE registry_objects SET root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", ("NOT_CHECKED","NONE", experiment_id))
+        self._store.execute_write("UPDATE registry_objects SET root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", ("NOT_CHECKED","NONE", experiment_id))
         return {"experiment_id":experiment_id,"lifecycle":"PLANNED","integrity":"NOT_CHECKED","result":"NONE","revision":rev,"last_event_hash":eh}
 
     def transition_experiment(self, experiment_id: str, to_lifecycle: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, integrity: Optional[str]=None, result: Optional[str]=None) -> Dict[str,Any]:
@@ -573,9 +552,7 @@ class Registry:
         event = {"object_type":"experiment","object_id":experiment_id,"from_lifecycle":from_lc,"to_lifecycle":to_lifecycle,"integrity":new_integrity,"result":new_result,"family_root":family_root,"authority":authority["principal_id"],"nonce":authority.get("nonce")}
         new_rev, new_hash = self._append_event(stream_id, event, expected_revision, expected_prev_hash, authority)
         # update registry_objects with new lifecycle; keep disposition as NONE, but store integ/result
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE registry_objects SET lifecycle=?, revision=?, last_event_hash=?, root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", (to_lifecycle, new_rev, new_hash, new_integrity, new_result, experiment_id))
+        self._store.execute_write("UPDATE registry_objects SET lifecycle=?, revision=?, last_event_hash=?, root_hash=?, material_hash=? WHERE object_type='experiment' AND object_id=?", (to_lifecycle, new_rev, new_hash, new_integrity, new_result, experiment_id))
         return {"experiment_id":experiment_id,"lifecycle":to_lifecycle,"integrity":new_integrity,"result":new_result,"revision":new_rev,"last_event_hash":new_hash}
 
     def get_experiment(self, experiment_id: str) -> Optional[Dict[str,Any]]:
@@ -595,9 +572,7 @@ class Registry:
         # material must be canonical no float
         _, root_hash = self._material_hash_raw("CANDIDATE_ROOT", material)
         # G18: new ID cannot reset debt; check family_debt exists
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT debt FROM family_debt WHERE family_root=?", (family_root,))
-        fam_row = cur.fetchone()
+        fam_row = self._store.fetch_one("SELECT debt FROM family_debt WHERE family_root=?", (family_root,))
         debt = fam_row[0] if fam_row else 0
         # G07 retention not erase debt - debt persists
         stream_id = f"candidate:{candidate_id}"
@@ -702,9 +677,7 @@ class Registry:
         rev, eh = self._append_event(stream_id, event, 0, ZERO_HASH, authority)
         self._upsert_object("capability", capability_id, "BASELINE_AVAILABLE", "NONE", rev, eh, retention="ACTIVE_RECORD", family_root=family_root, debt=0)
         # store kind in root_hash field for simplicity? reuse material_hash for kind
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE registry_objects SET material_hash=? WHERE object_type='capability' AND object_id=?", (kind, capability_id))
+        self._store.execute_write("UPDATE registry_objects SET material_hash=? WHERE object_type='capability' AND object_id=?", (kind, capability_id))
         return {"capability_id":capability_id,"kind":kind,"lifecycle":"BASELINE_AVAILABLE","revision":rev,"last_event_hash":eh}
 
     def transition_capability(self, capability_id: str, to_lifecycle: str, to_disposition: str, authority: Dict[str,Any], expected_revision: int, expected_prev_hash: str, gap_episode_id: Optional[str]=None) -> Dict[str,Any]:
@@ -737,9 +710,7 @@ class Registry:
         if gap_episode_id:
             event["gap_episode_id"]=gap_episode_id
         new_rev, new_hash = self._append_event(stream_id, event, expected_revision, expected_prev_hash, authority)
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE registry_objects SET lifecycle=?, disposition=?, revision=?, last_event_hash=? WHERE object_type='capability' AND object_id=?", (to_lifecycle, to_disposition, new_rev, new_hash, capability_id))
+        self._store.execute_write("UPDATE registry_objects SET lifecycle=?, disposition=?, revision=?, last_event_hash=? WHERE object_type='capability' AND object_id=?", (to_lifecycle, to_disposition, new_rev, new_hash, capability_id))
         return {"capability_id":capability_id,"lifecycle":to_lifecycle,"disposition":to_disposition,"revision":new_rev,"last_event_hash":new_hash}
 
     def get_capability(self, capability_id: str) -> Optional[Dict[str,Any]]:
@@ -753,21 +724,15 @@ class Registry:
     # Graveyard
     # -----------------------------------------------------------------------
     def _graveyard_put(self, object_type: str, object_id: str, root_hash: str, disposition: str, reason: str):
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("INSERT OR IGNORE INTO graveyard (object_type, object_id, root_hash, disposition, reason) VALUES (?,?,?,?,?)", (object_type, object_id, root_hash, disposition, reason))
+        self._store.execute_write("INSERT OR IGNORE INTO graveyard (object_type, object_id, root_hash, disposition, reason) VALUES (?,?,?,?,?)", (object_type, object_id, root_hash, disposition, reason))
 
     def is_in_graveyard(self, object_type: str, object_id: str) -> bool:
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT 1 FROM graveyard WHERE object_type=? AND object_id=?", (object_type, object_id))
-        return cur.fetchone() is not None
+        return self._store.fetch_one("SELECT 1 FROM graveyard WHERE object_type=? AND object_id=?", (object_type, object_id)) is not None
 
     def check_graveyard_retry_allowed(self, object_type: str, candidate_material: Dict[str,Any], family_root: str) -> bool:
         # G18, retry only if materially different root hash not in graveyard for same family?
         _, new_root = self._material_hash_raw("CANDIDATE_ROOT", candidate_material)
-        conn = self._store._get_conn()
-        cur = conn.execute("SELECT root_hash FROM graveyard WHERE object_type=?", (object_type,))
-        for (rh,) in cur.fetchall():
+        for (rh,) in self._store.fetch_all("SELECT root_hash FROM graveyard WHERE object_type=?", (object_type,)):
             if rh == new_root:
                 return False
         return True
@@ -789,9 +754,7 @@ class Registry:
         stream_id = f"{object_type}:{object_id}"
         event = {"object_type":object_type,"object_id":object_id,"action":"ARCHIVE","from_retention":retention,"to_retention":"ARCHIVED_RECORD","lifecycle":lc,"disposition":disp,"authority":authority["principal_id"],"nonce":authority.get("nonce")}
         new_rev, new_hash = self._append_event(stream_id, event, expected_revision, expected_prev_hash, authority)
-        conn = self._store._get_conn()
-        with conn:
-            conn.execute("UPDATE registry_objects SET retention='ARCHIVED_RECORD', revision=?, last_event_hash=? WHERE object_type=? AND object_id=?", (new_rev, new_hash, object_type, object_id))
+        self._store.execute_write("UPDATE registry_objects SET retention='ARCHIVED_RECORD', revision=?, last_event_hash=? WHERE object_type=? AND object_id=?", (new_rev, new_hash, object_type, object_id))
         return {"object_type":object_type,"object_id":object_id,"retention":"ARCHIVED_RECORD","lifecycle":lc,"disposition":disp,"revision":new_rev,"last_event_hash":new_hash}
 
     def get_retention(self, object_type: str, object_id: str) -> Optional[str]:
