@@ -279,7 +279,7 @@ DAMPAK   : ARE-1 CLOSED @a6711d6 | ARE-2 TERBUKA untuk DESAIN | CURRENT_AUTHORIT
 ```text
 ARE-0 CLOSED              = YES @03aec99 (ROOT 3affbbf0)
 ARE-1 Scientific Kernel   = CLOSED @a6711d6 (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
-ARE-2 Experience Intel    = DESAIN (Charter T4 ratified 2026-08-27, DELEGASI_005 issued)
+ARE-2 Experience Intel    = SLICE-1 COMPLETE (199 tests, 172+27, DELEGASI_006 executed)
 ARE-3 Autonomous Science  = LOCKED
 ARE-4 Governed Evolution  = LOCKED
 IMPLEMENTATION(ARE-1)     = CLOSED (audit ACCEPT)
@@ -288,3 +288,27 @@ P001                      = NOT AUTHORIZED
 PRODUCTION                = CLOSED
 LIVE/PAPER TRADING        = NOT AUTHORIZED
 ```
+
+## 2026-08-27 — ARE-2 SLICE-1 COMPLETE: EXPERIENCE STORE + ANOMALY + REPLAY + KNOWLEDGE + OBSERVABILITY + AUDIT
+
+```text
+KATEGORI : ARE2 + ENGINEERING + GLOBAL
+STATUS   : DELEGASI_006 EXECUTED — ARE-2 SLICE-1 COMPLETE (199 tests, 172+27)
+DETAIL   :
+  - are/experience.py: ExperienceStore (3 stream), AnomalyDetector (regime_shift, spread_hostility, CF quality), QualityGate (8-field provenance, latency <100ms, completeness 99.9%, quarantine)
+  - tests/are/test_experience.py: 16 tests (ExperienceStore CAS, crash_matrix, AnomalyDetector regime/spread/CF, QualityGate gates, deterministic replay, what-if fork)
+  - tests/are/test_experience_b_c_d.py: 11 tests (What-If fork, KnowledgeSynthesizer CF gap + Owner approval, AnomalyAlertEngine threshold/cooldown/dedup, ComponentAdapterRegistry 11 adapters, ExperienceConfig frozen dataclass + hash, AuditLogger JSONL, ResourceBoundedExecutor bounds, EvidenceExperienceBridge exposure accounting)
+  - Total new tests: 27 (16 Part A + 11 Parts B-D) → 199 total (172+27)
+  - Verif: pytest 199 passed, manifest_hash dual 1cde2dd7 root, blob 292/292 PASS, dual impl canonical/hash all PASS
+  - Dual impl (are/canonical.py) 72 tags (41 warisan + 57 ARE-2) all working
+  - are/experience.py reuses are/storage.py EventStore + Edge1Manager (CAS, crash finalize)
+  - are/experience.py reuses are/evidence.py log_exposure for EvidenceExperienceBridge
+  - Adapter pattern for 11 components: orchestrator, habitat_memory, evaluation_writer, pattern_events, pattern_recovery, policy_contract, freeze_snapshot, runtime_identity, telemetry, direction_discovery, micro_executor
+  - ExperienceConfig frozen dataclass + domain_hash via are/canonical.py
+  - AuditLogger JSONL (timestamp, op, input_hash, output_hash, params_hash, duration_ms, success)
+  - ResourceBoundedExecutor: anomaly <100ms, replay <5s, memory bounds, quota per component
+  - EvidenceExperienceBridge: derivative snapshot + parent_roots + exposure log_exposure
+DAMPAK   : ARE-2 SLICE-1 COMPLETE → Next: DELEGASI_007 (Slice-2: IC-5, RES-03, residual integration, advanced analytics)
+```
+
+(End of file - total 290 lines)

@@ -9,12 +9,13 @@ Lokasi: `PROJECT_GOVERNANCE/ARE1/RESIDUAL_REGISTER.md` (ledger terpusat) + `DIAR
 
 ---
 
-## Ringkasan eksekutif — HEAD `d0d24af` (code `83f73c0`)
+## Ringkasan eksekutif — HEAD `267a1a4` (code `83f73c0` + ARE-2 Slice-1 complete)
 
 | # | Tindakan | Bukti `file:line` | Commit | Verifikasi |
 |---|---|---|---:|---|
 | **FIX** `RES-02` hygiene | `are/storage.py:92-93` dedup `receipts_no_replace` + hapus phantom `heads_no_update` | `9ca5289` | `1 file 1+2-` · `172 passed` |
 | **FIX** `RES-01` authorizer | `are/storage.py:86-87` `if action==11 or 16: return DENY` (DENY ALL DROP TABLE/TRIGGER) | `83f73c0` | `1 file 2+10-` · `TRIGGER 10` · `60bc57` dual · `136/136` |
+| **FIX** `ARE-2 Slice-1` | `are/experience.py` + `tests/are/test_experience*.py` (16+11 tests) | `32b09d8` | `199 passed` (172+27) |
 | **DEFERRED** `IC-5` `ROLLBACK_CAUSE` | `MACHINE/AHFMES_ARE_0_TOTAL_AUTHORITY_AND_TRANSITION_MATRIX_V30.md:23` + `REGISTER_V30` — scope `ENGINEERING/SLICE_1_CONTRACT.md:63` `are/` only → Slice-2 ACC wajib | `d0d24af` jurnal `:28` | Owner ratified, auditor 4 otak PASS→DEFERRED |
 | **DEFERRED** `RES-03` `var_ref` | `are/storage.py:229-240` `_compute_event_hash` tanpa `var_ref` → breaking migration → generasi baru | `d0d24af` jurnal `:36` | Known gap `ARE1_SELF_AUDIT_REPORT.md:45` |
 | **CATAT** harian | `ARE1/DIARY/2026-08-27-ARE1-RESIDUAL-JURNAL.md:1` (73 baris) + `PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md:2026-08-27` mirror (26 baris) + `ENGINEERING/DELEGASI_003/004` | `d0d24af` 3 file `158+` | Debt `G07` persist, `G18` tidak reset |
