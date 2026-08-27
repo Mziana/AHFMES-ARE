@@ -25,9 +25,11 @@ hanya merupakan sitasi sejarah; artefak sumbernya tidak ada di repositori ini.
 
 Migrasi ini **tidak** memindahkan authority untuk menjalankan apa pun.
 
-- Penutupan desain ARE-0: **BELUM**
-- Kesiapan external audit: **BELUM**
-- Implementasi: **TIDAK DIIZINKAN**
+- Penutupan desain ARE-0: **SELESAI @03aec99**
+- Penutupan desain ARE-1: **SELESAI @a6711d6** (code 83f73c0, binder 697b53a, ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED)
+- Kesiapan external audit: **SELESAI** (ARE-1 ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED)
+- Implementasi ARE-1: **SELESAI** (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
+- Implementasi ARE-2: **AUTHORIZED** (Charter T4 ratified 2026-08-27, DELEGASI_005 issued, IAQ_LEDGER_ARE2.md 17 entries)
 - Riset substantif / P001: **TIDAK DIIZINKAN**
 - Production, paper trading, atau live trading: **DITUTUP**
 
