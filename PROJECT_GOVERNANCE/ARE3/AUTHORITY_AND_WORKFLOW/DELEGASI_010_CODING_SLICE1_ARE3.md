@@ -1,7 +1,7 @@
 # DELEGASI 010 — Engineering AI: Coding Slice-1 ARE-3 (Search Tree, Validation, Governor & Constants)
 
-Status: **DRAFT / READY FOR RATIFICATION — MENUNGGU CHARTER T4 OWNER**  
-Diterbitkan: Lead Architect & Auditor · Baseline `@7f57d12` (214 tests pass)
+Status: **DELEGASI AKTIF / AUTHORIZED — CHARTER T4 RATIFIED BY OWNER**
+Diterbitkan: Lead Architect & Auditor · Baseline `@e73680a` (214 tests pass)
 
 > Cara pakai: Setelah Owner meratifikasi Charter T4, tempelkan SELURUH blok prompt di bawah ke sesi Engineering AI.
 
