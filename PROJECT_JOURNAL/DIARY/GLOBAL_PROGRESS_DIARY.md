@@ -12,6 +12,75 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-27 — AUDIT FORMAL ARE-2 EXPERIENCE INTELLIGENCE + DELEGASI_009
+
+```text
+KATEGORI : ARE2 + ENGINEERING
+STATUS   : Lead Architect & Auditor menyelesaikan audit formal ARE-2 Experience Intelligence.
+           Hasil: 15 PASS, 2 FAIL (ACC-9, ACC-18), 2 NOT_TESTABLE, 1 PARTIAL.
+           DELEGASI_009 diterbitkan untuk refactor ExperienceStore reuse EventStore.
+DETAIL   :
+  AUDIT ARE-2 (terhadap SLICE_1_CONTRACT_ARE2.md & DELEGASI_007):
+  - Test Suite Baseline: 214 passed, 105 subtests passed (36.19s)
+  - PASS: ACC-2, ACC-3, ACC-4, ACC-5, ACC-6, ACC-7, ACC-8, ACC-10, ACC-11, ACC-13,
+          ACC-15, ACC-16, ACC-17, ACC-19, ACC-20.
+  - PARTIAL: ACC-1 (Fungsional pass, tapi duplikasi EventStore).
+  - FAIL: ACC-9 & ACC-18 (ExperienceStore di are/experience.py menggunakan raw SQL
+          INSERT/UPDATE alih-alih reuse EventStore dari are/storage.py).
+  - NOT_TESTABLE: ACC-12, ACC-14 (Manifest V41 belum di-generate di repo).
+  DELEGASI_009:
+  - Scope: are/experience.py (ExperienceStore)
+  - Tugas: Refactor ExperienceStore menjadi wrapper di atas EventStore (are/storage.py),
+           menghilangkan tabel experience_events/heads independen dan raw SQL mutations,
+           mempertahankan public API ExperienceStore & determinisme replay/what-if.
+  - Kriteria Terima: ACC-D9-01 s/d ACC-D9-08
+  - Delegasi siap dieksekusi oleh Engineer AI (sesi terpisah).
+  PENCATATAN & DOKUMEN:
+  - ENGINEERING/DELEGASI_009_REFACTOR_EXPERIENCE_STORE.md (baru)
+  - are2_audit_report.md (artefak laporan formal)
+  - PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md (entri ini)
+  - PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md (update)
+DAMPAK   : Evaluasi ARE-2 jelas; tindak lanjut perbaikan ACC-9/ACC-18 terarah via DELEGASI_009.
+```
+
+## 2026-08-27 — DEEP ANALYSIS + DELEGASI_008 HYGIENE & ARCH FIX
+
+```text
+KATEGORI : GLOBAL + ARE1 + ARE2
+STATUS   : Lead Architect deep analysis selesai — 5 P0, 5 P1, 7 P2 ditemukan.
+           DELEGASI_008 diterbitkan. ARCH_DEBT_REGISTER dibuat.
+DETAIL   :
+  DEEP ANALYSIS (multi-agent, 6 source + 12 test + 22 governance + 12 tool files):
+  - P0-01: Authorizer silent failure (are/storage.py:93-103 except:pass)
+  - P0-02: Dead code guard_G16 (are/state_machine.py if False else False)
+  - P0-03: Dead code guard_G12 (are/state_machine.py unused variable)
+  - P0-04: CapabilityToken tanpa secret (are/storage.py:816-853)
+  - P0-05: Migration tanpa backup (are/storage.py:733-801)
+  - P1-01: Zero __init__.py di seluruh repo
+  - P1-02: .gitignore sangat minimal
+  - P1-03: Path traversal di TOOLS/ (6 files)
+  - P1-04: Authorizer magic numbers
+  - P1-05: God Class Registry, God File experience.py (DEFERRED)
+  DELEGASI_008:
+  - Bagian A: 5 P0 critical security fixes (FIX-01..05)
+  - Bagian B: 4 P1 architecture improvements (ARCH-01..04)
+  - Bagian C: 5 hygiene cleanup tasks (HYG-01..05)
+  - ACC-D8-01..07 acceptance criteria defined
+  - Delegasi untuk Engineer AI (sesi terpisah)
+  ARCH_DEBT_REGISTER:
+  - 8 entri hutang arsitektur dicatat (DEBT-01..08)
+  - God Class, God File, DB encapsulation bypass = DEFERRED (breaking changes)
+  - Konstanta duplikat, pytest config, conftest = DEFERRED (batch berikutnya)
+  PENCATATAN:
+  - ENGINEERING/DELEGASI_008_HYGIENE_AND_ARCH_FIX.md (baru)
+  - ENGINEERING/ARCH_DEBT_REGISTER.md (baru)
+  - PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md (entri ini)
+  - PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md (update)
+  - PROJECT_GOVERNANCE/ARE1/RESIDUAL_REGISTER.md (update)
+DAMPAK   : Engineer AI dapat mengeksekusi DELEGASI_008 di sesi terpisah.
+           Hutang arsitektur tercatat formal. Audit ARE-2 NEXT.
+```
+
 ## 2026-08-27 — CHARTER T4 RATIFIED: ARE-2 IMPLEMENTATION AUTHORIZED
 
 ```text
