@@ -12,6 +12,23 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — ARE-3 SLICE-3 CONTRACT FROZEN & DELEGASI_012 ISSUED
+
+```text
+KATEGORI : ARE3 + GLOBAL
+STATUS   : Kontrak SLICE_3_CONTRACT_ARE3.md dibekukan (T3). DELEGASI_012 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP SLICE-3 (FINAL SLICE ARE-3):
+     - are/champion.py: ChampionRegistry, EventStore stream "champion_registry", validasi PromotionDisposition, rollback mechanism.
+     - are/coordinator.py: ResearchCoordinator, AgentAssignment SoD check, autonomous end-to-end research loop.
+  2. KRITERIA TERIMA:
+     - ACC-321 s/d ACC-330 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/ARE3/CONTRACTS/SLICE_3_CONTRACT_ARE3.md.
+     - Delegasi: PROJECT_GOVERNANCE/ARE3/AUTHORITY_AND_WORKFLOW/DELEGASI_012_CODING_SLICE3_ARE3.md.
+DAMPAK   : Paket spesifikasi dan mandat Slice-3 ARE-3 tuntas 100%; siap dieksekusi oleh Engineering AI.
+```
+
 ## 2026-08-28 — ARE-3 SLICE-2 AUDIT SIGN-OFF (239 TESTS PASS & DEBT-03 RESOLVED)
 
 ```text
