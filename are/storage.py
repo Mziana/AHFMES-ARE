@@ -81,16 +81,8 @@ class EventStore:
             # Block dangerous operations via authorizer (P0-02, P0-10)
             try:
                 def _authorizer(action, arg1, arg2, dbname, trigger):
-                    # SQLITE_DROP_TRIGGER = 11, SQLITE_ATTACH = 24, SQLITE_DROP_TABLE = 11? Use constants
-                    # Deny DROP TRIGGER and ATTACH
-# Deny DROP TRIGGER/TABLE (11) and DROP TRIGGER (16) etc - be conservative
-                    if action == 11 or action == 16:  # SQLITE_DROP_TABLE (11) / SQLITE_DROP_TRIGGER (16)
-                        # allow only if not dropping our protection triggers
-                        if arg1 in ("events_no_update", "events_no_delete", "events_no_insert_replace",
-                                    "nonce_ledger_no_update", "nonce_ledger_no_delete",
-                                    "receipts_no_update", "receipts_no_delete", "receipts_no_replace",
-                                    "heads_no_delete", "stream_heads_no_replace"):
-                            return 1  # SQLITE_DENY
+                    if action == 11 or action == 16:  # SQLITE_DROP_TABLE (11) / SQLITE_DROP_TRIGGER (16) — DENY ALL
+                        return 1  # SQLITE_DENY
                     if action == 24:  # SQLITE_ATTACH
                         return 1
                     return 0  # SQLITE_OK
