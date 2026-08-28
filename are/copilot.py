@@ -1,9 +1,10 @@
 """
-AHFMES WEB_UI — Conversational AI Copilot (ACC-711, ACC-712, ACC-713)
+AHFMES WEB_UI — Conversational AI Copilot (ACC-711, ACC-712, ACC-713, DELEGASI_030)
 
 Integrates with local Ollama Qwen 2.5 Coder (http://localhost:11434/api/generate)
-providing real-time quantitative context injection and a resilient deterministic fallback.
-Zero external hard-dependencies (stdlib only: json, os, re, time, urllib.request, typing).
+providing Prompt-Cache Prefix Optimization, Post-Trade Shadow Diagnostics,
+and a resilient deterministic factual fallback engine (Explainable AI / Zero Hallucination).
+Zero external hard-dependencies (stdlib only).
 """
 
 from __future__ import annotations
@@ -16,6 +17,18 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+from are.diagnostics import PostTradeDiagnostics, SlippageReport
+
+STATIC_SYSTEM_PREFIX = (
+    "Anda adalah AI Copilot Resmi untuk AHFMES-ARE Control Center (Autonomous Research Engine).\n"
+    "Arsitektur & Konstitusi Sistem:\n"
+    "1. Autonomous Research Engine (World 2: PROVE): Vectorized backtesting, OOS verification, Champion promotion.\n"
+    "2. Capital Safety Kernel (CSK): Absolute risk limits (Max DD 15%, Volatility Cutoff 2.5 sigma, Rate Limits).\n"
+    "3. Windows Vault Protocol: Immutable dual-layer JSONL witness and self-healing SQLite primary cache.\n"
+    "4. Post-Trade Shadow Diagnostics: Factual slippage drift and latency anomaly analysis.\n"
+    "Aturan Komunikasi: Jawab dalam Bahasa Indonesia kuantitatif, ramah, profesional, dan berbasis bukti faktual tanpa halusinasi."
+)
+
 
 class ConversationalCopilot:
     """Conversational AI Copilot orchestrating Ollama Qwen 2.5 Coder and fallback reasoning."""
@@ -26,12 +39,15 @@ class ConversationalCopilot:
         ollama_url: Optional[str] = None,
         model_name: Optional[str] = None,
         timeout_sec: float = 1.0,
+        event_store: Optional[Any] = None,
     ):
         self.server_state = server_state
         self.ollama_url = ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
         self.model_name = model_name or os.environ.get("OLLAMA_MODEL", "qwen2.5-coder")
         self.timeout_sec = timeout_sec
+        self.event_store = event_store
         self._model_discovered = False
+        self.diagnostics = PostTradeDiagnostics()
 
     def _discover_ollama_model(self) -> Optional[str]:
         """Auto-discovers available models from local Ollama tags API."""
@@ -45,7 +61,6 @@ class ConversationalCopilot:
                 if response.status == 200:
                     data = json.loads(response.read().decode("utf-8"))
                     models = [m.get("name", "") for m in data.get("models", []) if isinstance(m, dict)]
-                    # Prioritize qwen, coder, deepseek, or llama
                     for candidate in ("qwen", "coder", "deepseek", "llama"):
                         for m in models:
                             if candidate in m.lower():
@@ -57,6 +72,26 @@ class ConversationalCopilot:
         except Exception:
             pass
         return self.model_name
+
+    def build_prompt(self, user_message: str, dynamic_context: Dict[str, Any]) -> str:
+        """
+        Constructs optimized prompt separating static prefix cache from dynamic execution state.
+        """
+        champ = dynamic_context.get("champion", {})
+        safety = dynamic_context.get("safety", {})
+        stats = dynamic_context.get("stream_stats", {})
+
+        dynamic_part = (
+            "\nKonteks Real-Time Dinamis:\n"
+            f"- Active Champion: {champ.get('champion_id', 'NONE')} (Candidate: {champ.get('candidate_id', 'N/A')})\n"
+            f"- Status Champion: {champ.get('status', 'INACTIVE')}\n"
+            f"- CSK Kill Switch Active: {safety.get('kill_switch_active', False)}\n"
+            f"- Max Drawdown Limit: {safety.get('max_drawdown_pct', 0.15) * 100:.1f}%\n"
+            f"- Volatility Cutoff: {safety.get('volatility_cutoff', 2.5)} sigma\n"
+            f"- Total Ticks: {stats.get('total_ticks', 0)} | Veto Count: {stats.get('veto_count', 0)}\n"
+            f"- Chain Integrity: {stats.get('chain_health', 'UNKNOWN')}\n"
+        )
+        return f"{STATIC_SYSTEM_PREFIX}\n{dynamic_part}\nUser: {user_message}\nAI Copilot:"
 
     def generate_response(self, user_message: str) -> str:
         """
@@ -87,7 +122,7 @@ class ConversationalCopilot:
         if ollama_reply is not None:
             return ollama_reply
 
-        # 5. Resilient Deterministic Fallback Engine (ACC-713)
+        # 5. Resilient Deterministic Fallback Engine (ACC-713, DELEGASI_030)
         return self._generate_builtin_response(msg)
 
     def _get_current_context(self) -> Dict[str, Any]:
@@ -100,26 +135,10 @@ class ConversationalCopilot:
         }
 
     def _query_ollama(self, user_message: str, context: Dict[str, Any]) -> Optional[str]:
-        champ = context.get("champion", {})
-        safety = context.get("safety", {})
-        stats = context.get("stream_stats", {})
-
-        system_prompt = (
-            "Anda adalah AI Copilot Resmi untuk AHFMES-ARE Control Center (Autonomous Research Engine).\n"
-            "Konteks Sistem Real-Time:\n"
-            f"- Active Champion: {champ.get('champion_id', 'NONE')} (Candidate: {champ.get('candidate_id', 'N/A')})\n"
-            f"- Status Champion: {champ.get('status', 'INACTIVE')}\n"
-            f"- CSK Kill Switch Active: {safety.get('kill_switch_active', False)}\n"
-            f"- Max Drawdown Limit: {safety.get('max_drawdown_pct', 0.15) * 100:.1f}%\n"
-            f"- Volatility Cutoff: {safety.get('volatility_cutoff', 2.5)} sigma\n"
-            f"- Total Ticks: {stats.get('total_ticks', 0)} | Veto Count: {stats.get('veto_count', 0)}\n"
-            f"- Chain Integrity: {stats.get('chain_health', 'UNKNOWN')}\n\n"
-            "Jawab pertanyaan user dalam Bahasa Indonesia yang ringkas, ramah, dan bernuansa kuantitatif profesional."
-        )
-
+        prompt_text = self.build_prompt(user_message, context)
         payload = {
             "model": self.model_name,
-            "prompt": f"{system_prompt}\n\nUser: {user_message}\nAI Copilot:",
+            "prompt": prompt_text,
             "stream": False,
         }
 
@@ -189,7 +208,49 @@ class ConversationalCopilot:
                 "Seluruh sinyal perdagangan baru akan dialihkan ke `EMERGENCY_FLAT` demi mengamankan modal."
             )
 
-        # 2. Expanded Identity & Capabilities
+        # 2. Post-Trade Diagnostics & Slippage Drift Inquiry (DELEGASI_030, XAI)
+        elif any(w in norm_msg for w in (
+            "slippage",
+            "gagal",
+            "anomali",
+            "diagnostik",
+            "drift",
+            "latensi",
+            "eksekusi terakhir",
+            "order terakhir",
+            "mengapa order",
+            "kenapa order",
+            "performa broker",
+            "shadow",
+        )):
+            es = self.event_store
+            if es is None and self.server_state is not None:
+                es = getattr(self.server_state, "event_store", getattr(self.server_state, "_store", None))
+
+            anomalies = self.diagnostics.query_recent_anomalies(event_store=es, limit=5)
+            if anomalies:
+                details_list = []
+                for a in anomalies:
+                    details_list.append(
+                        f"• **{a.symbol}** (Strategi: `{a.strategy_id}`): Expected `{a.expected_price:.5f}` vs Fill `{a.actual_price:.5f}` "
+                        f"$\rightarrow$ Slippage **{a.slippage_pips:.1f} pips**, Latensi **{a.execution_latency_ms:.1f}ms** "
+                        f"(*{a.anomaly_reason}*)"
+                    )
+                summary = "\n".join(details_list)
+                return (
+                    f"🔍 **Laporan Shadow Diagnostics & Slippage Drift (Evidence-Based):**\n\n"
+                    f"Ditemukan {len(anomalies)} anomali eksekusi terekam pada Evidence Ledger:\n"
+                    f"{summary}\n\n"
+                    f"💡 *Capital Safety Kernel (CSK) terus memvalidasi deviasi ini untuk memastikan eksekusi tetap aman.*"
+                )
+            else:
+                return (
+                    "✅ **Laporan Shadow Diagnostics & Slippage Drift:**\n\n"
+                    "Berdasarkan verifikasi pada Evidence Ledger, seluruh eksekusi order terakhir berada dalam batas nominal "
+                    "(Slippage < 3.0 pips dan Latensi < 1500ms). Tidak ditemukan anomali drift broker."
+                )
+
+        # 3. Expanded Identity & Capabilities
         elif any(w in norm_msg for w in (
             "ceritakan tentang dirimu",
             "jelaskan tentang dirimu",
@@ -213,10 +274,11 @@ class ConversationalCopilot:
                 "2. **Capital Safety Kernel (CSK)**: Memastikan eksekusi mematuhi batas ketat risiko modal (Max Drawdown 15%, Volatility Cutoff 2.5σ, Rate Limit 10 order/menit).\n"
                 "3. **MetaTrader 5 & Multi-Asset Adapter**: Menghubungkan feed harga realtime dan order gateway ke terminal MT5 (`are/mt5_feed.py` & `are/mt5_gateway.py`).\n"
                 "4. **Evidence Ledger & Experience Store**: Menyimpan snapshot data pasar dan memori penyesalan anomali secara append-only dan anti-tamper.\n"
-                "5. **Interactive Action Hub**: Menjalankan riset baru, menyimulasikan tick pasar, atau memicu Emergency Kill Switch secara instan."
+                "5. **Post-Trade Shadow Diagnostics**: Memantau slippage drift dan anomali eksekusi broker secara faktual tanpa halusinasi.\n"
+                "6. **Interactive Action Hub**: Menjalankan riset baru, menyimulasikan tick pasar, atau memicu Emergency Kill Switch secara instan."
             )
 
-        # 3. MetaTrader 5 & Multi-Asset Knowledge (Handles spaced inputs e.g., 'MT 5', 'XAU USD')
+        # 4. MetaTrader 5 & Multi-Asset Knowledge
         elif any(w in norm_msg for w in (
             "mt5",
             "xauusd",
@@ -241,7 +303,7 @@ class ConversationalCopilot:
                 "Bila terjadi anomali volatilitas ekstrem atau lonjakan drawdown, sistem secara otomatis melakukan `EMERGENCY_FLAT` demi mengamankan modal."
             )
 
-        # 4. Quantitative Strategy Inquiries
+        # 5. Quantitative Strategy Inquiries
         elif any(w in norm_msg for w in ("rsi", "scalping", "strategi", "orderbook", "mean reversion", "alpha", "ema", "momentum")):
             return (
                 "📈 **Analisis Strategi Kuantitatif AHFMES-ARE:**\n\n"
@@ -251,7 +313,7 @@ class ConversationalCopilot:
                 "Seluruh sinyal strategi wajib lolos verifikasi OOS (*Out-of-Sample*) pada holdout dataset sebelum dipromosikan sebagai Champion."
             )
 
-        # 5. System Status
+        # 6. System Status
         elif any(w in norm_msg for w in ("status", "kondisi", "champion", "keadaan", "telemetri", "kesehatan")):
             status_text = "AKTIF" if not ks_active else "DIHENTIKAN (Kill-Switch Aktif)"
             return (
@@ -264,7 +326,7 @@ class ConversationalCopilot:
                 f"• **Integritas Ledger**: `{stats.get('chain_health', 'VERIFIED_OK')}`"
             )
 
-        # 6. General Greeting
+        # 7. General Greeting
         elif re.search(r"\b(halo|hai|hello|bantuan|help|apa kabar|selamat pagi|selamat siang|selamat sore|selamat malam)\b", norm_msg):
             return (
                 f"👋 **{salam}! Saya AI Copilot AHFMES-ARE Control Center.**\n\n"
@@ -273,13 +335,12 @@ class ConversationalCopilot:
                 "Coba tanyakan: *'Status sistem saat ini?'*, *'Jelaskan integrasi MT5 dan XAUUSD'*, atau *'Aktifkan kill switch'*."
             )
 
-        # 7. Intelligent Non-Robotic Fallback
+        # 8. Intelligent Non-Robotic Fallback
         else:
             return (
                 f"📊 **Analisis Kontekstual AHFMES-ARE:**\n\n"
                 f"Mengenai topik *'{raw_msg}'*, sistem saat ini beroperasi dengan Champion `{champ_id}` "
                 f"di bawah pengawasan ketat Capital Safety Kernel (CSK) dengan batas drawdown `{safety.get('max_drawdown_pct', 0.15) * 100:.1f}%`. "
                 f"Anda dapat mengeksplorasi telemetri sistem (*'status'*), integrasi eksekusi pasar (*'MT5 & XAUUSD'*), "
-                f"metodologi alpha (*'RSI & Orderbook Imbalance'*), atau mengontrol batas risiko melalui obrolan ini."
+                f"analisis slippage broker (*'slippage'*, *'diagnostik'*), atau mengontrol batas risiko melalui obrolan ini."
             )
-
