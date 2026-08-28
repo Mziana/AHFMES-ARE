@@ -299,13 +299,13 @@ Only the exact members below are current machine/closure/audit-rule authority. T
 | `PROJECT_GOVERNANCE/ARE1/README.md` | 1122722a71f9fdf79a4352108ce6b8d4d0e68fe8 | 3834 |
 | `PROJECT_GOVERNANCE/ARE1/RESIDUAL_REGISTER.md` | 3a58698e04819bb73ca673ec1d794716dca5413c | 13434 |
 | `PROJECT_GOVERNANCE/ARE2/README.md` | e3abba6c840570b294c47ce52fcfaf24824146ff | 3767 |
-| `PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md` | ad8083c2c6b5793837e418d2cfec30c1646b0417 | 2925 |
+| `PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md` | f22367a3fcdeedd9167eebf1e91a797a752a1182 | 2834 |
 | `PROJECT_GOVERNANCE/GOVERNANCE_FOLDER_STRUCTURE_RULES.md` | bac4a9094cd5adfdc48bf7cf1de735953dc49505 | 16243 |
 | `are/canonical.py` | 295adfa5d4d787b4896d86bcb8acda96aaf673f8 | 15625 |
-| `are/evidence.py` | f18312d88767a306e70656dca0005d941d21b41a | 73097 |
-| `are/registry.py` | 0fc6faa43ee110375864ba94c12379f129a7a9d9 | 55671 |
+| `are/evidence.py` | 4e78053954d3f62c61080a9ab0109fdd59ea5f2b | 71535 |
+| `are/registry.py` | dd644b828edcf9f0bd8808e14ce321fbaab0a96c | 65024 |
 | `are/state_machine.py` | 2e6abb16d0a580e8962a24e76fa7abd4d6ceaa3d | 54986 |
-| `are/storage.py` | db2b6a17e46cfae9be426fabfa8aafc60320c703 | 33927 |
+| `are/storage.py` | 4be4c3052639a0f57722812472140adeb5944295 | 35496 |
 | `tests/are/test_canonical.py` | d207ec12a4ffb74cb06d1bebd65f57ac4f4d9b0a | 16094 |
 | `tests/are/test_evidence.py` | 1270ce01786648c2f8b24cc0815e6081cce7abb7 | 32432 |
 | `tests/are/test_hasher.py` | 7c782ae1cc6943bf195f5e71ddc1142f961f19b3 | 8938 |
