@@ -87,11 +87,13 @@ REQUIRED_PROVENANCE_FIELDS = frozenset({
 
 def _to_canonical_payload(obj: Any) -> Any:
     """Helper to convert floats to string/int for canonical identity compliance."""
-    if isinstance(obj, float):
+    if isinstance(obj, Enum):
+        return obj.value
+    elif isinstance(obj, float):
         return f"{obj:.6f}"
     elif isinstance(obj, dict):
         return {str(k): _to_canonical_payload(v) for k, v in sorted(obj.items())}
-    elif isinstance(obj, list):
+    elif isinstance(obj, (list, tuple)):
         return [_to_canonical_payload(x) for x in obj]
     return obj
 
