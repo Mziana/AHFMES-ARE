@@ -269,6 +269,7 @@ class EvidenceLedger:
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._store = EventStore(db_path)
+        self._store.verify_and_heal()
         self._init_schema()
 
     def close(self) -> None:
