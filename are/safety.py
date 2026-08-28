@@ -65,11 +65,23 @@ class CapitalSafetyKernel:
         current_volatility: float,
         recent_order_count: int,
         emergency_signal: bool = False,
+        health_status: Any = "HEALTHY",
     ) -> SafetyDecision:
         """
-        Evaluates proposed action against absolute safety limits (ACC-401..ACC-405).
-        Fails-closed on any corrupt, ambiguous, NaN, Inf, or out-of-bound inputs.
+        Evaluates proposed action against absolute safety limits (ACC-401..ACC-406/DELEGASI_033).
+        Fails-closed on any corrupt, ambiguous, NaN, Inf, out-of-bound inputs, or critical system health.
         """
+        # 0. Infrastructure Health / Circuit Breaker Check (DELEGASI_033 / ACC-406)
+        if health_status is not None:
+            hs_str = str(getattr(health_status, "value", health_status)).upper()
+            if hs_str == "CRITICAL" or hs_str.endswith("CRITICAL"):
+                return SafetyDecision(
+                    allowed=False,
+                    action="EMERGENCY_FLAT",
+                    clamped_size=0.0,
+                    reason="INFRASTRUCTURE_FAILURE: SYSTEM_HEALTH_CRITICAL (ACC-406/DELEGASI_033)",
+                )
+
         # 1. Emergency Kill Switch Check (ACC-401)
         if emergency_signal or self.limits.kill_switch_active:
             return SafetyDecision(
