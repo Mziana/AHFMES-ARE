@@ -12,6 +12,30 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — MT5_BRIDGE FORMAL WAVE CLOSURE (289 TESTS PASS & METATRADER 5 BRIDGE CERTIFIED)
+
+```text
+KATEGORI : MT5_BRIDGE + GLOBAL
+STATUS   : Eksekusi DELEGASI_018 oleh Engineer AI diverifikasi dan diaudit secara formal.
+           Hasil: 10/10 Kriteria Terima PASS (ACC-601 s/d ACC-610). 289 tests pass 100%.
+           MetaTrader 5 Live Feed Adapter, Safety Gateway, dan Live Demo Runner resmi QUALIFIED & CERTIFIED.
+           Gelombang MT5_BRIDGE resmi DITUTUP & CANDIDATE FROZEN.
+DETAIL   :
+  1. AUDIT MANDIRI LEAD ARCHITECT:
+     - are/mt5_feed.py: Adapter feed live MT5 & mock feed generator tervalidasi 100% deterministik.
+     - are/mt5_gateway.py: Gated execution gateway menolak order jika CSK veto, position sizing clamping tervalidasi, emergency flat tervalidasi.
+     - are/mt5_runner.py: MT5LiveRunner live loop tervalidasi E2E thread-safe.
+  2. METRIK PENGUJIAN:
+     - Baseline P001: 281 tests pass.
+     - Suite baru MT5_BRIDGE: 8 tests pass (3 test files di tests/are/).
+     - Total: 289 passed, 105 subtests passed (38.51s).
+  3. LAPORAN & DOSSIER:
+     - Laporan Audit: PROJECT_GOVERNANCE/MT5_BRIDGE/QUALIFICATION/AHFMES_MT5_SLICE1_AUDIT_REPORT.md.
+     - Handoff: PROJECT_GOVERNANCE/MT5_BRIDGE/EXTERNAL_AUDIT/AHFMES_MT5_CANDIDATE_HANDOFF.md.
+     - Jurnal Penutupan: PROJECT_GOVERNANCE/MT5_BRIDGE/DIARY/2026-08-28-MT5-CLOSING-JURNAL.md.
+DAMPAK   : Sistem AHFMES-ARE siap dihubungkan langsung ke terminal MetaTrader 5 untuk paper trading di akun demo.
+```
+
 ## 2026-08-28 — MT5_BRIDGE INITIALIZATION, SLICE-1 CONTRACT FROZEN & DELEGASI_018 ISSUED
 
 ```text
