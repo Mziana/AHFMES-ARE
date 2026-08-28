@@ -1,8 +1,9 @@
 """
-AHFMES ARE - Isolated High-Performance Vectorized Backtest Engine (DELEGASI_028, World 2: PROVE)
+AHFMES ARE - Isolated High-Performance Vectorized Backtest Engine (DELEGASI_028, DELEGASI_029b, World 2: PROVE)
 
-Provides ultra-fast vectorized backtesting using Polars.
-Strict Architectural Firewall: Completely isolated from production execution modules.
+Provides ultra-fast vectorized backtesting using Polars with built-in data purification:
+- Strict Architectural Firewall: Completely isolated from production execution modules.
+- Anti-GIGO: Automatic DataPurifier integration (Toxic spread & macro gap filtering).
 Zero external dependencies except Polars (stdlib + polars only).
 """
 
@@ -19,6 +20,7 @@ try:
 except ImportError:
     raise ImportError("Pustaka 'polars' diperlukan untuk modul backtest. Install: pip install polars")
 
+from are.data_pipeline import DataPurifier
 from are.evidence import EvidenceLedger
 from are.hasher import compute_sha256
 from are.storage import EventStore
@@ -56,12 +58,16 @@ class IsolatedBacktestEngine:
                 "price": prices,
             })
 
+        # Purify raw tick / bar data via DataPurifier (Anti-GIGO, DELEGASI_029b)
+        purifier = DataPurifier()
+        purified_data = purifier.purify_tick_data(historical_data)
+
         # 1. Apply Strategy Logic / Moving Average Crossover
         if strategy_logic is not None:
-            df = strategy_logic(historical_data)
+            df = strategy_logic(purified_data)
         else:
             # Default Vectorized Moving Average Crossover
-            df = historical_data.with_columns([
+            df = purified_data.with_columns([
                 pl.col("price").rolling_mean(window_size=10).alias("fast_ma"),
                 pl.col("price").rolling_mean(window_size=30).alias("slow_ma"),
             ]).with_columns(
@@ -75,6 +81,15 @@ class IsolatedBacktestEngine:
 
         if "signal" not in df.columns:
             df = df.with_columns(pl.lit(1.0).alias("signal"))
+
+        # Neutralize / block trade execution on toxic spreads or closed market periods (DELEGASI_029b)
+        if "is_toxic_spread" in df.columns or "is_market_closed" in df.columns:
+            toxic_cond = pl.col("is_toxic_spread") if "is_toxic_spread" in df.columns else pl.lit(False)
+            closed_cond = pl.col("is_market_closed") if "is_market_closed" in df.columns else pl.lit(False)
+            blocked_cond = toxic_cond | closed_cond
+            df = df.with_columns(
+                pl.when(blocked_cond).then(pl.lit(0.0)).otherwise(pl.col("signal")).alias("signal")
+            )
 
         # 2. Vectorized P&L and Returns Computation
         df = df.with_columns([
