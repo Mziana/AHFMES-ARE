@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AHFMES-ARE Control Center & Copilot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-base: #0a0d14;
+            --card-bg: rgba(18, 24, 38, 0.7);
+            --card-border: rgba(64, 93, 140, 0.25);
+            --accent-cyan: #00f2ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff3366;
+            --accent-purple: #9d4edd;
+            --text-main: #e2e8f0;
+            --text-dim: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(0, 242, 255, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(157, 78, 221, 0.08) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: rgba(10, 13, 20, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            color: #000;
+        }
+
+        .brand-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: linear-gradient(90deg, #fff, var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .badge {
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .badge-green {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .badge-red {
+            background: rgba(255, 51, 102, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(255, 51, 102, 0.3);
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-cyan {
+            background: linear-gradient(135deg, #00f2ff, #0099ff);
+            color: #000;
+        }
+        .btn-cyan:hover {
+            opacity: 0.9;
+            box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+        }
+
+        .btn-red {
+            background: linear-gradient(135deg, #ff3366, #cc0033);
+            color: #fff;
+        }
+        .btn-red:hover {
+            box-shadow: 0 0 15px rgba(255, 51, 102, 0.4);
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            border: 1px solid var(--card-border);
+        }
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        main {
+            padding: 1.5rem 2rem;
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .dashboard-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .cards-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.25rem;
+            font-family: 'Consolas', monospace;
+        }
+
+        .stat-desc {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .chart-container {
+            height: 320px;
+            position: relative;
+        }
+
+        .action-hub {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 120px);
+            position: sticky;
+            top: 5rem;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .chat-msg {
+            padding: 0.75rem 1rem;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            max-width: 90%;
+        }
+
+        .msg-user {
+            align-self: flex-end;
+            background: rgba(0, 242, 255, 0.15);
+            border: 1px solid rgba(0, 242, 255, 0.3);
+            color: #fff;
+        }
+
+        .msg-ai {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            color: #fff;
+            font-size: 0.85rem;
+            outline: none;
+        }
+        .chat-input:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .quick-prompts {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.5rem;
+        }
+
+        .quick-btn {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: var(--text-dim);
+            cursor: pointer;
+        }
+        .quick-btn:hover {
+            color: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+        }
+
+        @media (max-width: 1100px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+            .chat-panel {
+                height: 450px;
+                position: static;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand">
+        <div class="brand-logo">A</div>
+        <div class="brand-title">AHFMES-ARE Control Center</div>
+    </div>
+    <div class="header-controls">
+        <span id="kill-badge" class="badge badge-green">CSK Normal</span>
+        <button id="btn-toggle-kill" class="btn btn-red" onclick="toggleKillSwitch()">🛑 Kill Switch</button>
+        <button class="btn btn-outline" onclick="fetchStatus()">🔄 Refresh</button>
+    </div>
+</header>
+
+<main>
+    <div class="dashboard-grid">
+        <!-- Metric Cards -->
+        <div class="cards-row">
+            <div class="glass-card">
+                <div class="card-header">
+                    <span class="card-title">Active Champion</span>
+                    <span id="champ-status" class="badge badge-green">Active</span>
+                </div>
+                <div id="champ-id" class="stat-value">P001_CHAMPION_V1</div>
+                <div id="champ-desc" class="stat-desc">Candidate: CAND_ALPHA_001</div>
+            </div>
+
+            <div class="glass-card">
+                <div class="card-header">
+                    <span class="card-title">Capital Safety Kernel</span>
+                    <span class="badge badge-green">Veto Gate</span>
+                </div>
+                <div id="safety-dd" class="stat-value">15.0% DD</div>
+                <div id="safety-vol" class="stat-desc">Cutoff: 2.50 σ | Max Size: 1.0</div>
+            </div>
+
+            <div class="glass-card">
+                <div class="card-header">
+                    <span class="card-title">Operational Stream</span>
+                    <span id="chain-badge" class="badge badge-green">Chain OK</span>
+                </div>
+                <div id="stat-ticks" class="stat-value">0 Ticks</div>
+                <div id="stat-veto" class="stat-desc">Veto Ratio: 0.0% (Regret Normal)</div>
+            </div>
+        </div>
+
+        <!-- Live Chart Panel -->
+        <div class="glass-card">
+            <div class="card-header">
+                <span class="card-title">Live Market Stream & Alpha Signals (BTC/USD)</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="marketChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Action Hub Panel -->
+        <div class="glass-card">
+            <div class="card-header">
+                <span class="card-title">Autonomous Action Hub</span>
+            </div>
+            <div class="action-hub">
+                <button class="btn btn-cyan" onclick="triggerResearchCycle()">🚀 Run Autonomous Research Cycle</button>
+                <button class="btn btn-outline" onclick="injectTick(false)">⚡ Step Normal Tick</button>
+                <button class="btn btn-outline" style="border-color: #ffaa00; color: #ffaa00;" onclick="injectTick(true)">💥 Inject Volatility Shock</button>
+                <button class="btn btn-outline" onclick="loadLineage()">📜 View Champion Lineage</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Copilot Chat Panel -->
+    <div class="glass-card chat-panel">
+        <div class="card-header">
+            <span class="card-title">🤖 ARE Conversational Copilot</span>
+        </div>
+
+        <div class="quick-prompts">
+            <span class="quick-btn" onclick="sendQuickPrompt('Status sistem saat ini?')">📊 Status Sistem</span>
+            <span class="quick-btn" onclick="sendQuickPrompt('Jalankan siklus riset baru')">🚀 Jalankan Riset</span>
+            <span class="quick-btn" onclick="sendQuickPrompt('Uji injeksi volatility shock')">⚡ Uji Shock</span>
+            <span class="quick-btn" onclick="sendQuickPrompt('Bantuan copilot')">💡 Bantuan</span>
+        </div>
+
+        <div id="chat-messages" class="chat-messages">
+            <div class="chat-msg msg-ai">
+                👋 **Halo! Saya AI Copilot AHFMES-ARE Control Center.**<br><br>
+                Saya memantau operasional mesin riset otonom Anda secara real-time. Anda dapat mengajukan pertanyaan status, memicu riset otonom, atau mengelola proteksi modal CSK melalui obrolan ini.
+            </div>
+        </div>
+
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Tanya AI Copilot..." onkeydown="if(event.key==='Enter') sendChat()">
+            <button class="btn btn-cyan" onclick="sendChat()">Kirim</button>
+        </div>
+    </div>
+</main>
+
+<script>
+    let killSwitchActive = false;
+    let chartInstance = null;
+    let chartData = {
+        labels: [],
+        prices: [],
+        signals: []
+    };
+
+    function initChart() {
+        const ctx = document.getElementById('marketChart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.labels,
+                datasets: [{
+                    label: 'BTC/USD Price',
+                    data: chartData.prices,
+                    borderColor: '#00f2ff',
+                    backgroundColor: 'rgba(0, 242, 255, 0.05)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } }
+                },
+                plugins: {
+                    legend: { labels: { color: '#e2e8f0' } }
+                }
+            }
+        });
+    }
+
+    async function fetchStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+
+            // Update Champion
+            document.getElementById('champ-id').innerText = data.champion.champion_id;
+            document.getElementById('champ-desc').innerText = `Candidate: ${data.champion.candidate_id}`;
+            document.getElementById('champ-status').innerText = data.champion.status;
+
+            // Update CSK Safety
+            killSwitchActive = data.safety.kill_switch_active;
+            const killBadge = document.getElementById('kill-badge');
+            const killBtn = document.getElementById('btn-toggle-kill');
+            if (killSwitchActive) {
+                killBadge.innerText = "CSK VETO ACTIVE";
+                killBadge.className = "badge badge-red";
+                killBtn.innerText = "✅ Resume Operations";
+                killBtn.className = "btn btn-cyan";
+            } else {
+                killBadge.innerText = "CSK Normal";
+                killBadge.className = "badge badge-green";
+                killBtn.innerText = "🛑 Kill Switch";
+                killBtn.className = "btn btn-red";
+            }
+
+            document.getElementById('safety-dd').innerText = `${(data.safety.max_drawdown_pct * 100).toFixed(1)}% DD`;
+            document.getElementById('safety-vol').innerText = `Cutoff: ${data.safety.volatility_cutoff} σ | Max Size: ${data.safety.max_position_size}`;
+
+            // Update Stream Stats
+            document.getElementById('stat-ticks').innerText = `${data.stream_stats.total_ticks} Ticks`;
+            document.getElementById('stat-veto').innerText = `Veto Ratio: ${data.stream_stats.veto_ratio_pct}% (${data.stream_stats.veto_count} vetoes)`;
+
+            // Update Chart
+            if (data.recent_ticks && data.recent_ticks.length > 0) {
+                chartData.labels = data.recent_ticks.map((t, i) => `#${i + 1}`);
+                chartData.prices = data.recent_ticks.map(t => t.price);
+                chartInstance.data.labels = chartData.labels;
+                chartInstance.data.datasets[0].data = chartData.prices;
+                chartInstance.update();
+            }
+
+        } catch (e) {
+            console.error("Fetch status failed:", e);
+        }
+    }
+
+    async function toggleKillSwitch() {
+        try {
+            const res = await fetch('/api/kill-switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active: !killSwitchActive })
+            });
+            await res.json();
+            fetchStatus();
+        } catch (e) {
+            alert("Error toggling kill switch: " + e);
+        }
+    }
+
+    async function triggerResearchCycle() {
+        appendChatMessage("user", "Jalankan Siklus Riset Otonom");
+        appendChatMessage("ai", "⏳ Memulai siklus riset otonom (Ingestion -> Feature Extraction -> Alpha Generation -> Validation -> Critic & Governor Gate)...");
+        try {
+            const res = await fetch('/api/run-cycle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: 'BTCUSD' })
+            });
+            const data = await res.json();
+            fetchStatus();
+            if (data.promoted_champion) {
+                appendChatMessage("ai", `🚀 **Promosi Champion Berhasil!**\nChampion baru: \`${data.promoted_champion.champion_id}\` dari kandidat \`${data.promoted_champion.candidate_id}\`.`);
+            } else {
+                appendChatMessage("ai", "🔍 Siklus riset selesai. Tidak ada kandidat yang mengungguli baseline Champion saat ini.");
+            }
+        } catch (e) {
+            appendChatMessage("ai", "❌ Gagal menjalankan riset: " + e);
+        }
+    }
+
+    async function injectTick(isShock) {
+        try {
+            const lastPrice = chartData.prices.length > 0 ? chartData.prices[chartData.prices.length - 1] : 65000.0;
+            const delta = (Math.random() - 0.5) * (isShock ? 500 : 50);
+            const price = lastPrice + delta;
+
+            const res = await fetch('/api/step-tick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: 'BTCUSD',
+                    price: price,
+                    volatility: isShock ? 3.0 : 1.0,
+                    is_shock: isShock
+                })
+            });
+            const tick = await res.json();
+            fetchStatus();
+        } catch (e) {
+            console.error("Inject tick error:", e);
+        }
+    }
+
+    async function loadLineage() {
+        try {
+            const res = await fetch('/api/champion-history');
+            const data = await res.json();
+            let msg = `📜 **Lineage Silsilah Champion (${data.length} records):**\n\n`;
+            data.forEach(r => {
+                const dt = new Date(r.activated_at * 1000).toISOString().replace('T', ' ').substr(0, 19);
+                msg += `• [${r.status}] **${r.champion_id}** (Candidate: ${r.candidate_id}) at ${dt}\n`;
+            });
+            appendChatMessage("ai", msg);
+        } catch (e) {
+            appendChatMessage("ai", "Gagal memuat silsilah champion: " + e);
+        }
+    }
+
+    async function sendChat() {
+        const input = document.getElementById('chat-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        appendChatMessage("user", text);
+        input.value = "";
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text })
+            });
+            const data = await res.json();
+            appendChatMessage("ai", data.reply);
+            fetchStatus();
+        } catch (e) {
+            appendChatMessage("ai", "❌ Terjadi kendala saat menghubungi AI Copilot: " + e);
+        }
+    }
+
+    function sendQuickPrompt(prompt) {
+        document.getElementById('chat-input').value = prompt;
+        sendChat();
+    }
+
+    function appendChatMessage(sender, text) {
+        const container = document.getElementById('chat-messages');
+        const div = document.createElement('div');
+        div.className = `chat-msg msg-${sender}`;
+        div.innerHTML = text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\`(.*?)\`/g, '<code>$1</code>');
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    window.onload = () => {
+        initChart();
+        fetchStatus();
+        setInterval(fetchStatus, 3000);
+    };
+</script>
+</body>
+</html>

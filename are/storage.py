@@ -90,6 +90,8 @@ class EventStore:
     def __init__(self, db_path: str, wal_mode: bool = True):
         self._db_path = db_path
         self._local = threading.local()
+        self._conns_lock = threading.Lock()
+        self._all_conns: List[sqlite3.Connection] = []
         self._init_schema()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -108,7 +110,26 @@ class EventStore:
                 return SQLITE_OK
             conn.set_authorizer(_authorizer)
             self._local.conn = conn
+            with self._conns_lock:
+                self._all_conns.append(conn)
         return self._local.conn
+
+    def close(self) -> None:
+        with self._conns_lock:
+            for conn in self._all_conns:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._all_conns.clear()
+        if hasattr(self._local, "conn"):
+            self._local.conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def _init_schema(self) -> None:
         conn = self._get_conn()
