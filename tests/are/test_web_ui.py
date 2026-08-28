@@ -158,5 +158,82 @@ class TestWebUI(unittest.TestCase):
             self.assertIsNotNone(data.get("promoted_champion"))
 
 
+class TestWebUIAuth(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = os.path.join(cls.tmp_dir.name, "auth_test.db")
+        cls.auth_token = "secure_test_token_123"
+        cls.state = AREServerState(cls.db_path, auth_token=cls.auth_token)
+        web_ui_module._GLOBAL_SERVER_STATE = cls.state
+
+        cls.httpd = http.server.HTTPServer(("127.0.0.1", 0), AREAPIHandler)
+        cls.server_port = cls.httpd.server_address[1]
+        cls.server_thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.server_thread.start()
+        time.sleep(0.05)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        if hasattr(cls, 'server_thread') and cls.server_thread.is_alive():
+            cls.server_thread.join(timeout=2.0)
+        cls.state.close()
+        web_ui_module._GLOBAL_SERVER_STATE = None
+        import gc
+        gc.collect()
+        time.sleep(0.1)
+        try:
+            cls.tmp_dir.cleanup()
+        except Exception:
+            pass
+
+    def _make_auth_request(self, method: str, path: str, headers: dict = None, body: dict = None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.server_port, timeout=10)
+        hdrs = {"Content-Type": "application/json"}
+        if headers:
+            hdrs.update(headers)
+        data = json.dumps(body) if body else None
+        conn.request(method, path, body=data, headers=hdrs)
+        resp = conn.getresponse()
+        resp_data = resp.read().decode("utf-8")
+        conn.close()
+        try:
+            return resp.status, json.loads(resp_data)
+        except Exception:
+            return resp.status, resp_data
+
+    def test_unauthenticated_request_rejected_401(self):
+        status, data = self._make_auth_request("GET", "/api/status")
+        self.assertEqual(status, 401)
+        self.assertEqual(data.get("error"), "Unauthorized")
+
+    def test_invalid_token_rejected_401(self):
+        status, data = self._make_auth_request("GET", "/api/status", headers={"X-Auth-Token": "wrong_token"})
+        self.assertEqual(status, 401)
+        self.assertEqual(data.get("error"), "Unauthorized")
+
+    def test_valid_token_via_query_param_allowed_200(self):
+        status, data = self._make_auth_request("GET", f"/api/status?auth={self.auth_token}")
+        self.assertEqual(status, 200)
+        self.assertIn("champion", data)
+
+    def test_valid_token_via_header_allowed_200(self):
+        status, data = self._make_auth_request("GET", "/api/status", headers={"X-Auth-Token": self.auth_token})
+        self.assertEqual(status, 200)
+        self.assertIn("champion", data)
+
+    def test_valid_token_via_bearer_allowed_200(self):
+        status, data = self._make_auth_request("GET", "/api/status", headers={"Authorization": f"Bearer {self.auth_token}"})
+        self.assertEqual(status, 200)
+        self.assertIn("champion", data)
+
+    def test_public_index_html_always_accessible_200(self):
+        status, content = self._make_auth_request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn("AHFMES-ARE Control Center", content)
+
+
 if __name__ == "__main__":
     unittest.main()

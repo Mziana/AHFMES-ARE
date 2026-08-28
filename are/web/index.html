@@ -401,6 +401,18 @@
     </div>
 </main>
 
+<!-- Glassmorphism Security Gateway Modal -->
+<div id="auth-modal" style="display: none; position: fixed; inset: 0; background: rgba(5, 8, 15, 0.85); backdrop-filter: blur(16px); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: rgba(18, 24, 38, 0.9); border: 1px solid rgba(0, 242, 255, 0.4); box-shadow: 0 0 30px rgba(0, 242, 255, 0.2); border-radius: 16px; padding: 2rem; width: 90%; max-width: 420px; text-align: center;">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔒</div>
+        <h2 style="color: #fff; margin-bottom: 0.5rem; font-size: 1.4rem;">Security Gateway</h2>
+        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem;">Dashboard ini dilindungi token keamanan. Masukkan Access Key / Token Anda untuk membuka akses.</p>
+        <input type="password" id="auth-token-input" placeholder="Masukkan Access Token..." style="width: 100%; padding: 0.75rem 1rem; background: rgba(10, 13, 20, 0.8); border: 1px solid var(--card-border); border-radius: 8px; color: #fff; font-size: 0.95rem; margin-bottom: 1rem; outline: none;" onkeydown="if(event.key==='Enter') saveAuthToken()">
+        <button class="btn btn-cyan" style="width: 100%; justify-content: center; padding: 0.75rem;" onclick="saveAuthToken()">🔓 Unlock Dashboard</button>
+        <div id="auth-error" style="color: var(--accent-red); font-size: 0.85rem; margin-top: 0.75rem; display: none;">Token tidak valid atau belum diberikan.</div>
+    </div>
+</div>
+
 <script>
     let killSwitchActive = false;
     let chartInstance = null;
@@ -409,6 +421,56 @@
         prices: [],
         signals: []
     };
+
+    function getAuthToken() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('auth') || urlParams.get('token');
+        if (urlToken) {
+            localStorage.setItem('are_token', urlToken);
+            return urlToken;
+        }
+        return localStorage.getItem('are_token') || '';
+    }
+
+    function showAuthModal(show = true) {
+        const modal = document.getElementById('auth-modal');
+        if (modal) {
+            modal.style.display = show ? 'flex' : 'none';
+            if (show) {
+                const inp = document.getElementById('auth-token-input');
+                if (inp) inp.focus();
+            }
+        }
+    }
+
+    function saveAuthToken() {
+        const input = document.getElementById('auth-token-input');
+        const token = input ? input.value.trim() : '';
+        if (token) {
+            localStorage.setItem('are_token', token);
+            showAuthModal(false);
+            const errElem = document.getElementById('auth-error');
+            if (errElem) errElem.style.display = 'none';
+            fetchStatus();
+        }
+    }
+
+    async function apiFetch(url, options = {}) {
+        const token = getAuthToken();
+        const headers = options.headers || {};
+        if (token) {
+            headers['X-Auth-Token'] = token;
+        }
+        options.headers = headers;
+        const res = await fetch(url, options);
+        if (res.status === 401) {
+            showAuthModal(true);
+            const errElem = document.getElementById('auth-error');
+            if (errElem) errElem.style.display = 'block';
+            throw new Error("Unauthorized (401)");
+        }
+        return res;
+    }
 
     function initChart() {
         const ctx = document.getElementById('marketChart').getContext('2d');
@@ -443,7 +505,7 @@
 
     async function fetchStatus() {
         try {
-            const res = await fetch('/api/status');
+            const res = await apiFetch('/api/status');
             const data = await res.json();
 
             // Update Champion
@@ -490,7 +552,7 @@
 
     async function toggleKillSwitch() {
         try {
-            const res = await fetch('/api/kill-switch', {
+            const res = await apiFetch('/api/kill-switch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ active: !killSwitchActive })
@@ -511,7 +573,7 @@
         appendChatMessage("user", "Jalankan Siklus Riset Otonom");
         appendChatMessage("ai", "⏳ Memulai siklus riset otonom (Ingestion -> Feature Extraction -> Alpha Generation -> Validation -> Critic & Governor Gate)...");
         try {
-            const res = await fetch('/api/run-cycle', {
+            const res = await apiFetch('/api/run-cycle', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symbol: 'BTCUSD' })
@@ -541,7 +603,7 @@
             const delta = (Math.random() - 0.5) * (isShock ? 500 : 50);
             const price = lastPrice + delta;
 
-            const res = await fetch('/api/step-tick', {
+            const res = await apiFetch('/api/step-tick', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -560,7 +622,7 @@
 
     async function loadLineage() {
         try {
-            const res = await fetch('/api/champion-history');
+            const res = await apiFetch('/api/champion-history');
             const data = await res.json();
             let msg = `📜 **Lineage Silsilah Champion (${data.length} records):**\n\n`;
             data.forEach(r => {
@@ -582,7 +644,7 @@
         input.value = "";
 
         try {
-            const res = await fetch('/api/chat', {
+            const res = await apiFetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: text })
@@ -610,6 +672,7 @@
     }
 
     window.onload = () => {
+        getAuthToken();
         initChart();
         fetchStatus();
         setInterval(fetchStatus, 3000);
