@@ -120,10 +120,11 @@ class GovernorEngine:
         validator_principal: str,
         promoter_principal: str,
         current_ts: Optional[float] = None,
+        statistical_robustness: Optional[tuple[bool, str]] = None,
     ) -> PromotionDisposition:
         """
         Evaluates promotion of a Candidate to replace Champion.
-        Fails-closed if SoD is violated, validation is rejected, or critic fails.
+        Fails-closed if SoD is violated, validation is rejected, critic fails, or statistical robustness fails.
         """
         # 1. Enforce Separation of Duties
         self.verify_sod(creator_principal, validator_principal, promoter_principal)
@@ -132,7 +133,12 @@ class GovernorEngine:
 
         # 2. Gate Evaluation
         is_validated = validation_report.status == "VALIDATED"
-        if is_validated and critic_passed:
+        stat_passed = True
+        stat_reason = ""
+        if statistical_robustness is not None:
+            stat_passed, stat_reason = statistical_robustness
+
+        if is_validated and critic_passed and stat_passed:
             decision = "PROMOTED"
             rationale = (
                 f"Candidate '{candidate_id}' passed out-of-sample validation "
@@ -146,9 +152,12 @@ class GovernorEngine:
                 reasons.append(f"validation status is {validation_report.status}")
             if not critic_passed:
                 reasons.append("critic adversarial evaluation failed")
+            if not stat_passed:
+                reasons.append(f"statistical robustness validation failed ({stat_reason})")
             rationale = (
                 f"Candidate '{candidate_id}' dismissed against Champion '{champion_id}': "
                 + "; ".join(reasons)
+                + "."
             )
 
         # 3. Cryptographic Signature
