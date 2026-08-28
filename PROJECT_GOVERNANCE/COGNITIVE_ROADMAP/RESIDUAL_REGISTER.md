@@ -10,6 +10,7 @@ Effective Date: **2026-08-28**
 | ID Residu | Deskripsi | Kategori | Target Fase | Status |
 |---|---|---|---|:---:|
 | **RES-COG-03** | Token Auth Gateway & Secure AI Tunnel (7x24h local stability gate) | Security Gateway | Fase 3 | 📋 GATED (DELEGASI_024) |
+| **RES-COG-07** | Comprehensive Hardening & 7-Organ E2E Cognitive Gauntlet | Cross-Cutting Hardening | Fase 4 Entry | ⏳ ACTIVE (DELEGASI_035) |
 
 ---
 
