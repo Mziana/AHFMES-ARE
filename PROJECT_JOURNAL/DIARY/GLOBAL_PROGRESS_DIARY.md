@@ -12,6 +12,30 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — DELEGASI_032 MULTIMODAL EXTERNAL ALPHA PIPELINE COMPLETED (352 TESTS PASS & PHASE 3 QUALIFIED)
+
+```text
+KATEGORI : ARE_RESEARCH + EXTERNAL_ALPHA + TOOLS + COGNITIVE_ROADMAP + GLOBAL
+STATUS   : Eksekusi DELEGASI_032 diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS (ACC-1601 s/d ACC-1603). Total 352 tests pass 100%.
+           Isolated External Alpha Scraper & Ingestion Pipeline resmi QUALIFIED.
+           SELURUH PIPELINE RISET KOGNITIF FASE 1, FASE 2, DAN FASE 3 RESMI 100% LENGKAP & QUALIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - TOOLS/external_alpha_scraper.py: fetch_text_from_source(), clean_json_response(), extract_parameters_via_llm(), process_and_ingest_external_source() (100% stdlib, isolasi Organ 7 penuh).
+     - are/hypothesis_schema.py: validate_alpha_seed() menolak parameter cacat dan kode Python dinamis (Zero Code Gen/No exec).
+     - tests/are/test_external_alpha_invariants.py: 3 pengujian invarian mutlak.
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-28-DELEGASI_032-EXTERNAL-ALPHA-JURNAL.md.
+     - Register Residu: RES-COG-06 terselesaikan (a93ab98).
+  3. METRIK PENGUJIAN:
+     - Baseline: 349 tests pass.
+     - Suite Baru: 3 tests pass (tests/are/test_external_alpha_invariants.py).
+     - Total: 352 passed, 105 subtests passed (65.28s).
+DAMPAK   : Sistem kuantitatif otonom AHFMES-ARE kini memiliki 7 Organ Komputasional yang utuh: dari pencernaan riset eksternal (Organ 7), otak formulasi hipotesis (Organ 1), purifikasi data (Organ 3), backtest sandbox terisolasi (Organ 1), validasi ketahanan Monte Carlo (Organ 2), ratifikasi Governor (Organ 2), penyimpanan brankas anti-tamper (Organ 5), antarmuka XAI Copilot (Organ 6), hingga eksekusi mikro-detik deterministik (Organ 4).
+```
+
 ## 2026-08-28 — DELEGASI_031b WALK-FORWARD & MONTE CARLO VALIDATION ENGINE COMPLETED (349 TESTS PASS)
 
 ```text
