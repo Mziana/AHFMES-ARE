@@ -18,6 +18,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from are.champion import ChampionRecord, ChampionRegistry
+from are.copilot import ConversationalCopilot
 from are.evidence import EvidenceLedger
 from are.habitat import ConditionAtlas, HabitatAdapter
 from are.operational import OperationalBrain, OperationalSignal
@@ -56,6 +57,7 @@ class AREServerState:
         )
 
         self.live_ticks_history: List[Dict[str, Any]] = []
+        self.copilot = ConversationalCopilot(self)
 
     def close(self) -> None:
         with self.lock:
@@ -294,79 +296,12 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, tick_res)
 
         elif self.path == "/api/chat":
-            msg = str(payload.get("message", "")).strip().lower()
-            reply = self._generate_copilot_response(msg, state)
+            msg = str(payload.get("message", "")).strip()
+            reply = state.copilot.generate_response(msg)
             self._send_json(200, {"reply": reply})
 
         else:
             self._send_json(404, {"error": f"Endpoint '{self.path}' not found"})
-
-    def _generate_copilot_response(self, msg: str, state: AREServerState) -> str:
-        champ = state.champion_registry.get_active_champion()
-        champ_name = champ.champion_id if champ else "Belum Ada (Genesis)"
-        ks_active = state.safety_kernel.limits.kill_switch_active
-
-        if any(w in msg for w in ("halo", "hai", "siapa", "kamu", "bantuan", "help")):
-            return (
-                "👋 **Halo! Saya AI Copilot AHFMES-ARE Control Center.**\n\n"
-                "Saya dapat membantu Anda memantau status riset kuantitatif, mengelola batas keselamatan modal CSK, "
-                "memicu siklus riset otonom, atau menguji injeksi anomali pasar. "
-                "Coba tanyakan: *'Status sistem saat ini?'*, *'Jalankan riset baru'*, atau *'Aktifkan kill switch'*."
-            )
-
-        elif any(w in msg for w in ("status", "kondisi", "champion", "keadaan")):
-            status_text = "AKTIF" if not ks_active else "DIHENTIKAN (Kill-Switch Aktif)"
-            return (
-                f"📊 **Ringkasan Status Sistem AHFMES-ARE:**\n\n"
-                f"• **Active Champion**: `{champ_name}`\n"
-                f"• **Status Eksekusi**: `{status_text}`\n"
-                f"• **Max Drawdown Limit**: `{state.safety_limits.max_drawdown_pct * 100:.1f}%`\n"
-                f"• **Volatility Cutoff**: `{state.safety_limits.volatility_cutoff} sigma`\n"
-                f"• **Integritas Ledger**: `VERIFIED (Append-Only EventStore Cryptographic Chain OK)`"
-            )
-
-        elif any(w in msg for w in ("riset", "cycle", "run", "temukan", "alpha")):
-            res = state.run_autonomous_cycle("BTCUSD")
-            champ_res = res.get("promoted_champion")
-            if champ_res:
-                return (
-                    f"🚀 **Siklus Riset Otonom Berhasil Dijalankan!**\n\n"
-                    f"• **Program Status**: `SUCCESS`\n"
-                    f"• **Champion Baru Dipromosikan**: `{champ_res['champion_id']}`\n"
-                    f"• **Kandidat Terpilih**: `{champ_res['candidate_id']}`\n"
-                    f"• **Metrik Validasi Out-of-Sample**: Lolos uji adversarial Critic dan ratifikasi Governor SoD."
-                )
-            else:
-                return "🔍 **Siklus riset telah selesai dievaluasi**, namun tidak ada kandidat baru yang mengungguli Champion aktif saat ini."
-
-        elif any(w in msg for w in ("kill", "darurat", "stop", "matikan", "bahaya")):
-            state.set_kill_switch(True)
-            return (
-                "🛑 **EMERGENCY KILL SWITCH TELAH DIAKTIFKAN!**\n\n"
-                "Capital Safety Kernel (CSK) kini memblokir seluruh eksekusi order (VETO aktif). "
-                "Seluruh sinyal perdagangan baru akan dialihkan ke `EMERGENCY_FLAT` demi mengamankan modal."
-            )
-
-        elif any(w in msg for w in ("hidupkan", "nyalakan", "resume", "aktifkan kembali", "reset kill")):
-            state.set_kill_switch(False)
-            return "✅ **Kill Switch dinonaktifkan.** Sistem kembali ke mode operasional normal terpagar CSK."
-
-        elif any(w in msg for w in ("shock", "anomali", "injeksi", "pasar")):
-            tick_res = state.process_tick_event(is_shock=True)
-            return (
-                f"⚡ **Injeksi Volatility Shock Terkirim!**\n\n"
-                f"• **Sinyal Dihasilkan**: `{tick_res['signal']}`\n"
-                f"• **Keputusan CSK**: `Allowed = {tick_res['allowed']}`\n"
-                f"• **Keterangan**: `{tick_res['reason']}`\n"
-                "Regret Analyzer akan mendeteksi peningkatan rasio veto jika anomali berlanjut."
-            )
-
-        else:
-            return (
-                f"🤖 Saya memahami pertanyaan Anda mengenai *'{msg}'*. "
-                f"Saat ini sistem berjalan dengan Champion `{champ_name}` di bawah perlindungan Capital Safety Kernel. "
-                "Ketik *'status'* untuk melihat telemetri lengkap, atau gunakan tombol Action Hub di sebelah kiri."
-            )
 
 
 def run_server(
