@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import time
+import urllib.parse
 from typing import Any, Dict, List, Optional
 
 from are.champion import ChampionRecord, ChampionRegistry
@@ -31,8 +32,9 @@ from are.storage import EventStore
 class AREServerState:
     """Thread-safe application state container for the Web UI."""
 
-    def __init__(self, db_path: str = "are_interactive.db"):
+    def __init__(self, db_path: str = "are_interactive.db", auth_token: Optional[str] = None):
         self.db_path = db_path
+        self.auth_token = auth_token
         self.lock = threading.Lock()
 
         self.event_store = EventStore(db_path)
@@ -105,38 +107,34 @@ class AREServerState:
                     "veto_ratio_pct": round(veto_ratio, 2),
                     "chain_health": "VERIFIED_OK" if chain_ok else "CHAIN_CORRUPTED",
                 },
-                "recent_ticks": self.live_ticks_history[-30:],
+                "live_ticks": self.live_ticks_history[-30:],
                 "server_time": time.time(),
             }
 
     def set_kill_switch(self, active: bool) -> bool:
         with self.lock:
-            new_limits = SafetyLimits(
-                max_position_size=self.safety_limits.max_position_size,
-                max_drawdown_pct=self.safety_limits.max_drawdown_pct,
-                volatility_cutoff=self.safety_limits.volatility_cutoff,
-                max_order_rate_per_min=self.safety_limits.max_order_rate_per_min,
+            self.safety_kernel.limits = SafetyLimits(
+                max_position_size=self.safety_kernel.limits.max_position_size,
+                max_drawdown_pct=self.safety_kernel.limits.max_drawdown_pct,
+                volatility_cutoff=self.safety_kernel.limits.volatility_cutoff,
+                max_order_rate_per_min=self.safety_kernel.limits.max_order_rate_per_min,
                 kill_switch_active=active,
             )
-            self.safety_limits = new_limits
-            self.safety_kernel = CapitalSafetyKernel(new_limits)
-            self.brain.safety_kernel = self.safety_kernel
-            return self.safety_limits.kill_switch_active
+            return self.safety_kernel.limits.kill_switch_active
 
     def process_tick_event(
         self,
         symbol: str = "BTCUSD",
         price: float = 65000.0,
         volatility: float = 1.0,
-        trend_strength: float = 1.2,
         is_shock: bool = False,
     ) -> Dict[str, Any]:
         with self.lock:
-            ts = time.time()
+            t_now = time.time()
             features = {
                 "price": price,
                 "volatility": volatility * (3.5 if is_shock else 1.0),
-                "trend_strength": trend_strength,
+                "trend_strength": 1.2,
                 "realized_volatility": (volatility * 3.5 if is_shock else volatility) / 100.0,
                 "imbalance_ratio": -0.6 if is_shock else 0.4,
             }
@@ -148,25 +146,31 @@ class AREServerState:
 
             sig: OperationalSignal = self.brain.process_tick(
                 symbol=symbol,
-                timestamp=ts,
+                timestamp=t_now,
                 market_features=features,
                 current_risk_state=risk_state,
-                as_of_cutoff=ts + 100.0,
+                as_of_cutoff=t_now + 100.0,
             )
 
-            tick_record = {
-                "time": ts,
+            tick_rec = {
+                "timestamp": t_now,
+                "symbol": symbol,
                 "price": price,
+                "volatility": volatility,
+                "action": sig.final_action,
                 "signal": sig.final_action,
+                "confidence": 0.9,
                 "allowed": sig.safety_decision.allowed,
+                "safety_allowed": sig.safety_decision.allowed,
                 "reason": sig.safety_decision.reason,
+                "safety_reason": sig.safety_decision.reason,
                 "is_shock": is_shock,
             }
-            self.live_ticks_history.append(tick_record)
-            if len(self.live_ticks_history) > 200:
-                self.live_ticks_history.pop(0)
+            self.live_ticks_history.append(tick_rec)
+            if len(self.live_ticks_history) > 100:
+                self.live_ticks_history = self.live_ticks_history[-100:]
 
-            return tick_record
+            return tick_rec
 
     def run_autonomous_cycle(self, symbol: str = "BTCUSD") -> Dict[str, Any]:
         with self.lock:
@@ -208,6 +212,49 @@ _GLOBAL_SERVER_STATE: Optional[AREServerState] = None
 class AREAPIHandler(http.server.BaseHTTPRequestHandler):
     """HTTP Request Handler routing REST API endpoints and static assets."""
 
+    def _is_authorized(self) -> bool:
+        """Verifies access token from query param, HTTP header, or cookie (ACC-721)."""
+        global _GLOBAL_SERVER_STATE
+        state = _GLOBAL_SERVER_STATE
+        if state is None or not state.auth_token:
+            return True
+
+        expected = state.auth_token.strip()
+        if not expected:
+            return True
+
+        # 1. Query parameter (?auth=... or ?token=...)
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            token_q = (qs.get("auth", [None])[0] or qs.get("token", [None])[0] or "").strip()
+            if token_q and token_q == expected:
+                return True
+        except Exception:
+            pass
+
+        # 2. HTTP Headers (X-Auth-Token or Authorization: Bearer)
+        x_auth = self.headers.get("X-Auth-Token", "").strip()
+        if x_auth == expected:
+            return True
+
+        auth_hdr = self.headers.get("Authorization", "").strip()
+        if auth_hdr.lower().startswith("bearer "):
+            token_bearer = auth_hdr[7:].strip()
+            if token_bearer == expected:
+                return True
+
+        # 3. HTTP Cookie (are_auth=...)
+        cookie_hdr = self.headers.get("Cookie", "")
+        if cookie_hdr:
+            for cookie in cookie_hdr.split(";"):
+                parts = cookie.strip().split("=", 1)
+                if len(parts) == 2 and parts[0].strip() == "are_auth":
+                    if parts[1].strip() == expected:
+                        return True
+
+        return False
+
     def _send_json(self, status_code: int, data: Any):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status_code)
@@ -216,7 +263,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
         self.end_headers()
         self.wfile.write(body)
         self.close_connection = True
@@ -225,14 +272,16 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
         self.end_headers()
 
     def do_GET(self):
         global _GLOBAL_SERVER_STATE
         state = _GLOBAL_SERVER_STATE
 
-        if self.path in ("/", "/index.html"):
+        clean_path = urllib.parse.urlparse(self.path).path
+
+        if clean_path in ("/", "/index.html"):
             html_path = os.path.join(os.path.dirname(__file__), "web", "index.html")
             if os.path.exists(html_path):
                 with open(html_path, "r", encoding="utf-8") as f:
@@ -246,14 +295,20 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
             else:
                 self._send_json(404, {"error": "index.html not found"})
+            return
 
-        elif self.path == "/api/status":
+        # Protected REST API Endpoints
+        if not self._is_authorized():
+            self._send_json(401, {"error": "Unauthorized", "message": "Token otentikasi tidak valid atau belum diberikan."})
+            return
+
+        if clean_path == "/api/status":
             if state is not None:
                 self._send_json(200, state.get_status_payload())
             else:
                 self._send_json(500, {"error": "Server state uninitialized"})
 
-        elif self.path == "/api/champion-history":
+        elif clean_path == "/api/champion-history":
             if state is not None:
                 lineage = state.champion_registry.list_champion_lineage()
                 self._send_json(200, [r.__dict__ for r in lineage])
@@ -261,7 +316,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Server state uninitialized"})
 
         else:
-            self._send_json(404, {"error": f"Endpoint '{self.path}' not found"})
+            self._send_json(404, {"error": f"Endpoint '{clean_path}' not found"})
 
     def do_POST(self):
         global _GLOBAL_SERVER_STATE
@@ -270,6 +325,13 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(500, {"error": "Server state uninitialized"})
             return
 
+        # Protected REST API Endpoints
+        if not self._is_authorized():
+            self._send_json(401, {"error": "Unauthorized", "message": "Token otentikasi tidak valid atau belum diberikan."})
+            return
+
+        clean_path = urllib.parse.urlparse(self.path).path
+
         content_len = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
         try:
@@ -277,7 +339,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        if self.path == "/api/run-cycle":
+        if clean_path == "/api/run-cycle":
             symbol = payload.get("symbol", "BTCUSD")
             try:
                 res = state.run_autonomous_cycle(symbol)
@@ -285,12 +347,12 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json(200, {"status": "error", "message": str(e)})
 
-        elif self.path == "/api/kill-switch":
+        elif clean_path == "/api/kill-switch":
             active = bool(payload.get("active", True))
             new_val = state.set_kill_switch(active)
             self._send_json(200, {"kill_switch_active": new_val})
 
-        elif self.path == "/api/step-tick":
+        elif clean_path == "/api/step-tick":
             symbol = payload.get("symbol", "BTCUSD")
             price = float(payload.get("price", 65000.0))
             vol = float(payload.get("volatility", 1.0))
@@ -298,27 +360,29 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             tick_res = state.process_tick_event(symbol=symbol, price=price, volatility=vol, is_shock=is_shock)
             self._send_json(200, tick_res)
 
-        elif self.path == "/api/chat":
+        elif clean_path == "/api/chat":
             msg = str(payload.get("message", "")).strip()
             reply = state.copilot.generate_response(msg)
             self._send_json(200, {"reply": reply})
 
         else:
-            self._send_json(404, {"error": f"Endpoint '{self.path}' not found"})
+            self._send_json(404, {"error": f"Endpoint '{clean_path}' not found"})
 
 
 def run_server(
     db_path: str = "are_interactive.db",
     host: str = "127.0.0.1",
     port: int = 8080,
+    auth_token: Optional[str] = None,
 ) -> None:
     """Starts the Web UI HTTP Server."""
     global _GLOBAL_SERVER_STATE
-    _GLOBAL_SERVER_STATE = AREServerState(db_path)
+    _GLOBAL_SERVER_STATE = AREServerState(db_path, auth_token=auth_token)
 
     server_address = (host, port)
     httpd = http.server.HTTPServer(server_address, AREAPIHandler)
-    print(f"[ARE-WEB] Server started at http://{host}:{port} (Database: {db_path})")
+    token_info = f" [Auth Protected: token='{auth_token}']" if auth_token else " [No Auth]"
+    print(f"[ARE-WEB] Server started at http://{host}:{port}{token_info} (Database: {db_path})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -332,9 +396,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--db", default="are_interactive.db", help="Path to SQLite database")
     parser.add_argument("--host", default="127.0.0.1", help="Host IP to bind")
     parser.add_argument("--port", type=int, default=8080, help="Port to listen on")
+    parser.add_argument("--auth-token", default=os.environ.get("ARE_AUTH_TOKEN", None), help="Access token for security gateway")
 
     args = parser.parse_args(argv)
-    run_server(db_path=args.db, host=args.host, port=args.port)
+    run_server(db_path=args.db, host=args.host, port=args.port, auth_token=args.auth_token)
     return 0
 
 
