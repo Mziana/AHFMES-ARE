@@ -39,7 +39,7 @@ class TestDualImplHashCrossCheck(unittest.TestCase):
             b"",
             b"a",
             b"hello world",
-            b"unicode: \u00e9\u00f1\u4e2d",
+            "unicode: \u00e9\u00f1\u4e2d".encode("utf-8"),
             b"x" * 1000,
             b"\x00\x01\x02\xff\xfe\xfd",
         ]
