@@ -107,17 +107,23 @@ class TestCopilot(unittest.TestCase):
         self.assertIn("AI Copilot", reply)
 
     def test_copilot_expanded_identity(self):
-        reply = self.copilot.generate_response("Jelaskan tentang dirimu dan apa kemampuanmu?")
-        self.assertIn("Peran & Kemampuan Utama Saya", reply)
+        reply = self.copilot.generate_response("ceritakan tentang dirimu")
+        self.assertIn("AI Copilot AHFMES-ARE Control Center", reply)
         self.assertIn("Autonomous Research Engine", reply)
         self.assertIn("Capital Safety Kernel", reply)
         self.assertIn("MetaTrader 5", reply)
 
     def test_copilot_mt5_and_xauusd_inquiry(self):
-        reply = self.copilot.generate_response("Bagaimana cara menghubungkan sistem ke MT5 untuk pair XAUUSD?")
+        # Spaced MT 5 and XAU USD query
+        reply = self.copilot.generate_response("apa kamu bisa mengakses dan membuka MT 5 untuk pair XAU USD?")
         self.assertIn("Integrasi MetaTrader 5 (MT5)", reply)
         self.assertIn("are/mt5_feed.py", reply)
         self.assertIn("are/mt5_gateway.py", reply)
+        self.assertIn("XAUUSD", reply)
+
+    def test_copilot_buka_pasar_xauusd(self):
+        reply = self.copilot.generate_response("buka pasar xauusd")
+        self.assertIn("Integrasi MetaTrader 5 (MT5)", reply)
         self.assertIn("XAUUSD", reply)
 
     def test_copilot_status_inquiry(self):
@@ -143,9 +149,10 @@ class TestCopilot(unittest.TestCase):
         self.assertIn("Kill Switch dinonaktifkan", reply_deact)
         self.assertFalse(self.state.kill_switch_active)
 
-    def test_copilot_generic_question_fallback(self):
-        reply = self.copilot.generate_response("Berapa temperatur di Tokyo?")
-        self.assertIn("Saya memahami pertanyaan Anda", reply)
+    def test_copilot_generic_question_non_robotic_fallback(self):
+        reply = self.copilot.generate_response("Berapa temperatur di Tokyo saat ini?")
+        self.assertIn("Analisis Kontekstual AHFMES-ARE", reply)
+        self.assertNotIn("Saya memahami pertanyaan Anda", reply)
         self.assertIn("P001_CHAMPION_V1", reply)
 
     def test_copilot_ollama_online_mock_integration_and_model_discovery(self):

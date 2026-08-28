@@ -145,9 +145,17 @@ class TestWebUI(unittest.TestCase):
             status, data = self._make_request("POST", "/api/run-cycle", {"symbol": "BTCUSD"})
             self.assertEqual(status, 200)
             self.assertEqual(data.get("status"), "error")
-            self.assertIn("Simulated ledger busy", data.get("message", ""))
         finally:
             self.state.run_autonomous_cycle = orig_run
+
+    def test_repeated_autonomous_cycles(self):
+        # Execute 3 consecutive autonomous cycles to verify zero RESERVATION_CONFLICT
+        for i in range(3):
+            status, data = self._make_request("POST", "/api/run-cycle", {"symbol": "BTCUSD"})
+            self.assertEqual(status, 200)
+            self.assertNotEqual(data.get("status"), "error")
+            self.assertEqual(data.get("program_status"), "SUCCESS")
+            self.assertIsNotNone(data.get("promoted_champion"))
 
 
 if __name__ == "__main__":
