@@ -12,6 +12,28 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — DELEGASI_029b DATA CLEANSING & GAP-ALIGNMENT ENGINE COMPLETED (336 TESTS PASS & ANTI-GIGO CERTIFIED)
+
+```text
+KATEGORI : ARE_DATA_PIPELINE + BACKTEST + GLOBAL
+STATUS   : Eksekusi DELEGASI_029b oleh Engineer AI diverifikasi dan diaudit secara formal oleh Lead Architect.
+           Hasil: 100% Kriteria Terima PASS (ACC-1101 s/d ACC-1105). Total 336 tests pass 100%.
+           Data Purifier (Zero Linear Interpolation, LOCF Gap Alignment, Toxic Spread & Rollover Neutralization) resmi QUALIFIED & CERTIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & IMPLEMENTASI:
+     - are/data_pipeline.py: Dibuat DataPurifier dengan lazy polars import, DataChronologyError, CrossedMarketError, strict monotonic timestamp enforcement, crossed market bid>ask rejection, rolling spread calculation (min_periods=1), toxic spread tagging (>3x MA spread), LOCF micro-gap forward-fill (<1h), dan macro-gap market-closed flagging (>=1h / weekend).
+     - are/backtest.py: Integrasi otomatis IsolatedBacktestEngine memurnikan dataset via DataPurifier dan menetralisir / membatalkan sinyal trading pada bar dengan is_toxic_spread == True atau is_market_closed == True.
+     - tests/are/test_data_cleansing_invariants.py: 5 pengujian invarian mutlak (LOCF anti-interpolation bias, macro-gap weekend preservation, toxic spread trade suppression, timestamp chronology assertion, crossed market rejection).
+  2. METRIK PENGUJIAN:
+     - Baseline: 331 tests pass.
+     - Suite Baru: 5 tests pass (tests/are/test_data_cleansing_invariants.py).
+     - Total: 336 passed, 105 subtests passed.
+  3. ARTEFAK GIT:
+     - Commit: 4b9fe90 on main.
+     - Push: origin/main up-to-date.
+DAMPAK   : Seluruh data historis yang dikonsumsi oleh Backtest Harness (Organ 1) kini bebas dari bias interpolasi fiktif dan terlindung dari lonjakan spread beracun saat rollover/weekend.
+```
+
 ## 2026-08-28 — DELEGASI_029 THE WINDOWS VAULT PROTOCOL COMPLETED (331 TESTS PASS & TRUE IMMUTABLE STORAGE CERTIFIED)
 
 ```text
