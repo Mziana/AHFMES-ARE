@@ -10,8 +10,7 @@ Effective Date: **2026-08-28**
 | ID Residu | Deskripsi | Kategori | Target Fase | Status |
 |---|---|---|---|:---:|
 | **RES-COG-03** | Token Auth Gateway & Secure AI Tunnel (7x24h local stability gate) | Security Gateway | Fase 3 | 📋 GATED (DELEGASI_024) |
-| **RES-COG-04** | LLM-Assisted Hypothesis Generator (462 Alpha Zoo Ingestion) | Cognitive Brain | Fase 3 | ⏳ NEXT TARGET (DELEGASI_031) |
-| **RES-COG-05** | Governor Validation Hardening (Walk-Forward & Monte Carlo) | Governor & Risk | Fase 3 | 📋 QUEUED (DELEGASI_031b) |
+| **RES-COG-05** | Governor Validation Hardening (Walk-Forward & Monte Carlo) | Governor & Risk | Fase 3 | ⏳ NEXT TARGET (DELEGASI_031b) |
 | **RES-COG-06** | Multimodal External Alpha Pipeline di TOOLS/ | External Alpha | Fase 3 | 📋 QUEUED (DELEGASI_032) |
 
 ---
@@ -27,5 +26,7 @@ Effective Date: **2026-08-28**
 | **RES-COG-00E** | Data Cleansing & Gap-Alignment Engine (Anti-GIGO) | DELEGASI_029b | `4b9fe90` |
 | **RES-COG-01** | Local Health Watchdog & CSK Circuit Breaker Integration | DELEGASI_033 | `fc4540e` |
 | **RES-COG-02** | Explainable AI via Text-to-Query & Shadow Diagnostics | DELEGASI_030 | `4033c86` |
+| **RES-COG-04** | Alpha Zoo Hypothesis Schema & Isolated Ingestion Engine | DELEGASI_031 | `6ff7920` |
+
 
 
