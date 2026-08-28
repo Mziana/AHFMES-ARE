@@ -1,5 +1,5 @@
 """
-AHFMES ARE-3 — Out-of-Sample Validation Service & Statistical Robustness Engine (DELEGASI_031b)
+AHFMES ARE-3 — Out-of-Sample Validation Service & Statistical Robustness Engine (DELEGASI_031b & DELEGASI_035A)
 
 Implements:
 - ValidationReport: immutable validation assessment record.
@@ -8,8 +8,13 @@ Implements:
 - monte_carlo_simulation: permutation testing for lucky sequences and ruin probability.
 - walk_forward_consistency: out-of-sample performance retention scoring.
 - validate_statistical_robustness: fail-closed statistical judge.
+- standard_normal_cdf: Gaussian cumulative distribution function.
+- acklam_inverse_normal_cdf: Acklam (2010) high-precision probit inverse normal CDF (< 1.15e-9 error).
+- apply_fdr_correction: Benjamini-Hochberg (1995) false discovery rate control.
+- calculate_probabilistic_sharpe_ratio: Probabilistic Sharpe Ratio (Lopez de Prado, 2012).
+- calculate_deflated_sharpe_ratio: Deflated Sharpe Ratio with multiple-testing correction.
 
-Zero external dependencies (stdlib + polars support).
+100% Python Standard Library (math, typing, dataclasses) + Polars support. Zero SciPy.
 """
 
 from __future__ import annotations
@@ -312,3 +317,164 @@ def validate_statistical_robustness(
         return (False, "WFA_REGIME_DECAY: Out-of-sample performance retention fell below 50%.")
 
     return (True, "STATISTICALLY_ROBUST")
+
+
+# =============================================================================
+# DELEGASI_035A: STATISTICAL RIGOR (ACKLAM, FDR, PSR, DSR) — 100% STDLIB
+# =============================================================================
+
+
+def standard_normal_cdf(x: float) -> float:
+    """
+    Standard Normal Cumulative Distribution Function (Phi).
+    Uses math.erf from Python Standard Library.
+    """
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def acklam_inverse_normal_cdf(p: float) -> float:
+    """
+    Inverse Standard Normal Cumulative Distribution Function (Probit function).
+    By Peter J. Acklam (2010). Absolute error < 1.15e-9.
+    100% Python Standard Library.
+    """
+    if p <= 0.0 or p >= 1.0:
+        raise ValueError(f"Probability p must be in (0, 1), got {p}")
+
+    # Koefisien Acklam
+    a = (
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    )
+    b = (
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    )
+    c = (
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    )
+    d = (
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e00,
+        3.754408661907416e00,
+    )
+
+    p_low = 0.02425
+    p_high = 1.0 - p_low
+
+    if p < p_low:
+        # Rational approximation for lower region
+        q = math.sqrt(-2.0 * math.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
+        )
+    elif p <= p_high:
+        # Rational approximation for central region
+        q = p - 0.5
+        r = q * q
+        return (
+            (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+            * q
+            / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
+        )
+    else:
+        # Rational approximation for upper region
+        q = math.sqrt(-2.0 * math.log(1.0 - p))
+        return -(
+            (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
+            / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+        )
+
+
+def apply_fdr_correction(p_values: List[float], alpha: float = 0.05) -> List[bool]:
+    """
+    Benjamini-Hochberg (1995) procedure.
+    Mengembalikan list of bool yang berukuran sama dengan p_values.
+    True menandakan hipotesis lolos koreksi FDR (bukan false discovery).
+    """
+    if not p_values:
+        return []
+    m = len(p_values)
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+
+    max_k = -1
+    for rank_minus_1, (orig_idx, p_val) in enumerate(indexed):
+        k = rank_minus_1 + 1
+        if p_val <= (k / m) * alpha:
+            max_k = rank_minus_1
+
+    survived = [False] * m
+    if max_k != -1:
+        for rank_minus_1 in range(max_k + 1):
+            orig_idx = indexed[rank_minus_1][0]
+            survived[orig_idx] = True
+    return survived
+
+
+def calculate_probabilistic_sharpe_ratio(
+    observed_sharpe: float,
+    benchmark_sharpe: float,
+    num_observations: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    """
+    Menghitung probabilitas (0.0 - 1.0) bahwa Sharpe ratio teramati berada di atas benchmark,
+    disesuaikan dengan skewness, kurtosis, dan panjang sampel data (Lopez de Prado, 2012).
+    """
+    if num_observations <= 1:
+        return 0.0
+    denom_sq = 1.0 - skewness * observed_sharpe + ((kurtosis - 1.0) / 4.0) * (observed_sharpe**2)
+    if denom_sq <= 0.0:
+        return 0.0
+    std_error = math.sqrt(denom_sq / (num_observations - 1))
+    z_stat = (observed_sharpe - benchmark_sharpe) / std_error
+    return standard_normal_cdf(z_stat)
+
+
+def calculate_deflated_sharpe_ratio(
+    observed_sharpe: float,
+    num_trials: int,
+    num_observations: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+    var_sharpe: float = 1.0,
+) -> Tuple[float, float]:
+    """
+    Menghitung Deflated Sharpe Ratio (DSR) dengan benchmark ekspektasi Sharpe maksimum
+    dari N pengujian independen.
+    Mengembalikan: (expected_max_sharpe, p_value).
+    p_value < 0.05 mengindikasikan strategi lolos uji signifikansi.
+    """
+    if num_trials <= 1:
+        expected_max_sr = 0.0
+    else:
+        euler_mascheroni = 0.5772156649015329
+        p1 = 1.0 - (1.0 / num_trials)
+        p2 = 1.0 - (1.0 / (num_trials * math.e))
+        z1 = acklam_inverse_normal_cdf(max(1e-6, min(1.0 - 1e-6, p1)))
+        z2 = acklam_inverse_normal_cdf(max(1e-6, min(1.0 - 1e-6, p2)))
+        expected_max_sr = math.sqrt(var_sharpe) * ((1.0 - euler_mascheroni) * z1 + euler_mascheroni * z2)
+
+    psr = calculate_probabilistic_sharpe_ratio(
+        observed_sharpe=observed_sharpe,
+        benchmark_sharpe=expected_max_sr,
+        num_observations=num_observations,
+        skewness=skewness,
+        kurtosis=kurtosis,
+    )
+    p_value = max(0.0, 1.0 - psr)
+    return (expected_max_sr, p_value)

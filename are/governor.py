@@ -121,10 +121,13 @@ class GovernorEngine:
         promoter_principal: str,
         current_ts: Optional[float] = None,
         statistical_robustness: Optional[tuple[bool, str]] = None,
+        candidate_dsr_p_value: Optional[float] = None,
+        candidate_psr: Optional[float] = None,
     ) -> PromotionDisposition:
         """
         Evaluates promotion of a Candidate to replace Champion.
-        Fails-closed if SoD is violated, validation is rejected, critic fails, or statistical robustness fails.
+        Fails-closed if SoD is violated, validation is rejected, critic fails,
+        statistical robustness fails, DSR p_value >= 0.05, or PSR < 0.95.
         """
         # 1. Enforce Separation of Duties
         self.verify_sod(creator_principal, validator_principal, promoter_principal)
@@ -138,7 +141,15 @@ class GovernorEngine:
         if statistical_robustness is not None:
             stat_passed, stat_reason = statistical_robustness
 
-        if is_validated and critic_passed and stat_passed:
+        dsr_passed = True
+        if candidate_dsr_p_value is not None and candidate_dsr_p_value >= 0.05:
+            dsr_passed = False
+
+        psr_passed = True
+        if candidate_psr is not None and candidate_psr < 0.95:
+            psr_passed = False
+
+        if is_validated and critic_passed and stat_passed and dsr_passed and psr_passed:
             decision = "PROMOTED"
             rationale = (
                 f"Candidate '{candidate_id}' passed out-of-sample validation "
@@ -154,6 +165,10 @@ class GovernorEngine:
                 reasons.append("critic adversarial evaluation failed")
             if not stat_passed:
                 reasons.append(f"statistical robustness validation failed ({stat_reason})")
+            if not dsr_passed:
+                reasons.append(f"REJECTED: DEFLATED_SHARPE_INSUFFICIENT (p_value={candidate_dsr_p_value:.4f} >= 0.05)")
+            if not psr_passed:
+                reasons.append(f"REJECTED: PROBABILISTIC_SHARPE_INSUFFICIENT (PSR={candidate_psr:.4f} < 0.95)")
             rationale = (
                 f"Candidate '{candidate_id}' dismissed against Champion '{champion_id}': "
                 + "; ".join(reasons)
