@@ -191,3 +191,6 @@ class IsolatedBacktestEngine:
             )
 
         return proof_hash
+
+    # Alias for explicit API naming
+    run_vectorized_backtest = run_backtest
