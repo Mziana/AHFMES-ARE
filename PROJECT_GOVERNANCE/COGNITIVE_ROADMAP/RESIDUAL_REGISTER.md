@@ -10,7 +10,6 @@ Effective Date: **2026-08-28**
 | ID Residu | Deskripsi | Kategori | Target Fase | Status |
 |---|---|---|---|:---:|
 | **RES-COG-03** | Token Auth Gateway & Secure AI Tunnel (7x24h local stability gate) | Security Gateway | Fase 3 | 📋 GATED (DELEGASI_024) |
-| **RES-COG-06** | Multimodal External Alpha Pipeline di TOOLS/ | External Alpha | Fase 3 | ⏳ NEXT TARGET (DELEGASI_032) |
 
 ---
 
@@ -27,6 +26,8 @@ Effective Date: **2026-08-28**
 | **RES-COG-02** | Explainable AI via Text-to-Query & Shadow Diagnostics | DELEGASI_030 | `4033c86` |
 | **RES-COG-04** | Alpha Zoo Hypothesis Schema & Isolated Ingestion Engine | DELEGASI_031 | `6ff7920` |
 | **RES-COG-05** | Walk-Forward & Monte Carlo Permutation Validation | DELEGASI_031b | `b2a3ab7` |
+| **RES-COG-06** | Multimodal External Alpha Scraper & Ingestion Pipeline | DELEGASI_032 | `a93ab98` |
+
 
 
 
