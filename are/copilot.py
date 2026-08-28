@@ -142,8 +142,19 @@ class ConversationalCopilot:
 
         return None
 
+    def _normalize_query(self, text: str) -> str:
+        """Normalizes whitespaces, symbols, and domain abbreviations."""
+        t = text.lower().strip()
+        t = re.sub(r"[\s\-_]+", " ", t)
+        t = re.sub(r"\bmt\s*5\b|\bmetatrader\s*5\b|\bmetatrader\b", "mt5", t)
+        t = re.sub(r"\bxau\s*usd\b|\bgold\b|\bemas\b", "xauusd", t)
+        t = re.sub(r"\bbtc\s*usd\b|\bbitcoin\b", "btcusd", t)
+        t = re.sub(r"\beur\s*usd\b", "eurusd", t)
+        return t
+
     def _generate_builtin_response(self, user_message: str) -> str:
-        lower_msg = user_message.lower()
+        raw_msg = user_message.strip()
+        norm_msg = self._normalize_query(user_message)
         context = self._get_current_context()
         champ = context.get("champion", {})
         safety = context.get("safety", {})
@@ -164,12 +175,12 @@ class ConversationalCopilot:
             salam = "Selamat malam"
 
         # 1. Kill Switch Actions (Highest Priority)
-        if any(w in lower_msg for w in ("hidupkan", "nyalakan", "resume", "aktifkan kembali", "reset kill", "unblock")):
+        if any(w in norm_msg for w in ("hidupkan", "nyalakan", "resume", "aktifkan kembali", "reset kill", "unblock")):
             if self.server_state is not None and hasattr(self.server_state, "set_kill_switch"):
                 self.server_state.set_kill_switch(False)
             return "✅ **Kill Switch dinonaktifkan.** Sistem kembali ke mode operasional normal terpagar CSK."
 
-        elif any(w in lower_msg for w in ("kill", "darurat", "stop", "matikan", "bahaya", "veto")):
+        elif any(w in norm_msg for w in ("kill", "darurat", "stop", "matikan", "bahaya", "veto")):
             if self.server_state is not None and hasattr(self.server_state, "set_kill_switch"):
                 self.server_state.set_kill_switch(True)
             return (
@@ -179,51 +190,59 @@ class ConversationalCopilot:
             )
 
         # 2. Expanded Identity & Capabilities
-        elif any(w in lower_msg for w in (
+        elif any(w in norm_msg for w in (
+            "ceritakan tentang dirimu",
             "jelaskan tentang dirimu",
             "siapa kamu",
             "apa kemampuanmu",
+            "apa tugasmu",
+            "kamu bisa apa",
             "kamu siapa",
             "siapa anda",
             "perkenalkan dirimu",
             "profil",
             "tentang kamu",
+            "kemampuanmu",
+            "fungsi kamu",
+            "tugas kamu",
         )):
             return (
                 f"🤖 **{salam}! Saya adalah AI Copilot AHFMES-ARE Control Center.**\n\n"
-                "**Peran & Kemampuan Utama Saya:**\n"
-                "1. **Autonomous Research Engine (ARE)**: Memantau siklus hipotesis kuantitatif, backtesting sandbox, verifikasi walk-forward, dan promosi Champion model.\n"
+                "**Arsitektur & Kemampuan Utama Saya:**\n"
+                "1. **Autonomous Research Engine (ARE)**: Memandu siklus hipotesis kuantitatif, backtesting sandbox, verifikasi out-of-sample holdout, dan promosi Champion model.\n"
                 "2. **Capital Safety Kernel (CSK)**: Memastikan eksekusi mematuhi batas ketat risiko modal (Max Drawdown 15%, Volatility Cutoff 2.5σ, Rate Limit 10 order/menit).\n"
                 "3. **MetaTrader 5 & Multi-Asset Adapter**: Menghubungkan feed harga realtime dan order gateway ke terminal MT5 (`are/mt5_feed.py` & `are/mt5_gateway.py`).\n"
-                "4. **Interactive Action Hub**: Menjalankan riset baru, menyimulasikan tick pasar, atau memicu Emergency Kill Switch secara instan."
+                "4. **Evidence Ledger & Experience Store**: Menyimpan snapshot data pasar dan memori penyesalan anomali secara append-only dan anti-tamper.\n"
+                "5. **Interactive Action Hub**: Menjalankan riset baru, menyimulasikan tick pasar, atau memicu Emergency Kill Switch secara instan."
             )
 
-        # 3. MetaTrader 5 & Multi-Asset Knowledge
-        elif any(w in lower_msg for w in (
+        # 3. MetaTrader 5 & Multi-Asset Knowledge (Handles spaced inputs e.g., 'MT 5', 'XAU USD')
+        elif any(w in norm_msg for w in (
             "mt5",
-            "metatrader",
             "xauusd",
-            "gold",
-            "emas",
-            "forex",
+            "btcusd",
             "eurusd",
+            "forex",
             "broker",
             "terminal",
+            "buka pasar",
+            "akses pasar",
+            "trading",
             "pair",
             "live trading",
         )):
             return (
                 "📊 **Integrasi MetaTrader 5 (MT5) & Multi-Asset AHFMES-ARE:**\n\n"
-                "AHFMES-ARE telah dilengkapi modul bridge siap pakai:\n"
-                "• **Market Feed Adapter (`are/mt5_feed.py`)**: Mengalirkan tick realtime dari terminal MT5 untuk instrumen seperti `XAUUSD`, `BTCUSD`, atau pasangan Forex.\n"
-                "• **Execution Risk Firewall (`are/mt5_gateway.py`)**: Memfilter seluruh sinyal order Champion melalui batas proteksi Capital Safety Kernel (CSK) sebelum dikirim ke broker.\n\n"
-                "💡 **Cara Menghubungkan ke XAUUSD / Forex:**\n"
-                "Inisialisasi config feed: `MT5FeedConfig(symbol='XAUUSD')` lalu jalankan runner `MT5LiveDemoRunner`. "
-                "Bila terjadi anomali volatilitas ekstrem, sistem akan otomatis melakukan `EMERGENCY_FLAT` demi mengamankan modal."
+                "AHFMES-ARE telah dilengkapi modul bridge trading siap pakai:\n"
+                "• **Market Feed Adapter (`are/mt5_feed.py`)**: Mengalirkan tick realtime dari terminal MT5 untuk instrumen seperti `XAUUSD` (Gold), `BTCUSD`, atau pasangan Forex.\n"
+                "• **Execution Risk Firewall (`are/mt5_gateway.py`)**: Memfilter seluruh sinyal order Champion melalui batas proteksi Capital Safety Kernel (CSK) sebelum diteruskan ke broker.\n\n"
+                "💡 **Cara Menghubungkan ke Pasar XAUUSD / Forex:**\n"
+                "Inisialisasi konfigurasi feed: `MT5FeedConfig(symbol='XAUUSD')` lalu aktifkan `MT5LiveDemoRunner`. "
+                "Bila terjadi anomali volatilitas ekstrem atau lonjakan drawdown, sistem secara otomatis melakukan `EMERGENCY_FLAT` demi mengamankan modal."
             )
 
         # 4. Quantitative Strategy Inquiries
-        elif any(w in lower_msg for w in ("rsi", "scalping", "strategi", "orderbook", "mean reversion", "alpha")):
+        elif any(w in norm_msg for w in ("rsi", "scalping", "strategi", "orderbook", "mean reversion", "alpha", "ema", "momentum")):
             return (
                 "📈 **Analisis Strategi Kuantitatif AHFMES-ARE:**\n\n"
                 "1. **RSI / Momentum (`are/features.py`)**: Menghitung kecepatan pergerakan harga & crossover EMA cepat vs lambat.\n"
@@ -233,7 +252,7 @@ class ConversationalCopilot:
             )
 
         # 5. System Status
-        elif any(w in lower_msg for w in ("status", "kondisi", "champion", "keadaan", "telemetri")):
+        elif any(w in norm_msg for w in ("status", "kondisi", "champion", "keadaan", "telemetri", "kesehatan")):
             status_text = "AKTIF" if not ks_active else "DIHENTIKAN (Kill-Switch Aktif)"
             return (
                 f"📊 **Ringkasan Status Sistem AHFMES-ARE:**\n\n"
@@ -246,19 +265,21 @@ class ConversationalCopilot:
             )
 
         # 6. General Greeting
-        elif re.search(r"\b(halo|hai|hello|bantuan|help)\b", lower_msg):
+        elif re.search(r"\b(halo|hai|hello|bantuan|help|apa kabar|selamat pagi|selamat siang|selamat sore|selamat malam)\b", norm_msg):
             return (
                 f"👋 **{salam}! Saya AI Copilot AHFMES-ARE Control Center.**\n\n"
-                "Saya dapat membantu Anda memantau status riset kuantitatif, mengelola batas keselamatan modal CSK, "
+                "Saya siap membantu Anda memantau status riset kuantitatif, mengelola batas keselamatan modal CSK, "
                 "memicu siklus riset otonom, atau menghubungkan sistem ke terminal MetaTrader 5 (MT5). "
                 "Coba tanyakan: *'Status sistem saat ini?'*, *'Jelaskan integrasi MT5 dan XAUUSD'*, atau *'Aktifkan kill switch'*."
             )
 
-        # 7. Fallback Contextual Response
+        # 7. Intelligent Non-Robotic Fallback
         else:
             return (
-                f"🤖 Saya memahami pertanyaan Anda mengenai *'{user_message}'*. "
-                f"Saat ini sistem berjalan dengan Champion `{champ_id}` di bawah perlindungan Capital Safety Kernel. "
-                "Ketik *'status'* untuk melihat telemetri lengkap, tanyakan tentang *'MT5 dan XAUUSD'*, atau gunakan tombol Action Hub."
+                f"📊 **Analisis Kontekstual AHFMES-ARE:**\n\n"
+                f"Mengenai topik *'{raw_msg}'*, sistem saat ini beroperasi dengan Champion `{champ_id}` "
+                f"di bawah pengawasan ketat Capital Safety Kernel (CSK) dengan batas drawdown `{safety.get('max_drawdown_pct', 0.15) * 100:.1f}%`. "
+                f"Anda dapat mengeksplorasi telemetri sistem (*'status'*), integrasi eksekusi pasar (*'MT5 & XAUUSD'*), "
+                f"metodologi alpha (*'RSI & Orderbook Imbalance'*), atau mengontrol batas risiko melalui obrolan ini."
             )
 

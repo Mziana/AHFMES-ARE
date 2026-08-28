@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -80,7 +81,8 @@ class ValidationService:
                 )
 
         # 2. Holdout Evidence Accounting (ACC-304)
-        snap_id = f"SNAP_VAL_{candidate_id}_{int(as_of_ts)}"
+        t_unique = int(time.time() * 1000000)
+        snap_id = f"SNAP_VAL_{candidate_id}_{int(as_of_ts)}_{t_unique % 1000000}"
         snapshot = self.evidence_ledger.create_snapshot(
             evidence_snapshot_id=snap_id,
             source_manifest_hash="0" * 64,
@@ -93,8 +95,8 @@ class ValidationService:
             origin="PROSPECTIVE_STRICT_BLIND",
         )
 
-        batch_root = hashlib.sha256(f"BATCH_{candidate_id}".encode("utf-8")).hexdigest()
-        res_id = f"RES_VAL_{candidate_id}_{int(as_of_ts)}"
+        batch_root = hashlib.sha256(f"BATCH_{candidate_id}_{t_unique}".encode("utf-8")).hexdigest()
+        res_id = f"RES_VAL_{candidate_id}_{int(as_of_ts)}_{t_unique % 1000000}"
         reservation = self.evidence_ledger.create_reservation(
             reservation_id=res_id,
             research_program_id=research_program_id,
@@ -116,7 +118,7 @@ class ValidationService:
 
         # Log exposure
         self.evidence_ledger.log_exposure(
-            exposure_event_id=f"EXP_{candidate_id}_{int(as_of_ts)}",
+            exposure_event_id=f"EXP_{candidate_id}_{int(as_of_ts)}_{t_unique % 1000000}",
             evidence_snapshot_root_hash=snapshot.root_hash,
             research_program_id=research_program_id,
             research_family_root="0" * 64,

@@ -99,7 +99,7 @@ class P001ProgramRunner:
         )
 
         # Step 1: Ingest Training Market Ticks
-        snap_id = f"SNAP_P001_{symbol}_{int(t_start)}"
+        snap_id = f"SNAP_P001_{symbol}_{int(t_start * 1000)}_{int(time.time() * 1000000) % 1000000}"
         snapshot = self.ingestion_service.ingest_ticks(symbol, raw_market_ticks, snap_id)
 
         # Step 2: Extract Market Features
