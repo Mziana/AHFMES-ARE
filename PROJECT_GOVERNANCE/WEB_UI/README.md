@@ -30,23 +30,23 @@ Gelombang **WEB_UI** membangun antarmuka pengguna visual dan pusat kendali inter
 |---|---|:---:|
 | `GRAND_DESIGN/` | Desain arsitektur UI & protokol chat | `.gitkeep` |
 | `AUTHORITY_AND_WORKFLOW/` | Charter WEB_UI & Delegasi eksekusi | Charter T4 Ratified, DELEGASI_019 |
-| `CONTRACTS/` | Kontrak formal Slice-1 WEB_UI | SLICE_1_CONTRACT_WEB_UI.md (FROZEN) |
+| `CONTRACTS/` | Kontrak formal Slice-1 WEB_UI | SLICE_1_CONTRACT_WEB_UI.md (CERTIFIED) |
 | `MACHINE/` | Sumber mesin kanonikal WEB_UI | `.gitkeep` |
 | `MANIFEST/` | Manifest normatif WEB_UI | Manifest V41 Binding |
 | `COUNCIL_PROTOCOL/` | Protokol audit WEB_UI | `.gitkeep` |
 | `QUARANTINE/` | Kebijakan karantina UI | `.gitkeep` |
 | `R9_CORRECTIONS/` | Koreksi dampak | `.gitkeep` |
-| `EXTERNAL_AUDIT/` | Handoff & audit eksternal WEB_UI | `.gitkeep` |
-| `QUALIFICATION/` | Bukti kualifikasi internal WEB_UI | `.gitkeep` |
-| `DIARY/` | Diary harian WEB_UI | 2026-08-28-WEB_UI-OPENING-JURNAL.md |
+| `EXTERNAL_AUDIT/` | Handoff & audit eksternal WEB_UI | AHFMES_WEB_UI_CANDIDATE_HANDOFF.md |
+| `QUALIFICATION/` | Bukti kualifikasi internal WEB_UI | AHFMES_WEB_UI_SLICE1_AUDIT_REPORT.md (10/10 PASS) |
+| `DIARY/` | Diary harian WEB_UI | 2026-08-28-WEB_UI-OPENING-JURNAL.md, 2026-08-28-WEB_UI-CLOSING-JURNAL.md |
 
 ---
 
-## Titik Baca Cepat (Fase Eksekusi Slice-1 WEB_UI, Baseline `@8323bbb`)
+## Titik Baca Cepat (Fase Penutupan WEB_UI, Baseline `@9d0f5d3`)
 
-1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `WEB_UI = IMPLEMENTATION AUTHORIZED`
-2. **Kontrak Slice-1 (ACTIVE):** `CONTRACTS/SLICE_1_CONTRACT_WEB_UI.md` (ACC-701..710 FROZEN)
-3. **Charter Otoritas:** `AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_WEB_UI.md` (RATIFIED T4)
-4. **Delegasi Aktif:** `AUTHORITY_AND_WORKFLOW/DELEGASI_019_CODING_SLICE1_WEB_UI.md`
-5. **Jurnal harian WEB_UI:** `DIARY/2026-08-28-WEB_UI-OPENING-JURNAL.md`
+1. **Entry point otoritas:** `../CURRENT_AUTHORITY_INDEX.md` $\rightarrow$ `WEB_UI CLOSED & CERTIFIED`
+2. **Kontrak Slice-1 (CERTIFIED):** `CONTRACTS/SLICE_1_CONTRACT_WEB_UI.md` (ACC-701..710 PASS)
+3. **Laporan Audit Akhir:** `QUALIFICATION/AHFMES_WEB_UI_SLICE1_AUDIT_REPORT.md` (295/295 tests pass)
+4. **Handoff Dossier:** `EXTERNAL_AUDIT/AHFMES_WEB_UI_CANDIDATE_HANDOFF.md`
+5. **Jurnal Penutupan:** `DIARY/2026-08-28-WEB_UI-CLOSING-JURNAL.md`
 6. **Indeks Progres Global:** `../../PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md`
