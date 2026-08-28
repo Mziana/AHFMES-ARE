@@ -40,6 +40,10 @@ class NonceState(Enum):
     CONSUMED = "CONSUMED"
 
 
+class CriticalTamperingError(Exception):
+    """Dilempar saat Source of Truth (JSONL Witness) terbukti dimanipulasi atau tidak sinkron."""
+
+
 class Edge1Error(Exception):
     """Edge 1 operation failed (precondition violation, CAS failure, etc.)"""
 
@@ -92,7 +96,10 @@ class EventStore:
         self._local = threading.local()
         self._conns_lock = threading.Lock()
         self._all_conns: List[sqlite3.Connection] = []
+        self._witness_path: Optional[str] = f"{db_path}.witness.jsonl" if db_path != ":memory:" else None
         self._init_schema()
+        if self._witness_path is not None:
+            self.verify_and_heal()
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
@@ -408,7 +415,7 @@ class EventStore:
 
             conn.execute("COMMIT;")
 
-            return EventRecord(
+            record = EventRecord(
                 stream_id=stream_id,
                 revision=revision,
                 event_data=event_data,
@@ -416,9 +423,241 @@ class EventStore:
                 event_hash=event_hash,
                 var_ref=var_ref,
             )
+
+            # Atomically write to JSONL witness if persistence is active
+            if self._witness_path is not None:
+                last_witness_hash = "0" * 64
+                if os.path.exists(self._witness_path) and os.path.getsize(self._witness_path) > 0:
+                    with open(self._witness_path, "r", encoding="utf-8") as f:
+                        lines = [ln.strip() for ln in f if ln.strip()]
+                        if lines:
+                            try:
+                                last_witness_hash = json.loads(lines[-1]).get("witness_hash", "0" * 64)
+                            except Exception:
+                                last_witness_hash = "0" * 64
+
+                witness_hash = hashlib.sha256(
+                    f"{last_witness_hash}:{stream_id}:{revision}:{event_hash}".encode("utf-8")
+                ).hexdigest()
+
+                witness_record = {
+                    "stream_id": stream_id,
+                    "revision": revision,
+                    "event_data_hex": event_data.hex(),
+                    "previous_event_hash": prev_hash,
+                    "event_hash": event_hash,
+                    "var_ref": var_ref,
+                    "witness_prev_hash": last_witness_hash,
+                    "witness_hash": witness_hash,
+                }
+
+                try:
+                    with open(self._witness_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(witness_record) + "\n")
+                        f.flush()
+                        os.fsync(f.fileno())
+                except Exception as e:
+                    raise CriticalTamperingError(f"Cache advanced beyond Witness: {e}") from e
+
+            return record
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+    def verify_full_chain_integrity(self) -> tuple[bool, str]:
+        """
+        Dual-layer cryptographic integrity verification:
+        1. Verifies the JSONL witness hash chain and event hashes from first to last record.
+        2. Compares SQLite primary store records against the JSONL witness.
+        """
+        if self._witness_path is None:
+            return True, "OK"
+
+        witness_exists = os.path.exists(self._witness_path) and os.path.getsize(self._witness_path) > 0
+
+        conn = self._get_conn()
+        cur = conn.execute("SELECT stream_id, revision, event_data, previous_event_hash, event_hash, var_ref FROM events ORDER BY rowid ASC")
+        sqlite_rows = cur.fetchall()
+
+        if not witness_exists:
+            if len(sqlite_rows) > 0:
+                return False, "SQLITE_MISMATCH"
+            return True, "OK"
+
+        witness_records = []
+        with open(self._witness_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                try:
+                    witness_records.append(json.loads(line_str))
+                except Exception:
+                    return False, "WITNESS_CORRUPTED"
+
+        # Verification 1: Witness internal hash chain
+        curr_prev_w_hash = "0" * 64
+        stream_revs: dict[str, int] = {}
+        stream_hashes: dict[str, str] = {}
+
+        for rec in witness_records:
+            for k in ("stream_id", "revision", "event_data_hex", "previous_event_hash", "event_hash", "witness_prev_hash", "witness_hash"):
+                if k not in rec:
+                    return False, "WITNESS_CORRUPTED"
+
+            if rec["witness_prev_hash"] != curr_prev_w_hash:
+                return False, "WITNESS_CORRUPTED"
+
+            expected_w_hash = hashlib.sha256(
+                f"{rec['witness_prev_hash']}:{rec['stream_id']}:{rec['revision']}:{rec['event_hash']}".encode("utf-8")
+            ).hexdigest()
+            if rec["witness_hash"] != expected_w_hash:
+                return False, "WITNESS_CORRUPTED"
+
+            try:
+                data_bytes = bytes.fromhex(rec["event_data_hex"])
+            except Exception:
+                return False, "WITNESS_CORRUPTED"
+
+            expected_event_hash = self._compute_event_hash(
+                stream_id=rec["stream_id"],
+                revision=rec["revision"],
+                event_data=data_bytes,
+                previous_event_hash=rec["previous_event_hash"],
+                var_ref=rec.get("var_ref"),
+            )
+            if rec["event_hash"] != expected_event_hash:
+                return False, "WITNESS_CORRUPTED"
+
+            last_rev = stream_revs.get(rec["stream_id"], 0)
+            if rec["revision"] != last_rev + 1:
+                return False, "WITNESS_CORRUPTED"
+
+            last_h = stream_hashes.get(rec["stream_id"], "0" * 64)
+            if rec["previous_event_hash"] != last_h:
+                return False, "WITNESS_CORRUPTED"
+
+            stream_revs[rec["stream_id"]] = rec["revision"]
+            stream_hashes[rec["stream_id"]] = rec["event_hash"]
+            curr_prev_w_hash = rec["witness_hash"]
+
+        # Verification 2: Compare SQLite against Witness
+        if len(sqlite_rows) != len(witness_records):
+            return False, "SQLITE_MISMATCH"
+
+        for row, w_rec in zip(sqlite_rows, witness_records):
+            s_stream, s_rev, s_data, s_prev_h, s_ev_h, s_var = row
+            w_data = bytes.fromhex(w_rec["event_data_hex"])
+            if (
+                s_stream != w_rec["stream_id"]
+                or s_rev != w_rec["revision"]
+                or s_data != w_data
+                or s_prev_h != w_rec["previous_event_hash"]
+                or s_ev_h != w_rec["event_hash"]
+                or (s_var or None) != (w_rec.get("var_ref") or None)
+            ):
+                return False, "SQLITE_MISMATCH"
+
+        return True, "OK"
+
+    def rebuild_cache_from_witness(self) -> int:
+        """
+        Reconstructs the primary SQLite cache from the immutable JSONL witness source of truth.
+        """
+        if self._witness_path is None or not os.path.exists(self._witness_path):
+            return 0
+
+        witness_records = []
+        with open(self._witness_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                try:
+                    witness_records.append(json.loads(line_str))
+                except Exception:
+                    raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+
+        # Validate witness chain before rebuilding
+        curr_prev = "0" * 64
+        stream_revs: dict[str, int] = {}
+        stream_hashes: dict[str, str] = {}
+        for rec in witness_records:
+            if rec["witness_prev_hash"] != curr_prev:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+            expected_w_hash = hashlib.sha256(
+                f"{rec['witness_prev_hash']}:{rec['stream_id']}:{rec['revision']}:{rec['event_hash']}".encode("utf-8")
+            ).hexdigest()
+            if rec["witness_hash"] != expected_w_hash:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+            try:
+                data_bytes = bytes.fromhex(rec["event_data_hex"])
+            except Exception:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+            expected_event_hash = self._compute_event_hash(
+                stream_id=rec["stream_id"],
+                revision=rec["revision"],
+                event_data=data_bytes,
+                previous_event_hash=rec["previous_event_hash"],
+                var_ref=rec.get("var_ref"),
+            )
+            if rec["event_hash"] != expected_event_hash:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+
+            last_rev = stream_revs.get(rec["stream_id"], 0)
+            if rec["revision"] != last_rev + 1:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+            last_h = stream_hashes.get(rec["stream_id"], "0" * 64)
+            if rec["previous_event_hash"] != last_h:
+                raise CriticalTamperingError("Cannot rebuild: JSONL Witness is compromised")
+
+            stream_revs[rec["stream_id"]] = rec["revision"]
+            stream_hashes[rec["stream_id"]] = rec["event_hash"]
+            curr_prev = rec["witness_hash"]
+
+        # Rebuild SQLite cache
+        conn = self._get_conn()
+        conn.set_authorizer(None)
+        try:
+            with conn:
+                conn.execute("DROP TRIGGER IF EXISTS events_no_update;")
+                conn.execute("DROP TRIGGER IF EXISTS events_no_delete;")
+                conn.execute("DROP TRIGGER IF EXISTS heads_no_delete;")
+                conn.execute("DROP TRIGGER IF EXISTS stream_heads_no_replace;")
+                conn.execute("DELETE FROM events;")
+                conn.execute("DELETE FROM stream_heads;")
+
+                heads: dict[str, tuple[int, str]] = {}
+                for rec in witness_records:
+                    data_bytes = bytes.fromhex(rec["event_data_hex"])
+                    conn.execute(
+                        "INSERT INTO events (stream_id, revision, event_data, previous_event_hash, event_hash, var_ref) VALUES (?, ?, ?, ?, ?, ?)",
+                        (rec["stream_id"], rec["revision"], data_bytes, rec["previous_event_hash"], rec["event_hash"], rec.get("var_ref")),
+                    )
+                    heads[rec["stream_id"]] = (rec["revision"], rec["event_hash"])
+
+                for s_id, (l_rev, l_hash) in heads.items():
+                    conn.execute(
+                        "INSERT INTO stream_heads (stream_id, last_revision, last_event_hash) VALUES (?, ?, ?)",
+                        (s_id, l_rev, l_hash),
+                    )
+        finally:
+            self._init_schema()
+
+        return len(witness_records)
+
+    def verify_and_heal(self) -> None:
+        """
+        Boot-time verification and automatic self-healing cache rebuild.
+        Fails closed with CriticalTamperingError if the source of truth is compromised.
+        """
+        if self._witness_path is None:
+            return
+        ok, status = self.verify_full_chain_integrity()
+        if status == "SQLITE_MISMATCH":
+            self.rebuild_cache_from_witness()
+        elif status == "WITNESS_CORRUPTED":
+            raise CriticalTamperingError("CRITICAL: Witness tampering detected! Halt.")
 
     def get_head(self, stream_id: str) -> Optional[tuple[int, str]]:
         conn = self._get_conn()
