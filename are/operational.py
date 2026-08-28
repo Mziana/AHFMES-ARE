@@ -39,7 +39,7 @@ class OperationalSignal:
                 "signal_id": self.signal_id,
                 "symbol": self.symbol,
                 "raw_decision": self.raw_decision,
-                "safety_decision_hash": self.safety_decision.decision_hash,
+                "safety_decision_hash": self.safety_decision.decision_hash if self.safety_decision else "",
                 "final_action": self.final_action,
                 "timestamp": self.timestamp,
             }

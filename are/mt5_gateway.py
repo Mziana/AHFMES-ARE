@@ -7,11 +7,14 @@ Zero external hard-dependencies (stdlib only: json, time, math, typing, dataclas
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from are.operational import OperationalSignal
 from are.safety import CapitalSafetyKernel, SafetyDecision, SafetyLimits
 
 
@@ -104,6 +107,7 @@ class MT5ExecutionGateway:
         self.use_mock = use_mock
         self._mock_gateway = MT5MockGateway() if use_mock else None
         self._mt5_lib: Optional[Any] = None
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MT5GatewayWorker")
 
         if not use_mock:
             try:
@@ -126,7 +130,6 @@ class MT5ExecutionGateway:
             return 0.01
 
         risk_capital = account_equity * risk_pct
-        # Assuming 1 lot = 100,000 units or standard crypto 1 lot = 1.0 unit
         raw_lots = risk_capital / (stop_loss_points * 1.0)
         clamped_lots = min(self.safety_kernel.limits.max_position_size, max(0.01, raw_lots))
         return round(clamped_lots, 2)
@@ -147,6 +150,7 @@ class MT5ExecutionGateway:
             "action": request.action,
             "position_size": request.volume,
             "symbol": request.symbol,
+            "price": request.price,
         }
 
         # 1. Capital Safety Kernel Firewall Evaluation
@@ -211,6 +215,65 @@ class MT5ExecutionGateway:
 
         return False, None, "NO_GATEWAY_AVAILABLE"
 
+    async def execute_order_async(
+        self,
+        request: MT5OrderRequest,
+        current_risk_state: Dict[str, Any],
+    ) -> Tuple[bool, Optional[MT5OrderResult], str]:
+        """Non-blocking asynchronous order execution via threadpool worker (ACC-603)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self.execute_order,
+            request,
+            current_risk_state,
+        )
+
+    async def send_order_async(
+        self,
+        signal: OperationalSignal,
+        market_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """High-level async operational order dispatcher with latency monitoring (ACC-603)."""
+        t_start = time.time()
+        if signal.final_action not in ("BUY", "SELL", "EMERGENCY_FLAT"):
+            return {"status": "ABSTAIN", "reason": "Signal is ABSTAIN / neutral", "latency_ms": 0.0}
+
+        if signal.final_action == "EMERGENCY_FLAT":
+            closed = await self.emergency_flat_async()
+            latency_ms = (time.time() - t_start) * 1000.0
+            return {"status": "EMERGENCY_FLAT", "closed_positions": closed, "latency_ms": latency_ms}
+
+        symbol = market_state.get("symbol", "BTCUSD")
+        price = market_state.get("price")
+        lot_size = self.calculate_lot_size(
+            account_equity=market_state.get("account_equity", 10000.0),
+            risk_pct=0.01,
+        )
+        req = MT5OrderRequest(
+            symbol=symbol,
+            action=signal.final_action,
+            volume=lot_size,
+            price=price,
+            comment=f"ASYNC_{signal.final_action}",
+        )
+
+        risk_state = {
+            "drawdown": market_state.get("drawdown", 0.0),
+            "volatility": market_state.get("volatility", 1.0),
+            "order_count": len(self.get_open_positions()),
+        }
+
+        success, result, status_msg = await self.execute_order_async(req, risk_state)
+        latency_ms = (time.time() - t_start) * 1000.0
+
+        return {
+            "success": success,
+            "status": status_msg,
+            "order_result": result.__dict__ if result else None,
+            "latency_ms": latency_ms,
+        }
+
     def emergency_flat(self) -> int:
         """
         Immediate emergency liquidation of all positions across all symbols (ACC-604).
@@ -244,7 +307,16 @@ class MT5ExecutionGateway:
                         closed_count += 1
         return closed_count
 
+    async def emergency_flat_async(self) -> int:
+        """Non-blocking emergency liquidation via threadpool worker (ACC-604)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.emergency_flat)
+
     def get_open_positions(self) -> List[Dict[str, Any]]:
         if self._mock_gateway is not None:
             return self._mock_gateway.get_open_positions()
         return []
+
+    def close(self) -> None:
+        if hasattr(self, '_executor') and self._executor:
+            self._executor.shutdown(wait=False)

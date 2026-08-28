@@ -8,6 +8,8 @@ Zero external hard-dependencies (stdlib only: json, time, math, typing, dataclas
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 import math
 import time
@@ -98,13 +100,14 @@ class MT5MockFeed:
 
 
 class MT5MarketFeed:
-    """Unified Market Feed with graceful dynamic MT5 import or Mock fallback."""
+    """Unified Market Feed with graceful dynamic MT5 import or Mock fallback and async support."""
 
     def __init__(self, config: Optional[MT5FeedConfig] = None):
         self.config = config or MT5FeedConfig()
         self._mt5_lib: Optional[Any] = None
         self._mock_feed: Optional[MT5MockFeed] = None
         self._is_live = False
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MT5FeedWorker")
 
         if not self.config.use_mock:
             try:
@@ -141,6 +144,16 @@ class MT5MarketFeed:
 
         return False
 
+    def get_next_tick(self, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Synchronously retrieves the single latest tick."""
+        ticks = self.get_latest_ticks(symbol=symbol, count=1)
+        return ticks[-1] if ticks else None
+
+    async def get_next_tick_async(self, symbol: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Non-blocking async retrieval of the next tick via threadpool worker (ACC-601)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.get_next_tick, symbol)
+
     def get_latest_ticks(self, symbol: Optional[str] = None, count: int = 10) -> List[Dict[str, Any]]:
         sym = symbol or self.config.symbol
         if self._mock_feed is not None:
@@ -164,6 +177,11 @@ class MT5MarketFeed:
             return ticks
 
         return []
+
+    async def get_latest_ticks_async(self, symbol: Optional[str] = None, count: int = 10) -> List[Dict[str, Any]]:
+        """Non-blocking async retrieval of latest ticks (ACC-601)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.get_latest_ticks, symbol, count)
 
     def get_latest_bars(self, symbol: Optional[str] = None, count: int = 20) -> List[Dict[str, Any]]:
         sym = symbol or self.config.symbol
@@ -195,3 +213,5 @@ class MT5MarketFeed:
         if self._mt5_lib is not None and self._is_live:
             self._mt5_lib.shutdown()
             self._is_live = False
+        if hasattr(self, '_executor') and self._executor:
+            self._executor.shutdown(wait=False)
