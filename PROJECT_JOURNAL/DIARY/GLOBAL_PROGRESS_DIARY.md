@@ -12,6 +12,26 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — MT5_BRIDGE INITIALIZATION, SLICE-1 CONTRACT FROZEN & DELEGASI_018 ISSUED
+
+```text
+KATEGORI : MT5_BRIDGE + GLOBAL
+STATUS   : Gelombang MT5_BRIDGE resmi diinisialisasi (Charter T4 Ratified).
+           Kontrak SLICE_1_CONTRACT_MT5.md dibekukan. DELEGASI_018 diterbitkan untuk Engineer AI.
+DETAIL   :
+  1. LINGKUP MT5_BRIDGE:
+     - are/mt5_feed.py: Adapter live feed MT5 & mock feed simulator terkoneksi ke MarketFeatureExtractor.
+     - are/mt5_gateway.py: Gateway eksekusi order dengan filter non-bypassable CapitalSafetyKernel, dynamic lot sizing, dan emergency flat.
+     - are/mt5_runner.py: Live demo runner mengorkestrasikan data feed -> brain signal -> safety check -> MT5 execution.
+  2. KRITERIA TERIMA:
+     - ACC-601 s/d ACC-610 dibekukan.
+  3. DOKUMEN:
+     - Kontrak: PROJECT_GOVERNANCE/MT5_BRIDGE/CONTRACTS/SLICE_1_CONTRACT_MT5.md.
+     - Delegasi: PROJECT_GOVERNANCE/MT5_BRIDGE/AUTHORITY_AND_WORKFLOW/DELEGASI_018_CODING_SLICE1_MT5.md.
+     - Charter: PROJECT_GOVERNANCE/MT5_BRIDGE/AUTHORITY_AND_WORKFLOW/IMPLEMENTATION_AUTHORITY_CHARTER_MT5.md.
+DAMPAK   : Integrasi langsung AHFMES-ARE ke terminal MetaTrader 5 resmi dimulai.
+```
+
 ## 2026-08-28 — PROGRAM P001 FORMAL WAVE CLOSURE (281 TESTS PASS & ALPHA DISCOVERY ENGINE CERTIFIED)
 
 ```text
