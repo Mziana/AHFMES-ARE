@@ -9,7 +9,6 @@ Effective Date: **2026-08-28**
 
 | ID Residu | Deskripsi | Kategori | Target Fase | Status |
 |---|---|---|---|:---:|
-| **RES-COG-01** | Implementasi Local Health Watchdog & Circuit Breaker | System Reliability | Fase 2 | ⏳ IN PROGRESS (DELEGASI_033) |
 | **RES-COG-02** | Explainable AI via Text-to-Query RAG ke EvidenceLedger | Copilot / Web UI | Fase 3 | 📋 QUEUED (DELEGASI_030) |
 | **RES-COG-03** | Token Auth Gateway & Secure AI Tunnel (7x24h local stability gate) | Security Gateway | Fase 3 | 📋 GATED (DELEGASI_024) |
 | **RES-COG-04** | LLM-Assisted Hypothesis Generator (Tree of Thoughts) | Cognitive Brain | Fase 3 | 📋 QUEUED (DELEGASI_031) |
@@ -26,3 +25,5 @@ Effective Date: **2026-08-28**
 | **RES-COG-00C** | High-Performance Vectorized Backtest Harness (polars) | DELEGASI_028 | `962e06b` |
 | **RES-COG-00D** | The Windows Vault Protocol (Dual-Layer Witness & Rebuild) | DELEGASI_029 | `0f8f4e5` |
 | **RES-COG-00E** | Data Cleansing & Gap-Alignment Engine (Anti-GIGO) | DELEGASI_029b | `4b9fe90` |
+| **RES-COG-01** | Local Health Watchdog & CSK Circuit Breaker Integration | DELEGASI_033 | `fc4540e` |
+
