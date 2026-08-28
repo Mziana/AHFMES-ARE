@@ -42,7 +42,27 @@ class MockServerState:
 
 
 class MockOllamaHandler(http.server.BaseHTTPRequestHandler):
-    """Mock handler simulating local Ollama API."""
+    """Mock handler simulating local Ollama API with generate & tags support."""
+
+    def do_GET(self):
+        if self.path in ("/api/tags", "/api/tags/"):
+            resp_payload = {
+                "models": [
+                    {"name": "deepseek-coder:6.7b"},
+                    {"name": "qwen2.5-coder:latest"},
+                ]
+            }
+            body = json.dumps(resp_payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            self.close_connection = True
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -86,6 +106,20 @@ class TestCopilot(unittest.TestCase):
         reply = self.copilot.generate_response("Halo, siapa kamu?")
         self.assertIn("AI Copilot", reply)
 
+    def test_copilot_expanded_identity(self):
+        reply = self.copilot.generate_response("Jelaskan tentang dirimu dan apa kemampuanmu?")
+        self.assertIn("Peran & Kemampuan Utama Saya", reply)
+        self.assertIn("Autonomous Research Engine", reply)
+        self.assertIn("Capital Safety Kernel", reply)
+        self.assertIn("MetaTrader 5", reply)
+
+    def test_copilot_mt5_and_xauusd_inquiry(self):
+        reply = self.copilot.generate_response("Bagaimana cara menghubungkan sistem ke MT5 untuk pair XAUUSD?")
+        self.assertIn("Integrasi MetaTrader 5 (MT5)", reply)
+        self.assertIn("are/mt5_feed.py", reply)
+        self.assertIn("are/mt5_gateway.py", reply)
+        self.assertIn("XAUUSD", reply)
+
     def test_copilot_status_inquiry(self):
         reply = self.copilot.generate_response("Bagaimana status sistem saat ini?")
         self.assertIn("Active Champion", reply)
@@ -114,7 +148,7 @@ class TestCopilot(unittest.TestCase):
         self.assertIn("Saya memahami pertanyaan Anda", reply)
         self.assertIn("P001_CHAMPION_V1", reply)
 
-    def test_copilot_ollama_online_mock_integration(self):
+    def test_copilot_ollama_online_mock_integration_and_model_discovery(self):
         # Start ephemeral mock Ollama HTTP server
         mock_server = http.server.HTTPServer(("127.0.0.1", 0), MockOllamaHandler)
         mock_port = mock_server.server_address[1]
@@ -126,9 +160,13 @@ class TestCopilot(unittest.TestCase):
             online_copilot = ConversationalCopilot(
                 server_state=self.state,
                 ollama_url=f"http://127.0.0.1:{mock_port}/api/generate",
-                model_name="qwen2.5-coder",
                 timeout_sec=2.0,
             )
+            # 1. Test model auto discovery
+            discovered = online_copilot._discover_ollama_model()
+            self.assertEqual(discovered, "qwen2.5-coder:latest")
+
+            # 2. Test response generation
             reply = online_copilot.generate_response("Analisis likuiditas pasar terkini")
             self.assertIn("[QWEN_GENERATED]", reply)
         finally:

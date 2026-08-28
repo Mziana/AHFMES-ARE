@@ -209,9 +209,9 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
     """HTTP Request Handler routing REST API endpoints and static assets."""
 
     def _send_json(self, status_code: int, data: Any):
-        body = json.dumps(data).encode("utf-8")
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -279,8 +279,11 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
         if self.path == "/api/run-cycle":
             symbol = payload.get("symbol", "BTCUSD")
-            res = state.run_autonomous_cycle(symbol)
-            self._send_json(200, res)
+            try:
+                res = state.run_autonomous_cycle(symbol)
+                self._send_json(200, res)
+            except Exception as e:
+                self._send_json(200, {"status": "error", "message": str(e)})
 
         elif self.path == "/api/kill-switch":
             active = bool(payload.get("active", True))

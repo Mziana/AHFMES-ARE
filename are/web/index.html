@@ -366,7 +366,7 @@
                 <span class="card-title">Autonomous Action Hub</span>
             </div>
             <div class="action-hub">
-                <button class="btn btn-cyan" onclick="triggerResearchCycle()">🚀 Run Autonomous Research Cycle</button>
+                <button id="btn-run-cycle" class="btn btn-cyan" onclick="triggerResearchCycle()">🚀 Run Autonomous Research Cycle</button>
                 <button class="btn btn-outline" onclick="injectTick(false)">⚡ Step Normal Tick</button>
                 <button class="btn btn-outline" style="border-color: #ffaa00; color: #ffaa00;" onclick="injectTick(true)">💥 Inject Volatility Shock</button>
                 <button class="btn btn-outline" onclick="loadLineage()">📜 View Champion Lineage</button>
@@ -503,6 +503,11 @@
     }
 
     async function triggerResearchCycle() {
+        const btn = document.getElementById('btn-run-cycle');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "⏳ Running Autonomous Research...";
+        }
         appendChatMessage("user", "Jalankan Siklus Riset Otonom");
         appendChatMessage("ai", "⏳ Memulai siklus riset otonom (Ingestion -> Feature Extraction -> Alpha Generation -> Validation -> Critic & Governor Gate)...");
         try {
@@ -513,13 +518,20 @@
             });
             const data = await res.json();
             fetchStatus();
-            if (data.promoted_champion) {
+            if (data.status === "error") {
+                appendChatMessage("ai", `⚠️ **Riset Menghadapi Kendala:** ${data.message || 'Unknown error'}`);
+            } else if (data.promoted_champion) {
                 appendChatMessage("ai", `🚀 **Promosi Champion Berhasil!**\nChampion baru: \`${data.promoted_champion.champion_id}\` dari kandidat \`${data.promoted_champion.candidate_id}\`.`);
             } else {
                 appendChatMessage("ai", "🔍 Siklus riset selesai. Tidak ada kandidat yang mengungguli baseline Champion saat ini.");
             }
         } catch (e) {
             appendChatMessage("ai", "❌ Gagal menjalankan riset: " + e);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "🚀 Run Autonomous Research Cycle";
+            }
         }
     }
 
