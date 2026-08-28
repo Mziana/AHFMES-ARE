@@ -12,6 +12,29 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-28 — DELEGASI_031b WALK-FORWARD & MONTE CARLO VALIDATION ENGINE COMPLETED (349 TESTS PASS)
+
+```text
+KATEGORI : ARE_VALIDATION + GOVERNOR + COGNITIVE_ROADMAP + GLOBAL
+STATUS   : Eksekusi DELEGASI_031b diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS (ACC-1501 s/d ACC-1503). Total 349 tests pass 100%.
+           Monte Carlo Permutation Engine & Walk-Forward Consistency Validator resmi QUALIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - are/validation.py: monte_carlo_simulation() (500x permutation, 95th pct DD, probability of ruin), walk_forward_consistency() (In-Sample vs Out-of-Sample retention), validate_statistical_robustness() (fail-closed judge).
+     - are/governor.py: GovernorEngine.evaluate_promotion() terintegrasi dengan statistical_robustness gatekeeper; otomatis DISMISSED jika uji ketahanan gagal.
+     - tests/are/test_validation_invariants.py: 3 pengujian invarian mutlak.
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-28-DELEGASI_031b-MONTE-CARLO-JURNAL.md.
+     - Register Residu: RES-COG-05 terselesaikan (b2a3ab7).
+  3. METRIK PENGUJIAN:
+     - Baseline: 346 tests pass.
+     - Suite Baru: 3 tests pass (tests/are/test_validation_invariants.py).
+     - Total: 349 passed, 105 subtests passed (67.39s).
+DAMPAK   : Seluruh kandidat strategi kuantitatif kini wajib lolos uji ketahanan Monte Carlo dan konsistensi Walk-Forward sebelum diizinkan dipromosikan oleh Governor. Mengeliminasi ilusi lucky overfitting.
+```
+
 ## 2026-08-28 — DELEGASI_031 ALPHA ZOO SEED INGESTION & SCHEMA VALIDATION COMPLETED (346 TESTS PASS)
 
 ```text
