@@ -10,8 +10,7 @@ Effective Date: **2026-08-28**
 | ID Residu | Deskripsi | Kategori | Target Fase | Status |
 |---|---|---|---|:---:|
 | **RES-COG-03** | Token Auth Gateway & Secure AI Tunnel (7x24h local stability gate) | Security Gateway | Fase 3 | 📋 GATED (DELEGASI_024) |
-| **RES-COG-07** | Evidence RAG Copilot & System Resilience (Vault Replicator, Telegram Alerting) | Cognitive & Infra | Fase 4 | ⏳ NEXT TARGET (DELEGASI_035B) |
-| **RES-COG-08** | Historical Crisis Replay & Full 7-Organ E2E Gauntlet | Stress Testing & E2E | Fase 4 | 📋 QUEUED (DELEGASI_035C) |
+| **RES-COG-08** | Historical Crisis Replay & Full 7-Organ E2E Gauntlet | Stress Testing & E2E | Fase 4 | ⏳ NEXT TARGET (DELEGASI_035C) |
 
 ---
 
@@ -30,6 +29,8 @@ Effective Date: **2026-08-28**
 | **RES-COG-05** | Walk-Forward & Monte Carlo Permutation Validation | DELEGASI_031b | `b2a3ab7` |
 | **RES-COG-06** | Multimodal External Alpha Scraper & Ingestion Pipeline | DELEGASI_032 | `a93ab98` |
 | **RES-COG-06B** | Statistical Rigor: FDR, Acklam Inverse CDF, PSR, Deflated Sharpe Ratio | DELEGASI_035A | `ed2f438` |
+| **RES-COG-07** | Evidence RAG Copilot & System Resilience (Vault Replicator, Telegram Alerting) | DELEGASI_035B | `3039fd1` |
+
 
 
 
