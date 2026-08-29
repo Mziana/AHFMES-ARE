@@ -30,6 +30,8 @@ Effective Date: **2026-08-28**
 | **RES-COG-06B** | Statistical Rigor: FDR, Acklam Inverse CDF, PSR, Deflated Sharpe Ratio | DELEGASI_035A | `ed2f438` |
 | **RES-COG-07** | Evidence RAG Copilot & System Resilience (Vault Replicator, Telegram Alerting) | DELEGASI_035B | `3039fd1` |
 | **RES-COG-08** | Historical Crisis Replay Engine & Black Swan Bankruptcy Veto | DELEGASI_035C | `0c26c4f` |
+| **RES-COG-09** | Walk-Forward Multi-Fold Analysis, Portfolio Correlation Gate & Runtime Sizing | DELEGASI_036 | `61f54c9` |
+
 
 
 

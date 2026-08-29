@@ -12,6 +12,31 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_036 WALK-FORWARD ROBUSTNESS & PORTFOLIO CORRELATION GATE COMPLETED (400 TESTS PASS)
+
+```text
+KATEGORI : ARE_BACKTEST + PORTFOLIO + GOVERNOR + SAFETY + COGNITIVE_ROADMAP + FASE_4 + GLOBAL
+STATUS   : Eksekusi DELEGASI_036 diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS (10 Invariant Tests Pass). Total 400 tests pass 100%.
+           Walk-Forward Analysis (WFA) Multi-Fold, Portfolio Correlation Gate, dan Runtime Drawdown Sizing resmi QUALIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - are/backtest.py: run_walk_forward_analysis() (slicing rolling/expanding window multi-fold, IS vs OOS efficiency ratio, worst fold DD, fold consistency ratio).
+     - are/portfolio.py: calculate_annualized_volatility(), calculate_pearson_correlation() (100% stdlib, penanganan varians nol anti ZeroDivisionError).
+     - are/governor.py: GovernorEngine.evaluate_promotion() terintegrasi dengan korelasi portfolio; otomatis DISMISSED jika korelasi > 0.85 dengan champion aktif.
+     - are/safety.py: CapitalSafetyKernel.evaluate_action() memotong ukuran lot 50% saat drawdown mencapai >= 80% batas, dan mengunci 0.0 saat batas terlampaui.
+     - tests/are/: 10 tests invariant baru (test_walk_forward_invariants.py, test_portfolio_correlation_invariants.py, test_safety_drawdown_sizing_invariants.py).
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-29-DELEGASI_036-WFA-CORRELATION-SIZING-JURNAL.md.
+     - Register Residu: RES-COG-09 terselesaikan (61f54c9).
+  3. METRIK PENGUJIAN:
+     - Baseline: 390 tests pass.
+     - Suite Baru: 10 tests pass.
+     - Total: 400 passed, 105 subtests passed (68.93s).
+DAMPAK   : Sistem kini memiliki validasi out-of-sample sejati lintas rezim waktu, mencegah kanibalisasi dan konsentrasi risiko antar-strategi, serta mengaktifkan refleks rem de-risking otomatis pada runtime live.
+```
+
 ## 2026-08-29 — DELEGASI_035C HISTORICAL CRISIS REPLAY ENGINE COMPLETED (390 TESTS PASS & DELEGASI_035 UNIFIED COMPLETE)
 
 ```text
