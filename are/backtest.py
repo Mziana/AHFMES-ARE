@@ -231,22 +231,23 @@ class IsolatedBacktestEngine:
     def save_artifact(self, result: BacktestResult, evidence_ledger: EvidenceLedger) -> str:
         """
         Serializes the backtest result into a canonical JSON artifact and records it into
-        the Evidence Ledger as immutable RESEARCH_PROOF, returning its content-addressed proof hash.
+        the Evidence Ledger as immutable RESEARCH_PROOF, returning its content-addressed proof hash (RES-RED-15).
+        Separates deterministic scientific payload from execution timestamps to ensure reproducibility.
         """
         # Convert Polars DataFrames into native Python dicts/lists before JSON serialization
         equity_list = result.equity_curve.to_dicts()
         trade_list = result.trade_log.to_dicts()
 
-        payload = {
+        # DETERMINISTIC scientific payload — same inputs = same hash
+        scientific_payload = {
             "equity_curve": equity_list,
             "trade_log": trade_list,
             "metrics": result.metrics,
-            "timestamp": time.time(),
             "artifact_type": "RESEARCH_PROOF",
         }
 
-        json_str = json.dumps(payload, sort_keys=True)
-        proof_hash = compute_sha256(json_str)
+        scientific_json = json.dumps(scientific_payload, sort_keys=True)
+        proof_hash = compute_sha256(scientific_json)
 
         # Record to Evidence Ledger storage stream
         if hasattr(evidence_ledger, "_store") and evidence_ledger._store is not None:
@@ -255,7 +256,7 @@ class IsolatedBacktestEngine:
             prev_h = head[1] if head else "0" * 64
             evidence_ledger._store.append_event(
                 stream_id="research_proofs",
-                event_data=json_str.encode("utf-8"),
+                event_data=scientific_json.encode("utf-8"),
                 expected_revision=rev,
                 prev_event_hash=prev_h,
                 var_ref=proof_hash,
