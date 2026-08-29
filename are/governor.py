@@ -123,11 +123,13 @@ class GovernorEngine:
         statistical_robustness: Optional[tuple[bool, str]] = None,
         candidate_dsr_p_value: Optional[float] = None,
         candidate_psr: Optional[float] = None,
+        crisis_survival: Optional[bool] = None,
+        crisis_metrics: Optional[Dict[str, Any]] = None,
     ) -> PromotionDisposition:
         """
         Evaluates promotion of a Candidate to replace Champion.
         Fails-closed if SoD is violated, validation is rejected, critic fails,
-        statistical robustness fails, DSR p_value >= 0.05, or PSR < 0.95.
+        statistical robustness fails, DSR p_value >= 0.05, PSR < 0.95, or crisis survival fails.
         """
         # 1. Enforce Separation of Duties
         self.verify_sod(creator_principal, validator_principal, promoter_principal)
@@ -149,7 +151,11 @@ class GovernorEngine:
         if candidate_psr is not None and candidate_psr < 0.95:
             psr_passed = False
 
-        if is_validated and critic_passed and stat_passed and dsr_passed and psr_passed:
+        crisis_passed = True
+        if crisis_survival is False or (crisis_metrics is not None and not crisis_metrics.get("survival_bool", True)):
+            crisis_passed = False
+
+        if is_validated and critic_passed and stat_passed and dsr_passed and psr_passed and crisis_passed:
             decision = "PROMOTED"
             rationale = (
                 f"Candidate '{candidate_id}' passed out-of-sample validation "
@@ -169,6 +175,8 @@ class GovernorEngine:
                 reasons.append(f"REJECTED: DEFLATED_SHARPE_INSUFFICIENT (p_value={candidate_dsr_p_value:.4f} >= 0.05)")
             if not psr_passed:
                 reasons.append(f"REJECTED: PROBABILISTIC_SHARPE_INSUFFICIENT (PSR={candidate_psr:.4f} < 0.95)")
+            if not crisis_passed:
+                reasons.append("REJECTED: CRISIS_REPLAY_BANKRUPTCY (failed Black Swan survival threshold)")
             rationale = (
                 f"Candidate '{candidate_id}' dismissed against Champion '{champion_id}': "
                 + "; ".join(reasons)
