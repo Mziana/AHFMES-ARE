@@ -253,5 +253,95 @@ class IsolatedBacktestEngine:
             "metrics": bt_result.metrics,
         }
 
+    def run_walk_forward_analysis(
+        self,
+        strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
+        historical_data: Optional[pl.DataFrame] = None,
+        train_window_bars: int = 252,
+        test_window_bars: int = 63,
+        step_bars: int = 63,
+        initial_capital: float = 10000.0,
+    ) -> Dict[str, Any]:
+        """
+        Executes multi-fold Walk-Forward Analysis (WFA) using rolling/expanding window slicing.
+        Evaluates In-Sample (IS) training vs Out-of-Sample (OOS) testing degradation.
+        """
+        if historical_data is None:
+            # Generate deterministic synthetic baseline
+            timestamps = [1700000000 + i * 60 for i in range(1000)]
+            prices = [100.0 + (math.sin(i * 0.05) * 5.0) + (i * 0.02) for i in range(1000)]
+            historical_data = pl.DataFrame({
+                "timestamp": timestamps,
+                "price": prices,
+            })
+
+        n_rows = len(historical_data)
+        folds: List[Dict[str, Any]] = []
+
+        start = 0
+        fold_idx = 0
+        while (start + train_window_bars + test_window_bars) <= n_rows:
+            train_slice = historical_data.slice(start, train_window_bars)
+            test_slice = historical_data.slice(start + train_window_bars, test_window_bars)
+
+            # In-Sample Backtest
+            is_result = self.run_backtest(
+                strategy_logic=strategy_logic,
+                historical_data=train_slice,
+                initial_capital=initial_capital,
+            )
+
+            # Out-of-Sample Backtest
+            oos_result = self.run_backtest(
+                strategy_logic=strategy_logic,
+                historical_data=test_slice,
+                initial_capital=initial_capital,
+            )
+
+            is_sharpe = float(is_result.metrics.get("sharpe_ratio", 0.0))
+            oos_sharpe = float(oos_result.metrics.get("sharpe_ratio", 0.0))
+            oos_return = float(oos_result.metrics.get("total_return", 0.0))
+            raw_oos_dd = abs(float(oos_result.metrics.get("max_drawdown", 0.0)))
+            oos_drawdown = raw_oos_dd / 100.0 if raw_oos_dd > 1.0 else raw_oos_dd
+
+            folds.append({
+                "fold_index": fold_idx,
+                "train_start": start,
+                "train_end": start + train_window_bars,
+                "test_start": start + train_window_bars,
+                "test_end": start + train_window_bars + test_window_bars,
+                "is_sharpe": is_sharpe,
+                "oos_sharpe": oos_sharpe,
+                "oos_return": oos_return,
+                "oos_drawdown": oos_drawdown,
+            })
+
+            fold_idx += 1
+            start += step_bars
+
+        n_folds = len(folds)
+        if n_folds > 0:
+            mean_train_sharpe = sum(f["is_sharpe"] for f in folds) / n_folds
+            mean_test_sharpe = sum(f["oos_sharpe"] for f in folds) / n_folds
+            wfa_efficiency_ratio = (mean_test_sharpe / mean_train_sharpe) if mean_train_sharpe > 0.0 else 0.0
+            worst_fold_drawdown = max((f["oos_drawdown"] for f in folds), default=0.0)
+            fold_consistency_ratio = sum(1 for f in folds if f["oos_return"] > 0.0) / n_folds
+        else:
+            mean_train_sharpe = 0.0
+            mean_test_sharpe = 0.0
+            wfa_efficiency_ratio = 0.0
+            worst_fold_drawdown = 0.0
+            fold_consistency_ratio = 0.0
+
+        return {
+            "n_folds": n_folds,
+            "mean_train_sharpe": float(mean_train_sharpe),
+            "mean_test_sharpe": float(mean_test_sharpe),
+            "wfa_efficiency_ratio": float(wfa_efficiency_ratio),
+            "worst_fold_drawdown": float(worst_fold_drawdown),
+            "fold_consistency_ratio": float(fold_consistency_ratio),
+            "folds": folds,
+        }
+
     # Alias for explicit API naming
     run_vectorized_backtest = run_backtest

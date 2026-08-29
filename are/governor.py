@@ -17,8 +17,9 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+from are.portfolio import calculate_pearson_correlation
 from are.validation import ValidationReport
 
 
@@ -125,11 +126,14 @@ class GovernorEngine:
         candidate_psr: Optional[float] = None,
         crisis_survival: Optional[bool] = None,
         crisis_metrics: Optional[Dict[str, Any]] = None,
+        candidate_returns: Optional[List[float]] = None,
+        existing_champions_returns: Optional[Dict[str, List[float]]] = None,
     ) -> PromotionDisposition:
         """
         Evaluates promotion of a Candidate to replace Champion.
         Fails-closed if SoD is violated, validation is rejected, critic fails,
-        statistical robustness fails, DSR p_value >= 0.05, PSR < 0.95, or crisis survival fails.
+        statistical robustness fails, DSR p_value >= 0.05, PSR < 0.95, crisis survival fails,
+        or correlation with existing champions exceeds 0.85.
         """
         # 1. Enforce Separation of Duties
         self.verify_sod(creator_principal, validator_principal, promoter_principal)
@@ -155,7 +159,23 @@ class GovernorEngine:
         if crisis_survival is False or (crisis_metrics is not None and not crisis_metrics.get("survival_bool", True)):
             crisis_passed = False
 
-        if is_validated and critic_passed and stat_passed and dsr_passed and psr_passed and crisis_passed:
+        correlation_passed = True
+        if candidate_returns is not None and existing_champions_returns is not None:
+            for champ_id_key, champ_rets in existing_champions_returns.items():
+                corr = calculate_pearson_correlation(candidate_returns, champ_rets)
+                if corr > 0.85:
+                    correlation_passed = False
+                    break
+
+        if (
+            is_validated
+            and critic_passed
+            and stat_passed
+            and dsr_passed
+            and psr_passed
+            and crisis_passed
+            and correlation_passed
+        ):
             decision = "PROMOTED"
             rationale = (
                 f"Candidate '{candidate_id}' passed out-of-sample validation "
@@ -177,6 +197,8 @@ class GovernorEngine:
                 reasons.append(f"REJECTED: PROBABILISTIC_SHARPE_INSUFFICIENT (PSR={candidate_psr:.4f} < 0.95)")
             if not crisis_passed:
                 reasons.append("REJECTED: CRISIS_REPLAY_BANKRUPTCY (failed Black Swan survival threshold)")
+            if not correlation_passed:
+                reasons.append("REJECTED: PORTFOLIO_CORRELATION_EXCESSIVE (max_corr > 0.85)")
             rationale = (
                 f"Candidate '{candidate_id}' dismissed against Champion '{champion_id}': "
                 + "; ".join(reasons)

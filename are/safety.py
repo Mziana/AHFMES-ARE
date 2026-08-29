@@ -29,6 +29,10 @@ class SafetyLimits:
     kill_switch_active: bool = False
 
 
+# Backward compatibility and alternative naming alias
+RiskLimits = SafetyLimits
+
+
 @dataclass(frozen=True)
 class SafetyDecision:
     allowed: bool
@@ -61,16 +65,25 @@ class CapitalSafetyKernel:
     def evaluate_action(
         self,
         intended_action: Dict[str, Any],
-        current_drawdown: float,
-        current_volatility: float,
-        recent_order_count: int,
+        current_drawdown: Any = 0.0,
+        current_volatility: float = 1.0,
+        recent_order_count: int = 0,
         emergency_signal: bool = False,
         health_status: Any = "HEALTHY",
     ) -> SafetyDecision:
         """
         Evaluates proposed action against absolute safety limits (ACC-401..ACC-406/DELEGASI_033).
         Fails-closed on any corrupt, ambiguous, NaN, Inf, out-of-bound inputs, or critical system health.
+        Supports both positional scalar risk metrics and metric dict containers.
         """
+        if isinstance(current_drawdown, dict):
+            risk_dict = current_drawdown
+            current_drawdown = risk_dict.get("current_drawdown", 0.0)
+            current_volatility = risk_dict.get("current_volatility", current_volatility)
+            recent_order_count = risk_dict.get("order_rate_1m", risk_dict.get("recent_order_count", recent_order_count))
+            emergency_signal = risk_dict.get("emergency_signal", emergency_signal)
+            health_status = risk_dict.get("health_status", health_status)
+
         # 0. Infrastructure Health / Circuit Breaker Check (DELEGASI_033 / ACC-406)
         if health_status is not None:
             hs_str = str(getattr(health_status, "value", health_status)).upper()
@@ -204,9 +217,15 @@ class CapitalSafetyKernel:
                 reason="Invalid size type in action payload",
             )
 
+        # Runtime Drawdown Sizing Throttling (DELEGASI_036)
+        reason_text = "Action passed Capital Safety Kernel verification"
+        if dd >= (self.limits.max_drawdown_pct * 0.80) and dd < self.limits.max_drawdown_pct:
+            clamped_size = clamped_size * 0.50
+            reason_text += " (Drawdown warning >= 80% limit: size throttled 50%)"
+
         return SafetyDecision(
             allowed=True,
             action="EXECUTE",
             clamped_size=clamped_size,
-            reason="Action passed Capital Safety Kernel verification",
+            reason=reason_text,
         )
