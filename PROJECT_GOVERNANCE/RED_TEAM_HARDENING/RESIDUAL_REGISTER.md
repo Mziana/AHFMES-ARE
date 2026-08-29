@@ -21,7 +21,7 @@ Otoritas: **Lead Architect & Red Team Advisory Council**
 | **RES-RED-09** | Validation / WFA | 📊 **P1 (HIGH)** | `are/backtest.py:240-275` | **Static Logic Rolling Backtest:** WFA saat ini hanya evaluasi rolling pada fungsi statis, belum melakukan *True Walk-Forward Optimization* (`fit(train)` -> `test(oos)` parameter drift). | DELEGASI_039 | 📋 QUEUED |
 | **RES-RED-10** | Simulator / Backtest | 📊 **P1 (HIGH)** | `are/backtest.py:95-115` | **Frictionless P&L Assumption:** Backtest P&L murni `signal * price_return` tanpa model komisi, spread, slippage, latency, financing swap, dan partial fills. | DELEGASI_040 | 📋 QUEUED |
 | **RES-RED-11** | Stress Testing / MC | 📊 **P1 (HIGH)** | `are/validation.py:165-190` | **Shuffling Destroys Volatility Clustering:** Monte Carlo murni `random.shuffle()` mengabaikan dependensi serial dan pengelompokan volatilitas nyata pasar. | DELEGASI_040 | 📋 QUEUED |
-| **RES-RED-12** | Governance / Source | 📋 **P2 (MEDIUM)** | `README.md:14-17` | **Source of Truth Divergence:** Root `README.md` mencatat `ARE-2 AUTHORIZED`, berbeda dengan `CURRENT_AUTHORITY_INDEX.md` yang sudah menyelesaikan Fase 4. | DELEGASI_037b | 📋 QUEUED |
+| **RES-RED-12** | Governance / Source | 📋 **P2 (MEDIUM)** | `README.md:14-17` | **Source of Truth Divergence:** Root `README.md` mencatat `ARE-2 AUTHORIZED`, berbeda dengan `CURRENT_AUTHORITY_INDEX.md` yang sudah menyelesaikan Fase 4. | DELEGASI_037b | ✅ RESOLVED @b80f413 |
 
 ---
 
@@ -42,3 +42,5 @@ Otoritas: **Lead Architect & Red Team Advisory Council**
 | **RES-RED-04** | 2026-08-29 | DELEGASI_038 | Menerapkan loop verifikasi *read-back* maksimal 3 retry pada `emergency_flat()` dan melempar `RuntimeError("EMERGENCY_FLAT_VERIFICATION_FAILED")` jika posisi sisa $> 0$. |
 | **RES-RED-05** | 2026-08-29 | DELEGASI_038 | Menambahkan `get_account_info()` pada `MT5ExecutionGateway` dan mengikat `drawdown` dinamis real-time serta real equity pada `MT5LiveRunner.step_live_tick()` dan `step_live_tick_async()`. |
 | **RES-RED-06** | 2026-08-29 | DELEGASI_038 | Mengeliminasi silent break: mencatat `RUNNER_FATAL_EXCEPTION` ke `evidence_ledger`, memicu `emergency_flat()`, dan melempar `RuntimeError` saat loop runner crash. |
+| **RES-RED-12** | 2026-08-29 | DELEGASI_037b (`b80f413`) | Menyelaraskan penuh root `README.md` dengan `CURRENT_AUTHORITY_INDEX.md`, mengeliminasi divergensi status sistem. |
+
