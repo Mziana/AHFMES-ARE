@@ -12,6 +12,40 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_041 SEMANTIC CORRECTNESS & STATISTICAL VALIDITY COMPLETED (443 TESTS PASS)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + GELOMBANG_2 + SEMANTIC_CORRECTNESS + STATISTICAL_VALIDITY + P0_P1_REMEDIATION + GLOBAL
+STATUS   : Eksekusi DELEGASI_041 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (27 Invariant Tests Baru). Total 443 tests pass 100%.
+           9 Residu Target Gelombang 2 (RES-RED-13..RES-RED-20, RES-RED-22) RESMI RESOLVED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & REMEDIASI KODE (3 BATCH):
+     - Batch A: are/mt5_gateway.py
+       * RES-RED-14: Pemisahan strict None (API error/unknown) vs () (verified empty) pada get_open_positions() dan emergency_flat().
+     - Batch B: are/mt5_gateway.py, are/backtest.py, are/validation.py
+       * RES-RED-13: Standard quantitative peak-equity drawdown calculation pada get_account_info().
+       * RES-RED-16: Propagasi friksi mikrostruktur & timeframe pada run_crisis_replay().
+       * RES-RED-17: Rename run_walk_forward_analysis -> run_rolling_oos_evaluation + DeprecationWarning wrapper.
+       * RES-RED-18: Warmup bars & purge bars boundary guard pada run_walk_forward_optimization().
+       * RES-RED-19: Research-family trial accounting (total_trials_per_fold, family_size, selection_method).
+       * RES-RED-20: Wilson score 95% CI untuk ruin probability, path vs terminal ruin, nearest-rank quantile.
+       * RES-RED-22: Fail-closed input validation pada run_backtest() (tolak negatif, NaN, Inf, invalid timeframe).
+     - Batch C: are/backtest.py
+       * RES-RED-15: Penghapusan time.time() dari canonical JSON payload save_artifact() untuk content-addressed hash.
+  2. PENGUJIAN INVARIAN BARU (27 TESTS):
+     - tests/are/test_semantic_correctness_invariants.py (5 tests, 100% PASS)
+     - tests/are/test_statistical_validity_invariants.py (20 tests, 100% PASS)
+     - tests/are/test_provenance_integrity_invariants.py (2 tests, 100% PASS)
+  3. INTEGRASI & ZERO REGRESSION:
+     - 443 passed, 4 warnings, 105 subtests in 75.14s. Zero dependency bloat (stdlib + polars only).
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/RESIDUAL_REGISTER.md
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-DELEGASI_041-SEMANTIC-STATISTICAL-REMEDIATION-JURNAL.md
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_040 REALISTIC SIMULATION & RED TEAM WAVE FORMAL CLOSURE (416 TESTS PASS)
 
 ```text
