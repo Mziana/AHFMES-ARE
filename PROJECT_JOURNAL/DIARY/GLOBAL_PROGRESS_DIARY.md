@@ -12,6 +12,30 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_035B EVIDENCE RAG COPILOT & SYSTEM RESILIENCE COMPLETED (386 TESTS PASS)
+
+```text
+KATEGORI : ARE_COPILOT + STORAGE + HEALTH_MONITOR + COGNITIVE_ROADMAP + FASE_4 + GLOBAL
+STATUS   : Eksekusi DELEGASI_035B diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS (22 Invariant Tests Pass). Total 386 tests pass 100%.
+           Evidence RAG Copilot, VaultReplicator DR, dan CriticalAlertSender resmi QUALIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - are/copilot.py: _build_evidence_context() (mengambil data anomali, slippage, champion, vault dari EventStore, max 2000 chars), build_prompt() (menyematkan [EVIDENCE CONTEXT] dan SHA-256 evidence hash), _verify_factual_consistency() (Domain Keyword Hallucination Detector dengan toleransi 0.1% dan pengabaian angka percakapan).
+     - are/storage.py: VaultReplicator (backup SQLite + JSONL witness, SHA-256 manifest hash chaining, read-back check, restore fail-closed, background daemon thread aman).
+     - are/health_monitor.py: CriticalAlertSender (Telegram webhook + SMTP fallback, 300s rate limiting, hanya trigger pada status CRITICAL).
+     - tests/are/: 22 tests invariant baru (test_copilot_rag_invariants.py, test_vault_replication_invariants.py, test_alerting_invariants.py).
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-29-DELEGASI_035B-COPILOT-RAG-RESILIENCE-JURNAL.md.
+     - Register Residu: RES-COG-07 terselesaikan (3039fd1).
+  3. METRIK PENGUJIAN:
+     - Baseline: 364 tests pass.
+     - Suite Baru: 22 tests pass.
+     - Total: 386 passed, 105 subtests passed (76.32s).
+DAMPAK   : Copilot kini kebal halusinasi karena wajib disuapi data faktual EvidenceLedger, brankas data memiliki salinan cadangan kriptografis otomatis, dan operator menerima sinyal darurat langsung via Telegram saat terjadi kondisi CRITICAL.
+```
+
 ## 2026-08-29 — DELEGASI_035A STATISTICAL RIGOR & GOVERNOR HARDENING COMPLETED (364 TESTS PASS)
 
 ```text
