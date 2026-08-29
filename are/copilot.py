@@ -44,7 +44,7 @@ class ConversationalCopilot:
     ):
         self.server_state = server_state
         self.ollama_url = ollama_url or os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model_name = model_name or os.environ.get("OLLAMA_MODEL", "qwen2.5-coder")
+        self.model_name = model_name or os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
         self.timeout_sec = timeout_sec
         self.event_store = event_store
         self._model_discovered = False
