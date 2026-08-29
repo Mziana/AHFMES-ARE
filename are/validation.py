@@ -218,10 +218,13 @@ def monte_carlo_simulation(
     trade_log_df: Any,
     num_simulations: int = 500,
     initial_capital: float = 10000.0,
-) -> Dict[str, float]:
+    method: str = "BLOCK_BOOTSTRAP",  # "BLOCK_BOOTSTRAP" | "IID_SHUFFLE"
+    block_size: int = 10,             # Block size for circular block bootstrap
+) -> Dict[str, Any]:
     """
-    Performs Monte Carlo permutation test by shuffling the sequence of trade returns.
-    Computes 95th-percentile maximum drawdown, probability of ruin (<50% capital during trajectory or final), and mean final equity.
+    Performs Monte Carlo simulation using either Circular Block Bootstrap or classic IID Shuffle (RES-RED-11).
+    Circular Block Bootstrap preserves volatility clustering and streak dependencies.
+    Computes 95th-percentile maximum drawdown, probability of ruin (<50% capital), and mean final equity.
     """
     returns = _extract_returns(trade_log_df, initial_capital)
     if not returns:
@@ -229,8 +232,11 @@ def monte_carlo_simulation(
             "mc_95th_pct_drawdown": 0.0,
             "mc_probability_of_ruin": 0.0,
             "mc_mean_final_equity": initial_capital,
+            "mc_simulation_method": method,
+            "mc_block_size": block_size if method == "BLOCK_BOOTSTRAP" else 1,
         }
 
+    n_samples = len(returns)
     rng = random.Random(42)
     max_drawdowns: List[float] = []
     final_equities: List[float] = []
@@ -239,15 +245,24 @@ def monte_carlo_simulation(
     ruin_threshold = initial_capital * 0.5
 
     for _ in range(num_simulations):
-        shuffled = list(returns)
-        rng.shuffle(shuffled)
+        if method == "BLOCK_BOOTSTRAP" and n_samples > 1 and block_size > 1:
+            effective_block = min(block_size, n_samples)
+            sim_trajectory: List[float] = []
+            while len(sim_trajectory) < n_samples:
+                start_idx = rng.randint(0, n_samples - 1)
+                for offset in range(effective_block):
+                    sim_trajectory.append(returns[(start_idx + offset) % n_samples])
+            sim_returns = sim_trajectory[:n_samples]
+        else:
+            sim_returns = list(returns)
+            rng.shuffle(sim_returns)
 
         equity = initial_capital
         peak = initial_capital
         min_equity = initial_capital
         max_dd = 0.0
 
-        for r in shuffled:
+        for r in sim_returns:
             equity *= (1.0 + r)
             if equity > peak:
                 peak = equity
@@ -275,6 +290,8 @@ def monte_carlo_simulation(
         "mc_95th_pct_drawdown": round(mc_95th_pct_drawdown, 4),
         "mc_probability_of_ruin": round(mc_probability_of_ruin, 4),
         "mc_mean_final_equity": round(mc_mean_final_equity, 2),
+        "mc_simulation_method": method,
+        "mc_block_size": block_size if method == "BLOCK_BOOTSTRAP" else 1,
     }
 
 

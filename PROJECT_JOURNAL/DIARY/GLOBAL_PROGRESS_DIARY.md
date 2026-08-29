@@ -12,6 +12,34 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_040 REALISTIC SIMULATION & RED TEAM WAVE FORMAL CLOSURE (416 TESTS PASS)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + STAGE_3 + SIMULATION_REALISM + MICROSTRUCTURE_FRICTION + P1_REMEDIATION + GLOBAL
+STATUS   : Eksekusi DELEGASI_040 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (5 Invariant Tests Pass). Total 416 tests pass 100%.
+           Seluruh 12 dari 12 Residu Red Team Hardening (RES-RED-01 s/d RES-RED-12) RESMI RESOLVED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & REMEDIASI KODE:
+     - are/backtest.py:
+       * RES-RED-10: Model friksi mikrostruktur komprehensif (spread_pct, slippage_pct, commission_pct).
+       * Perhitungan turnover posisi per bar dan pengurangan penalti friksi dari return kotor.
+       * Pelaporan metrik lengkap: total_turnover_count, total_friction_cost_pct, gross_return_pct, net_return_pct.
+       * Integrasi friksi mikrostruktur pada run_walk_forward_optimization() untuk Train dan OOS.
+     - are/validation.py:
+       * RES-RED-11: Implementasi Circular Block Bootstrap pada monte_carlo_simulation() untuk memelihara dependensi runtun waktu dan pengelompokan volatilitas nyata.
+       * Pembentukan lintasan berurutan sirkular anti-IndexError dengan pelaporan mc_simulation_method dan mc_block_size.
+  2. PENGUJIAN INVARIAN BARU:
+     - tests/are/test_simulation_microstructure_invariants.py (5 test baru, 100% PASS).
+  3. INTEGRASI & ZERO REGRESSION:
+     - 416 passed, 105 subtests in 71s. Zero dependency bloat (stdlib + polars only).
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/RESIDUAL_REGISTER.md
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-DELEGASI_040-REALISTIC-SIMULATION-JURNAL.md
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_039 SCIENTIFIC PROVENANCE & WFO REALITY COMPLETED (411 TESTS PASS)
 
 ```text

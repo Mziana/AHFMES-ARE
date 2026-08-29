@@ -66,6 +66,9 @@ class IsolatedBacktestEngine:
         historical_data: Optional[pl.DataFrame] = None,
         initial_capital: float = 10000.0,
         timeframe_seconds: float = 60.0,
+        spread_pct: float = 0.0001,      # 1 bps default spread cost (0.01%)
+        slippage_pct: float = 0.00005,   # 0.5 bps default execution slippage (0.005%)
+        commission_pct: float = 0.00005, # 0.5 bps default broker fee (0.005%)
     ) -> BacktestResult:
         """
         Executes a vectorized backtest computation over historical market data.
@@ -112,15 +115,22 @@ class IsolatedBacktestEngine:
                 pl.when(blocked_cond).then(pl.lit(0.0)).otherwise(pl.col("signal")).alias("signal")
             )
 
-        # 2. Vectorized P&L and Returns Computation
+        # 2. Vectorized P&L, Turnover, and Microstructure Friction (RES-RED-10)
+        unit_friction = (0.5 * spread_pct) + slippage_pct + commission_pct
+
         df = df.with_columns([
             (pl.col("price").pct_change()).fill_null(0.0).alias("price_return"),
             pl.col("signal").shift(1).fill_null(0.0).alias("prev_signal"),
         ]).with_columns([
-            (pl.col("prev_signal") * pl.col("price_return")).alias("strategy_return")
+            (pl.col("signal") - pl.col("prev_signal")).abs().alias("turnover"),
+            (pl.col("prev_signal") * pl.col("price_return")).alias("gross_strategy_return"),
+        ]).with_columns([
+            (pl.col("turnover") * pl.lit(unit_friction)).alias("friction_penalty"),
+        ]).with_columns([
+            (pl.col("gross_strategy_return") - pl.col("friction_penalty")).alias("strategy_return")
         ])
 
-        # 3. Cumulative Equity Curve
+        # 3. Cumulative Equity Curve (Net of Frictions)
         df = df.with_columns([
             (pl.lit(initial_capital) * (1.0 + pl.col("strategy_return")).cum_prod()).alias("equity")
         ])
@@ -164,11 +174,29 @@ class IsolatedBacktestEngine:
         total_losses = sum(losses)
         profit_factor = (total_gains / total_losses) if total_losses > 1e-9 else (100.0 if total_gains > 0 else 1.0)
 
+        # Microstructure friction metrics
+        total_turnover_count = int((df["turnover"] > 0).sum())
+        total_friction_cost = float(df["friction_penalty"].sum())
+        total_friction_cost_pct = round(total_friction_cost * 100.0, 4)
+
+        gross_cum = (1.0 + df["gross_strategy_return"]).cum_prod()
+        gross_final = float(gross_cum[-1]) if len(gross_cum) > 0 else 1.0
+        gross_return = gross_final - 1.0
+        gross_return_pct = round(gross_return * 100.0, 2)
+        net_return_pct = round(total_return * 100.0, 2)
+
         metrics = {
             "initial_capital": initial_capital,
             "final_equity": round(final_equity, 2),
             "total_return": round(total_return, 4),
             "total_return_pct": round(total_return * 100.0, 2),
+            "net_return_pct": net_return_pct,
+            "gross_return_pct": gross_return_pct,
+            "total_turnover_count": total_turnover_count,
+            "total_friction_cost_pct": total_friction_cost_pct,
+            "spread_pct": spread_pct,
+            "slippage_pct": slippage_pct,
+            "commission_pct": commission_pct,
             "max_drawdown": round(max_drawdown_pct, 4),
             "max_drawdown_pct": round(max_drawdown_pct * 100.0, 2),
             "sharpe_ratio": round(sharpe_ratio, 4),
@@ -378,6 +406,9 @@ class IsolatedBacktestEngine:
         optimization_metric: str = "sharpe_ratio",
         initial_capital: float = 10000.0,
         timeframe_seconds: float = 60.0,
+        spread_pct: float = 0.0001,
+        slippage_pct: float = 0.00005,
+        commission_pct: float = 0.00005,
     ) -> Dict[str, Any]:
         """
         True Walk-Forward Optimization (WFO) with in-sample parameter fitting
@@ -422,6 +453,9 @@ class IsolatedBacktestEngine:
                     historical_data=train_slice,
                     initial_capital=initial_capital,
                     timeframe_seconds=timeframe_seconds,
+                    spread_pct=spread_pct,
+                    slippage_pct=slippage_pct,
+                    commission_pct=commission_pct,
                 )
                 metric_val = float(is_res.metrics.get(optimization_metric, 0.0))
                 if metric_val > best_is_metric or best_params is None:
@@ -436,6 +470,9 @@ class IsolatedBacktestEngine:
                 historical_data=test_slice,
                 initial_capital=initial_capital,
                 timeframe_seconds=timeframe_seconds,
+                spread_pct=spread_pct,
+                slippage_pct=slippage_pct,
+                commission_pct=commission_pct,
             )
 
             is_sharpe = float(best_is_result.metrics.get("sharpe_ratio", 0.0)) if best_is_result else 0.0
