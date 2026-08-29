@@ -9,7 +9,7 @@ import unittest
 
 import polars as pl
 
-from are.backtest import BacktestEngine, IsolatedBacktestEngine
+from are.backtest import IsolatedBacktestEngine
 from are.validation import monte_carlo_simulation
 
 
@@ -174,14 +174,14 @@ class TestSimulationMicrostructureInvariants(unittest.TestCase):
             commission_pct=0.0001,
         )
 
-        self.assertIn("folds", wfo_result)
-        self.assertGreater(len(wfo_result["folds"]), 0)
-        for fold in wfo_result["folds"]:
+        self.assertTrue(hasattr(wfo_result, "folds"))
+        self.assertGreater(len(wfo_result.folds), 0)
+        for fold in wfo_result.folds:
             # Assert both IS and OOS metrics have friction metadata
-            self.assertIn("total_friction_cost_pct", fold["is_metrics"])
-            self.assertIn("total_friction_cost_pct", fold["oos_metrics"])
-            self.assertIn("net_return_pct", fold["oos_metrics"])
-            self.assertIn("gross_return_pct", fold["oos_metrics"])
+            self.assertIn("total_friction_cost_pct", fold.is_metrics)
+            self.assertIn("total_friction_cost_pct", fold.oos_metrics)
+            self.assertIn("net_return_pct", fold.oos_metrics)
+            self.assertIn("gross_return_pct", fold.oos_metrics)
 
 
 if __name__ == "__main__":

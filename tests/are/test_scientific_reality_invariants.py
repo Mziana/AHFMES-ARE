@@ -9,7 +9,7 @@ import unittest
 
 import polars as pl
 
-from are.backtest import BacktestEngine, IsolatedBacktestEngine, calculate_sharpe_ratio
+from are.backtest import IsolatedBacktestEngine, calculate_sharpe_ratio
 from are.evidence import EvidenceLedger
 from are.storage import EventStore
 from are.validation import ValidationReport, ValidationService
@@ -139,14 +139,14 @@ class TestScientificRealityInvariants(unittest.TestCase):
             optimization_metric="sharpe_ratio",
         )
 
-        self.assertIn("folds", wfo_result)
-        self.assertGreater(len(wfo_result["folds"]), 0)
-        first_fold = wfo_result["folds"][0]
-        self.assertIn("best_params", first_fold)
-        self.assertIn("is_metrics", first_fold)
-        self.assertIn("oos_metrics", first_fold)
-        self.assertIn("wfe_ratio", first_fold)
-        self.assertIn(first_fold["best_params"], param_grid)
+        self.assertTrue(hasattr(wfo_result, "folds"))
+        self.assertGreater(len(wfo_result.folds), 0)
+        first_fold = wfo_result.folds[0]
+        self.assertTrue(hasattr(first_fold, "winner_params"))
+        self.assertTrue(hasattr(first_fold, "is_metrics"))
+        self.assertTrue(hasattr(first_fold, "oos_metrics"))
+        self.assertTrue(hasattr(first_fold, "wfe"))
+        self.assertIn(first_fold.winner_params, param_grid)
 
     def test_wfo_detects_overfitting_parameter_decay(self):
         """
@@ -188,11 +188,11 @@ class TestScientificRealityInvariants(unittest.TestCase):
             optimization_metric="sharpe_ratio",
         )
 
-        self.assertEqual(len(wfo_result["folds"]), 1)
-        fold_0 = wfo_result["folds"][0]
-        self.assertEqual(fold_0["best_params"], {"bias": "bull"})
-        self.assertGreater(fold_0["is_sharpe"], 0.0)
-        self.assertLess(fold_0["wfe_ratio"], 0.5)
+        self.assertEqual(len(wfo_result.folds), 1)
+        fold_0 = wfo_result.folds[0]
+        self.assertEqual(fold_0.winner_params, {"bias": "bull"})
+        self.assertGreater(fold_0.winner_is_score, 0.0)
+        self.assertLess(fold_0.wfe, 0.5)
 
 
 if __name__ == "__main__":
