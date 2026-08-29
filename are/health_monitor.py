@@ -9,9 +9,11 @@ Triggers Circuit Breaker veto via CapitalSafetyKernel when CRITICAL anomalies oc
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import sys
 import time
+import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, List, Optional, Tuple
@@ -78,10 +80,124 @@ def _get_process_memory_mb() -> float:
     return 50.0
 
 
+class CriticalAlertSender:
+    """
+    External Alerting Gateway for CRITICAL health events (DELEGASI_035B).
+    Supports Webhook (primary) and SMTP Email (fallback) with 5-minute rate limiting.
+    100% Python Standard Library.
+    """
+
+    def __init__(
+        self,
+        webhook_url: Optional[str] = None,
+        email_smtp_host: Optional[str] = None,
+        email_from: Optional[str] = None,
+        email_to: Optional[str] = None,
+        rate_limit_seconds: float = 300.0,
+        email_smtp_port: int = 587,
+        email_user: Optional[str] = None,
+        email_password: Optional[str] = None,
+    ):
+        self.webhook_url = webhook_url
+        self.email_smtp_host = email_smtp_host
+        self.email_from = email_from
+        self.email_to = email_to
+        self.rate_limit_seconds = float(rate_limit_seconds)
+        self.email_smtp_port = int(email_smtp_port)
+        self.email_user = email_user
+        self.email_password = email_password
+        self._last_alert_ts: float = 0.0
+
+    def send_alert(
+        self,
+        health_report: HealthReport,
+        champion_id: str = "NONE",
+        evidence_hash: str = "",
+        current_time: Optional[float] = None,
+    ) -> bool:
+        """
+        Sends an alert if status is CRITICAL and rate limit has expired.
+        Tries Webhook first, then falls back to Email SMTP.
+        """
+        if health_report.status != HealthStatus.CRITICAL:
+            return False
+
+        now = time.time() if current_time is None else current_time
+        if (now - self._last_alert_ts) < self.rate_limit_seconds:
+            return False
+
+        payload = {
+            "alert_type": "CRITICAL_HEALTH_ALERT",
+            "status": health_report.status.value,
+            "champion_id": champion_id,
+            "evidence_hash": evidence_hash,
+            "details": health_report.details,
+            "memory_mb": health_report.memory_mb,
+            "heartbeat_ok": health_report.heartbeat_ok,
+            "latency_ok": health_report.latency_ok,
+            "vault_ok": health_report.vault_ok,
+            "timestamp": now,
+        }
+
+        # 1. Primary: Webhook
+        if self.webhook_url:
+            data_bytes = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                self.webhook_url,
+                data=data_bytes,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            webhook_success = False
+            for attempt in range(2):
+                try:
+                    with urllib.request.urlopen(req, timeout=5.0) as resp:
+                        if 200 <= resp.status < 300:
+                            webhook_success = True
+                            break
+                except Exception:
+                    if attempt == 0:
+                        time.sleep(2.0)
+
+            if webhook_success:
+                self._last_alert_ts = now
+                return True
+
+        # 2. Fallback: Email SMTP
+        if self.email_smtp_host:
+            try:
+                import smtplib
+                from email.mime.text import MIMEText
+
+                msg = MIMEText(f"CRITICAL HEALTH ALERT:\n{json.dumps(payload, indent=2)}")
+                msg["Subject"] = f"CRITICAL ALERT - AHFMES-ARE ({health_report.details})"
+                msg["From"] = self.email_from or "alerts@ahfmes.local"
+                msg["To"] = self.email_to or "admin@ahfmes.local"
+
+                with smtplib.SMTP(self.email_smtp_host, self.email_smtp_port, timeout=5.0) as server:
+                    try:
+                        server.starttls()
+                    except Exception:
+                        pass
+                    if self.email_user and self.email_password:
+                        server.login(self.email_user, self.email_password)
+                    server.send_message(msg)
+
+                self._last_alert_ts = now
+                return True
+            except Exception:
+                return False
+
+        return False
+
+
 class SystemHealthMonitor:
     """
     Local Watchdog monitoring core execution and infrastructure vitals.
     """
+
+    def __init__(self, alert_sender: Optional[CriticalAlertSender] = None):
+        self.alert_sender = alert_sender
 
     def check_memory_usage(self, threshold_mb: float = 2048.0) -> Tuple[bool, float]:
         """
@@ -168,7 +284,7 @@ class SystemHealthMonitor:
             critical_reasons.append("Vault Integrity Mismatch / Corruption Detected")
 
         if critical_reasons:
-            return HealthReport(
+            report = HealthReport(
                 status=HealthStatus.CRITICAL,
                 memory_mb=round(current_mb, 2),
                 heartbeat_ok=heartbeat_ok,
@@ -176,6 +292,9 @@ class SystemHealthMonitor:
                 vault_ok=vault_ok,
                 details="; ".join(critical_reasons),
             )
+            if self.alert_sender is not None:
+                self.alert_sender.send_alert(report)
+            return report
 
         # 2. Evaluate Warnings
         warning_reasons: List[str] = []

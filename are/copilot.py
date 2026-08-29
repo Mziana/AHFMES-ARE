@@ -9,6 +9,7 @@ Zero external hard-dependencies (stdlib only).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -73,13 +74,90 @@ class ConversationalCopilot:
             pass
         return self.model_name
 
-    def build_prompt(self, user_message: str, dynamic_context: Dict[str, Any]) -> str:
+    def _build_evidence_context(self, event_store: Optional[Any] = None) -> str:
         """
-        Constructs optimized prompt separating static prefix cache from dynamic execution state.
+        Gathers factual telemetry and execution data from EvidenceLedger and EventStore.
+        Truncates output to a maximum of 2000 characters.
         """
-        champ = dynamic_context.get("champion", {})
-        safety = dynamic_context.get("safety", {})
-        stats = dynamic_context.get("stream_stats", {})
+        store = event_store or self.event_store
+
+        # 1. Recent Trade Anomalies
+        anomalies = self.diagnostics.query_recent_anomalies(event_store=store, limit=3)
+        if anomalies:
+            anomaly_lines = [
+                f"{a.strategy_id} {a.symbol} slippage: {a.slippage_pips:.2f} pips, latency: {a.execution_latency_ms:.1f}ms ({a.anomaly_reason})"
+                for a in anomalies
+            ]
+            anomaly_str = "; ".join(anomaly_lines)
+        else:
+            anomaly_str = "None (No anomalies recorded)"
+
+        # 2. Recent Slippage Reports
+        reports = self.diagnostics.fetch_all(event_store=store, limit=3)
+        if reports:
+            report_lines = [
+                f"{r.strategy_id} {r.symbol} slippage: {r.slippage_pips:.2f} pips, latency: {r.execution_latency_ms:.1f}ms"
+                for r in reports
+            ]
+            report_str = "; ".join(report_lines)
+        else:
+            report_str = "None (No executions recorded)"
+
+        # 3. Active Champion Info
+        context = self._get_current_context()
+        champ = context.get("champion", {})
+        champ_id = champ.get("champion_id", "NONE")
+        champ_status = champ.get("status", "INACTIVE")
+
+        # 4. Vault Integrity
+        vault_status = "UNKNOWN"
+        if store is not None and hasattr(store, "verify_full_chain_integrity"):
+            try:
+                ok, status_str = store.verify_full_chain_integrity()
+                vault_status = f"VERIFIED_{status_str}" if ok else f"FAILED_{status_str}"
+            except Exception:
+                vault_status = "INTEGRITY_CHECK_ERROR"
+        else:
+            stats = context.get("stream_stats", {})
+            vault_status = stats.get("chain_health", "VERIFIED_OK")
+
+        # Structured string formatting
+        evidence_text = (
+            "[EVIDENCE CONTEXT — Factual Data from EvidenceLedger & EventStore]\n"
+            f"- Recent Trade Anomalies (last 3): {anomaly_str}\n"
+            f"- Recent Slippage Reports (last 3): {report_str}\n"
+            f"- Active Champion: {champ_id} | Status: {champ_status}\n"
+            f"- Vault Integrity: {vault_status}\n"
+            "[END EVIDENCE CONTEXT]\n\n"
+            "[SYSTEM INSTRUCTION]\n"
+            "You are an evidence-bound trading assistant. You MUST ONLY use data from the EVIDENCE CONTEXT above.\n"
+            'If a question cannot be answered using the provided evidence, state exactly: "Data tidak tersedia di EvidenceLedger."\n'
+            "Do NOT guess, infer, or hallucinate numbers not present in the evidence.\n"
+            "[END SYSTEM INSTRUCTION]"
+        )
+
+        if len(evidence_text) > 2000:
+            evidence_text = evidence_text[:2000]
+
+        return evidence_text
+
+    def build_prompt(
+        self,
+        user_message: str,
+        dynamic_context: Optional[Dict[str, Any]] = None,
+        event_store: Optional[Any] = None,
+    ) -> str:
+        """
+        Constructs optimized prompt separating static prefix cache, evidence context, and dynamic state.
+        """
+        ctx = dynamic_context if dynamic_context is not None else self._get_current_context()
+        champ = ctx.get("champion", {})
+        safety = ctx.get("safety", {})
+        stats = ctx.get("stream_stats", {})
+
+        store = event_store or self.event_store
+        evidence_context = self._build_evidence_context(store)
+        evidence_hash = hashlib.sha256(evidence_context.encode("utf-8")).hexdigest()
 
         dynamic_part = (
             "\nKonteks Real-Time Dinamis:\n"
@@ -91,7 +169,60 @@ class ConversationalCopilot:
             f"- Total Ticks: {stats.get('total_ticks', 0)} | Veto Count: {stats.get('veto_count', 0)}\n"
             f"- Chain Integrity: {stats.get('chain_health', 'UNKNOWN')}\n"
         )
-        return f"{STATIC_SYSTEM_PREFIX}\n{dynamic_part}\nUser: {user_message}\nAI Copilot:"
+        return (
+            f"{STATIC_SYSTEM_PREFIX}\n\n"
+            f"Evidence Hash: {evidence_hash}\n\n"
+            f"{evidence_context}\n"
+            f"{dynamic_part}\n"
+            f"User: {user_message}\n"
+            f"AI Copilot:"
+        )
+
+    def _verify_factual_consistency(self, ollama_response: str, evidence_context: str) -> tuple[bool, str]:
+        """
+        Verifies quantitative claims in Ollama response against factual Evidence context.
+        Uses domain keyword mapping and tolerance matching.
+        """
+        metric_pattern = re.compile(
+            r'\b(slippage|latency|latensi|drawdown|sharpe|spread|profit|pnl|veto|ticks)\b[^\d]*?([\d.]+)',
+            re.IGNORECASE,
+        )
+
+        def _norm_kw(k: str) -> str:
+            k = k.lower()
+            if k == "latensi":
+                return "latency"
+            return k
+
+        # Extract evidence metrics: normalized_kw -> list of float values
+        ev_metrics: Dict[str, List[float]] = {}
+        for m in metric_pattern.finditer(evidence_context):
+            kw = _norm_kw(m.group(1))
+            try:
+                val = float(m.group(2))
+                ev_metrics.setdefault(kw, []).append(val)
+            except ValueError:
+                continue
+
+        # Extract response metrics
+        for m in metric_pattern.finditer(ollama_response):
+            kw = _norm_kw(m.group(1))
+            try:
+                resp_val = float(m.group(2))
+            except ValueError:
+                continue
+
+            # If this metric appears in the evidence context, verify consistency
+            if kw in ev_metrics:
+                allowed_vals = ev_metrics[kw]
+                matched = any(
+                    abs(resp_val - ev_v) <= max(0.001 * abs(ev_v), 1e-4)
+                    for ev_v in allowed_vals
+                )
+                if not matched:
+                    return False, "[DATA TIDAK TERSEDIA — tidak cocok dengan EvidenceLedger]"
+
+        return True, ollama_response
 
     def generate_response(self, user_message: str) -> str:
         """
@@ -155,7 +286,9 @@ class ConversationalCopilot:
                     resp_json = json.loads(response.read().decode("utf-8"))
                     res_text = resp_json.get("response", "").strip()
                     if res_text:
-                        return res_text
+                        ev_ctx = self._build_evidence_context(self.event_store)
+                        ok, final_text = self._verify_factual_consistency(res_text, ev_ctx)
+                        return final_text
         except Exception:
             return None
 

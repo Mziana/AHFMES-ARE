@@ -147,3 +147,41 @@ class PostTradeDiagnostics:
             return anomalies
         except Exception:
             return []
+
+    def fetch_all(self, event_store: Optional[Any] = None, limit: int = 10) -> List[SlippageReport]:
+        """
+        Fetches all recent slippage reports (both nominal and anomalous) from the Evidence Ledger.
+        """
+        if event_store is None:
+            return []
+
+        try:
+            rows = event_store.fetch_all(
+                "SELECT event_data FROM events WHERE stream_id = ? ORDER BY revision DESC LIMIT ?",
+                ("trade_diagnostics", limit),
+            )
+            reports: List[SlippageReport] = []
+            for (data_blob,) in rows:
+                try:
+                    if isinstance(data_blob, str):
+                        data = json.loads(data_blob)
+                    else:
+                        data = json.loads(data_blob.decode("utf-8"))
+
+                    reports.append(
+                        SlippageReport(
+                            strategy_id=data.get("strategy_id", "N/A"),
+                            symbol=data.get("symbol", "UNKNOWN"),
+                            expected_price=float(data.get("expected_price", 0.0)),
+                            actual_price=float(data.get("actual_price", 0.0)),
+                            slippage_pips=float(data.get("slippage_pips", 0.0)),
+                            execution_latency_ms=float(data.get("execution_latency_ms", 0.0)),
+                            is_anomaly=bool(data.get("is_anomaly", False)),
+                            anomaly_reason=data.get("anomaly_reason", "NOMINAL_EXECUTION"),
+                        )
+                    )
+                except Exception:
+                    continue
+            return reports
+        except Exception:
+            return []
