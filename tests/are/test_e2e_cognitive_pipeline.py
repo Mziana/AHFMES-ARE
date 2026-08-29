@@ -113,7 +113,7 @@ class TestE2ECognitivePipeline(unittest.TestCase):
         # ORGAN 1: Vectorized Backtest Execution (Polars Engine)
         # =========================================================================
         engine = IsolatedBacktestEngine()
-        bt_result = engine.run_vectorized_backtest(historical_data=purified_df, initial_capital=10000.0)
+        bt_result = engine.run_backtest(historical_data=purified_df, initial_capital=10000.0)
 
         self.assertGreater(len(bt_result.equity_curve), 0)
         self.assertIn("total_return", bt_result.metrics)
@@ -302,7 +302,7 @@ class TestE2ECognitivePipeline(unittest.TestCase):
                 .alias("signal")
             )
 
-        bt_res = engine.run_vectorized_backtest(
+        bt_res = engine.run_backtest(
             strategy_logic=buy_on_100_strategy,
             historical_data=df,
         )

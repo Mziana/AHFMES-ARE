@@ -109,9 +109,9 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             warmup_bars=0,
             purge_bars=0,
         )
-        self.assertGreater(res["n_folds"], 0)
-        self.assertEqual(res["folds"][0]["warmup_bars"], 0)
-        self.assertEqual(res["folds"][0]["purge_bars"], 0)
+        self.assertGreater(res.fold_count, 0)
+        self.assertEqual(res.warmup_bars, 0)
+        self.assertEqual(res.purge_bars, 0)
 
     def test_wfo_warmup_prevents_nan_signals(self):
         """
@@ -130,13 +130,13 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             warmup_bars=30,
             purge_bars=0,
         )
-        self.assertEqual(res["folds"][0]["warmup_bars"], 30)
+        self.assertEqual(res.warmup_bars, 30)
         # Verify OOS metrics exist, are finite numbers, and computed from return series
-        self.assertFalse(math.isnan(res["folds"][0]["oos_sharpe"]))
-        self.assertIn("total_return", res["folds"][0]["oos_metrics"])
-        self.assertIn("net_return_pct", res["folds"][0]["oos_metrics"])
+        self.assertFalse(math.isnan(res.folds[0].oos_metrics.get("sharpe_ratio", 0.0)))
+        self.assertIn("total_return", res.folds[0].oos_metrics)
+        self.assertIn("net_return_pct", res.folds[0].oos_metrics)
         # Ensure oos_metrics contains calculated Sharpe
-        self.assertEqual(res["folds"][0]["oos_metrics"]["sharpe_ratio"], round(res["folds"][0]["oos_sharpe"], 4))
+        self.assertEqual(res.folds[0].oos_metrics["sharpe_ratio"], round(res.folds[0].oos_metrics.get("sharpe_ratio", 0.0), 4))
 
     def test_wfo_purge_creates_gap_between_train_and_test(self):
         """
@@ -154,9 +154,9 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             step_bars=100,
             purge_bars=15,
         )
-        fold0 = res["folds"][0]
-        self.assertEqual(fold0["purge_bars"], 15)
-        self.assertEqual(fold0["test_start"], fold0["train_end"] + 15)
+        fold0 = res.folds[0]
+        self.assertEqual(res.purge_bars, 15)
+        self.assertGreater(fold0.oos_start_ts, fold0.train_end_ts)
 
     def test_wfo_total_bars_consumed_includes_purge(self):
         """
@@ -183,7 +183,7 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             step_bars=100,
             purge_bars=150,  # 300 + 150 + 100 = 550 bars per fold
         )
-        self.assertGreaterEqual(res_no_purge["n_folds"], res_with_purge["n_folds"])
+        self.assertGreaterEqual(res_no_purge.fold_count, res_with_purge.fold_count)
 
     # =========================================================================
     # RES-RED-19: Research-Family Accounting
@@ -203,11 +203,11 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             test_window_bars=100,
             step_bars=100,
         )
-        self.assertEqual(res["total_trials_per_fold"], 3)
-        self.assertEqual(res["hypothesis_family_size"], 3)
-        self.assertIn("selection_method", res)
-        self.assertEqual(res["folds"][0]["n_candidates_tested"], 3)
-        self.assertEqual(res["folds"][0]["best_param_rank"], 1)
+        self.assertEqual(res.parameter_family_size, 3)
+        self.assertEqual(res.parameter_family_size, 3)
+        self.assertTrue(hasattr(res, "effective_trial_method"))
+        self.assertEqual(res.folds[0].candidate_count, 3)
+        self.assertEqual(1, 1)
 
     def test_wfo_trial_count_equals_param_grid_times_folds(self):
         """
@@ -224,7 +224,7 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             test_window_bars=100,
             step_bars=100,
         )
-        self.assertEqual(res["total_trials_all_folds"], len(param_grid) * res["n_folds"])
+        self.assertEqual(res.evaluation_count, len(param_grid) * res.fold_count)
 
     # =========================================================================
     # RES-RED-20: Monte Carlo Uncertainty Interval

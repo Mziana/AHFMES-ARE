@@ -8,6 +8,21 @@ import json
 import math
 import os
 import time
+
+import enum
+from are.backtest import WFOEvidence
+from are.validation import (
+    validate_wfo_integrity,
+    evaluate_dsr_from_evidence,
+    evaluate_wfo_performance
+)
+
+class GateStatus(enum.Enum):
+    INVALID = "INVALID"
+    FAIL = "FAIL"
+    BORDERLINE = "BORDERLINE"
+    PASS = "PASS"
+
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -221,53 +236,59 @@ class Phase5PreFlightAuditor:
     def audit_checkpoint_5_institutional_rigor(
         self,
         strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
+        wfo_evidence: Optional[WFOEvidence] = None,
     ) -> CheckpointResult:
         """
-        Checkpoint 5: Institutional Statistical Rigor & Portfolio Independence.
-        Verifies DSR, PSR, and Monte Carlo with Wilson CI.
+        Checkpoint 5: Institutional Statistical Rigor & Portfolio Independence (RES-WFO-01, RES-WFO-10).
+        Strictly consumer of WFOEvidence.
         """
         try:
-            # 1. Backtest evaluation
-            bt_res = self.backtest_engine.run_backtest(strategy_logic=strategy_logic)
-            sr = float(bt_res.metrics.get("sharpe_ratio", 0.0))
-            n_obs = int(bt_res.metrics.get("total_bars", 250))
-
-            # 2. Monte Carlo evaluation
-            mc_res = monte_carlo_simulation(bt_res.trade_log, num_simulations=200)
-
-            # 3. DSR and PSR calculation using ACTUAL strategy Sharpe ratio (RES-REV-01)
-            expected_max_sr, dsr_p_val = calculate_deflated_sharpe_ratio(
-                observed_sharpe=sr,
-                num_trials=10,
-                num_observations=n_obs,
-            )
-            psr = calculate_probabilistic_sharpe_ratio(
-                observed_sharpe=sr,
-                benchmark_sharpe=0.0,
-                num_observations=n_obs,
-            )
-
-            # 4. Statistical robustness validation
-            stat_pass, stat_reason = validate_statistical_robustness(
-                backtest_metrics=bt_res.metrics,
-                mc_metrics=mc_res,
-                wf_score=0.80,
-                num_trials=10,
-            )
-
-            passed = (psr >= 0.90) and ("mc_ruin_ci_lower_95" in mc_res)
-
+            if wfo_evidence is None:
+                return CheckpointResult(
+                    checkpoint_id=5,
+                    name="Institutional Statistical Rigor & Portfolio Independence",
+                    passed=False,
+                    details={"gate_status": GateStatus.INVALID.value, "reason": "No WFOEvidence provided"},
+                )
+                
+            integrity = validate_wfo_integrity(wfo_evidence)
+            if not integrity.is_valid:
+                return CheckpointResult(
+                    checkpoint_id=5,
+                    name="Institutional Statistical Rigor & Portfolio Independence",
+                    passed=False,
+                    details={"gate_status": GateStatus.INVALID.value, "reason": integrity.fail_reason},
+                )
+                
+            dsr = evaluate_dsr_from_evidence(wfo_evidence)
+            if not dsr.is_valid:
+                return CheckpointResult(
+                    checkpoint_id=5,
+                    name="Institutional Statistical Rigor & Portfolio Independence",
+                    passed=False,
+                    details={"gate_status": GateStatus.FAIL.value, "reason": dsr.fail_reason, "dsr": dsr.dsr_value, "p_value": dsr.p_value},
+                )
+                
+            perf = evaluate_wfo_performance(wfo_evidence)
+            if not perf.is_valid:
+                return CheckpointResult(
+                    checkpoint_id=5,
+                    name="Institutional Statistical Rigor & Portfolio Independence",
+                    passed=False,
+                    details={"gate_status": GateStatus.BORDERLINE.value, "reason": perf.fail_reason, "sharpe": perf.pooled_sharpe},
+                )
+                
             return CheckpointResult(
                 checkpoint_id=5,
                 name="Institutional Statistical Rigor & Portfolio Independence",
-                passed=passed,
+                passed=True,
                 details={
-                    "psr": round(psr, 4),
-                    "dsr_p_value": round(dsr_p_val, 4),
-                    "expected_max_sr": round(expected_max_sr, 4),
-                    "mc_ruin_prob": mc_res.get("mc_probability_of_ruin", 0.0),
-                    "mc_ruin_ci_95": [mc_res.get("mc_ruin_ci_lower_95"), mc_res.get("mc_ruin_ci_upper_95")],
-                    "robustness_status": stat_reason,
+                    "gate_status": GateStatus.PASS.value,
+                    "dsr": round(dsr.dsr_value, 4),
+                    "p_value": round(dsr.p_value, 4),
+                    "sharpe": round(perf.pooled_sharpe, 4),
+                    "return": round(perf.pooled_return, 4),
+                    "max_drawdown": round(perf.pooled_max_dd, 4),
                 },
             )
         except Exception as e:
@@ -275,7 +296,7 @@ class Phase5PreFlightAuditor:
                 checkpoint_id=5,
                 name="Institutional Statistical Rigor & Portfolio Independence",
                 passed=False,
-                details={},
+                details={"gate_status": GateStatus.FAIL.value},
                 error_message=str(e),
             )
 
@@ -342,6 +363,7 @@ class Phase5PreFlightAuditor:
     def run_full_preflight_battery(
         self,
         strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
+        wfo_evidence: Optional[WFOEvidence] = None,
     ) -> Phase5PreFlightReport:
         """
         Executes all 7 Iron Checkpoints and generates an authoritative Phase 5 Report.
@@ -352,7 +374,7 @@ class Phase5PreFlightAuditor:
             self.audit_checkpoint_2_stability_harness(test_hours=1),
             self.audit_checkpoint_3_vault_integrity(),
             self.audit_checkpoint_4_triple_crisis_survival(strategy_logic=strategy_logic),
-            self.audit_checkpoint_5_institutional_rigor(strategy_logic=strategy_logic),
+            self.audit_checkpoint_5_institutional_rigor(strategy_logic=strategy_logic, wfo_evidence=wfo_evidence),
             self.audit_checkpoint_6_alerting_heartbeat(),
             self.audit_checkpoint_7_sec_risk_collar(),
         ]
