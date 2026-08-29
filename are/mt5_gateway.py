@@ -109,6 +109,7 @@ class MT5ExecutionGateway:
         self._mock_gateway = MT5MockGateway() if use_mock else None
         self._mt5_lib: Optional[Any] = None
         self._order_timestamps: deque[float] = deque()
+        self._peak_equity: float = 0.0
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MT5GatewayWorker")
 
         if not use_mock:
@@ -133,15 +134,35 @@ class MT5ExecutionGateway:
         self._order_timestamps.append(ts if ts is not None else time.time())
 
     def get_account_info(self, default_equity: float = 10000.0) -> Dict[str, float]:
-        """Polls live account balance, equity, and computes real-time drawdown (RES-RED-05)."""
+        """Polls live account balance, equity, and computes peak-equity drawdown (RES-RED-13)."""
         if self._mt5_lib is not None:
             acc = self._mt5_lib.account_info()
             if acc is not None:
                 bal = float(getattr(acc, "balance", default_equity))
                 eq = float(getattr(acc, "equity", default_equity))
-                dd = max(0.0, (bal - eq) / bal) if bal > 0 else 0.0
-                return {"balance": bal, "equity": eq, "drawdown": dd}
-        return {"balance": default_equity, "equity": default_equity, "drawdown": 0.0}
+
+                # Track peak equity (only increases, never decreases)
+                self._peak_equity = max(self._peak_equity, eq)
+
+                # Peak-equity drawdown (standard quantitative definition)
+                dd = max(0.0, (self._peak_equity - eq) / self._peak_equity) if self._peak_equity > 0 else 0.0
+
+                return {
+                    "balance": bal,
+                    "equity": eq,
+                    "peak_equity": self._peak_equity,
+                    "drawdown": dd,
+                }
+
+        # Mock/default path — also track peak
+        self._peak_equity = max(self._peak_equity, default_equity)
+        dd = max(0.0, (self._peak_equity - default_equity) / self._peak_equity) if self._peak_equity > 0 else 0.0
+        return {
+            "balance": default_equity,
+            "equity": default_equity,
+            "peak_equity": self._peak_equity,
+            "drawdown": dd,
+        }
 
     def calculate_lot_size(
         self,

@@ -45,6 +45,71 @@ class TestSemanticCorrectnessInvariants(unittest.TestCase):
         # Verify mt5 was called multiple times (retried, not treated as flat on first None)
         self.assertGreaterEqual(mock_mt5.positions_get.call_count, 2)
 
+    def test_drawdown_uses_peak_equity_not_balance(self):
+        """
+        RES-RED-13: Drawdown harus dihitung dari peak equity, bukan balance.
+        Skenario: equity naik ke 15000, lalu turun ke 13000.
+        Balance tetap 14000. DD seharusnya (15000-13000)/15000 = 13.33%, bukan 7.14%.
+        """
+        gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=True)
+        mock_mt5 = MagicMock()
+        gateway._mt5_lib = mock_mt5
+        gateway._mock_gateway = None  # Force live path
+
+        # Equity naik ke 15000
+        acc_peak = MagicMock()
+        acc_peak.balance = 14000.0
+        acc_peak.equity = 15000.0
+        mock_mt5.account_info.return_value = acc_peak
+        info1 = gateway.get_account_info()
+        self.assertAlmostEqual(info1["peak_equity"], 15000.0)
+        self.assertAlmostEqual(info1["drawdown"], 0.0)  # At peak, DD = 0
+
+        # Equity turun ke 13000
+        acc_dd = MagicMock()
+        acc_dd.balance = 14000.0
+        acc_dd.equity = 13000.0
+        mock_mt5.account_info.return_value = acc_dd
+        info2 = gateway.get_account_info()
+        self.assertAlmostEqual(info2["peak_equity"], 15000.0)  # Peak tidak turun
+        expected_dd = (15000.0 - 13000.0) / 15000.0  # = 0.1333
+        self.assertAlmostEqual(info2["drawdown"], expected_dd, places=4)
+        # Verifikasi bukan (14000 - 13000) / 14000 = 0.0714
+        self.assertNotAlmostEqual(info2["drawdown"], 0.0714, places=3)
+
+    def test_peak_equity_only_increases_never_decreases(self):
+        """
+        RES-RED-13: peak_equity adalah high water mark — hanya naik, tidak pernah turun.
+        """
+        gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=True)
+        mock_mt5 = MagicMock()
+        gateway._mt5_lib = mock_mt5
+        gateway._mock_gateway = None
+
+        equities = [10000.0, 12000.0, 11000.0, 15000.0, 14000.0, 13000.0]
+        expected_peaks = [10000.0, 12000.0, 12000.0, 15000.0, 15000.0, 15000.0]
+
+        for eq, expected_peak in zip(equities, expected_peaks):
+            acc = MagicMock()
+            acc.balance = 10000.0
+            acc.equity = float(eq)
+            mock_mt5.account_info.return_value = acc
+            info = gateway.get_account_info()
+            self.assertAlmostEqual(info["peak_equity"], float(expected_peak))
+
+    def test_mock_path_tracks_peak_equity(self):
+        """
+        RES-RED-13: Default mock path juga mencatat peak_equity dengan benar.
+        """
+        gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=True)
+        info1 = gateway.get_account_info(default_equity=12000.0)
+        self.assertEqual(info1["peak_equity"], 12000.0)
+        self.assertEqual(info1["drawdown"], 0.0)
+
+        info2 = gateway.get_account_info(default_equity=9000.0)
+        self.assertEqual(info2["peak_equity"], 12000.0)
+        self.assertAlmostEqual(info2["drawdown"], (12000.0 - 9000.0) / 12000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

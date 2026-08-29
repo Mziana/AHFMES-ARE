@@ -73,6 +73,24 @@ class IsolatedBacktestEngine:
         """
         Executes a vectorized backtest computation over historical market data.
         """
+        # Input validation — fail-closed on nonsensical parameters (RES-RED-22)
+        for param_name, param_val in [
+            ("spread_pct", spread_pct),
+            ("slippage_pct", slippage_pct),
+            ("commission_pct", commission_pct),
+        ]:
+            if not isinstance(param_val, (int, float)):
+                raise TypeError(f"INVALID_FRICTION_TYPE: {param_name} must be numeric, got {type(param_val).__name__}")
+            if math.isnan(param_val) or math.isinf(param_val):
+                raise ValueError(f"INVALID_FRICTION_VALUE: {param_name} = {param_val!r} (must be finite)")
+            if param_val < 0.0:
+                raise ValueError(f"NEGATIVE_FRICTION_REJECTED: {param_name} = {param_val} (friction cannot be negative)")
+
+        if not isinstance(timeframe_seconds, (int, float)) or timeframe_seconds <= 0.0:
+            raise ValueError(f"INVALID_TIMEFRAME: timeframe_seconds = {timeframe_seconds} (must be positive)")
+        if math.isnan(timeframe_seconds) or math.isinf(timeframe_seconds):
+            raise ValueError(f"INVALID_TIMEFRAME: timeframe_seconds = {timeframe_seconds} (must be finite)")
+
         if historical_data is None:
             # Generate deterministic synthetic data for default evaluations
             timestamps = [1700000000 + i * 60 for i in range(1000)]
@@ -253,11 +271,16 @@ class IsolatedBacktestEngine:
         initial_capital: float = 10000.0,
         survival_threshold_pct: float = 0.50,
         crisis_name: str = "SYNTHETIC_CRISIS_CRASH",
+        spread_pct: float = 0.0001,
+        slippage_pct: float = 0.00005,
+        commission_pct: float = 0.00005,
+        timeframe_seconds: float = 60.0,
     ) -> Dict[str, Any]:
         """
         Runs strategy evaluation on historical or synthetic Black Swan crisis datasets.
         Evaluates strict capital survival threshold (>= 50% capital retained and <= 50% max DD)
         and bankruptcy barrier (< 10% capital).
+        Propagates realistic microstructure friction parameters (RES-RED-16).
         """
         data: Optional[pl.DataFrame] = None
         if crisis_df is not None:
@@ -285,6 +308,10 @@ class IsolatedBacktestEngine:
             strategy_logic=strategy_logic,
             historical_data=data,
             initial_capital=initial_capital,
+            timeframe_seconds=timeframe_seconds,
+            spread_pct=spread_pct,
+            slippage_pct=slippage_pct,
+            commission_pct=commission_pct,
         )
 
         final_equity = bt_result.equity_curve["equity"][-1] if len(bt_result.equity_curve) > 0 else initial_capital
@@ -305,7 +332,7 @@ class IsolatedBacktestEngine:
             "metrics": bt_result.metrics,
         }
 
-    def run_walk_forward_analysis(
+    def run_rolling_oos_evaluation(
         self,
         strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
         historical_data: Optional[pl.DataFrame] = None,
@@ -315,8 +342,9 @@ class IsolatedBacktestEngine:
         initial_capital: float = 10000.0,
     ) -> Dict[str, Any]:
         """
-        Executes multi-fold Walk-Forward Analysis (WFA) using rolling/expanding window slicing.
-        Evaluates In-Sample (IS) training vs Out-of-Sample (OOS) testing degradation.
+        Executes rolling In-Sample (IS) vs Out-of-Sample (OOS) evaluation of a static strategy logic (RES-RED-17).
+        NOTE: This is NOT Walk-Forward Optimization (which optimizes parameters per fold).
+        For true Walk-Forward Optimization with parameter fitting, use run_walk_forward_optimization().
         """
         if historical_data is None:
             # Generate deterministic synthetic baseline
@@ -395,6 +423,17 @@ class IsolatedBacktestEngine:
             "folds": folds,
         }
 
+    def run_walk_forward_analysis(self, *args, **kwargs) -> Dict[str, Any]:
+        """DEPRECATED: Renamed to run_rolling_oos_evaluation(). NOT Walk-Forward Optimization (RES-RED-17)."""
+        import warnings
+        warnings.warn(
+            "run_walk_forward_analysis() is deprecated and renamed to run_rolling_oos_evaluation(). "
+            "For true Walk-Forward Optimization with parameter fitting, use run_walk_forward_optimization().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.run_rolling_oos_evaluation(*args, **kwargs)
+
     def run_walk_forward_optimization(
         self,
         strategy_factory: Callable[[Dict[str, Any]], Callable[[pl.DataFrame], pl.DataFrame]],
@@ -403,6 +442,8 @@ class IsolatedBacktestEngine:
         train_window_bars: int = 500,
         test_window_bars: int = 100,
         step_bars: int = 100,
+        warmup_bars: int = 0,
+        purge_bars: int = 0,
         optimization_metric: str = "sharpe_ratio",
         initial_capital: float = 10000.0,
         timeframe_seconds: float = 60.0,
@@ -411,8 +452,8 @@ class IsolatedBacktestEngine:
         commission_pct: float = 0.00005,
     ) -> Dict[str, Any]:
         """
-        True Walk-Forward Optimization (WFO) with in-sample parameter fitting
-        and out-of-sample performance evaluation (RES-RED-09).
+        True Walk-Forward Optimization (WFO) with in-sample parameter fitting,
+        warm-up indicator lookback, purge gap, and out-of-sample performance evaluation (RES-RED-09, RES-RED-18, RES-RED-19).
         """
         if historical_data is None:
             # Generate deterministic dataset with sufficient bars
@@ -427,7 +468,7 @@ class IsolatedBacktestEngine:
         purified_data = purifier.purify_tick_data(historical_data)
 
         total_bars = len(purified_data)
-        min_required = train_window_bars + test_window_bars
+        min_required = train_window_bars + purge_bars + test_window_bars
         if total_bars < min_required:
             raise ValueError(
                 f"Historical data length ({total_bars}) is less than minimum required bars ({min_required})"
@@ -437,9 +478,8 @@ class IsolatedBacktestEngine:
         start = 0
         fold_idx = 0
 
-        while (start + train_window_bars + test_window_bars) <= total_bars:
+        while (start + train_window_bars + purge_bars + test_window_bars) <= total_bars:
             train_slice = purified_data.slice(start, train_window_bars)
-            test_slice = purified_data.slice(start + train_window_bars, test_window_bars)
 
             # In-Sample (Train) Phase: grid search over param_grid
             best_params = None
@@ -463,11 +503,17 @@ class IsolatedBacktestEngine:
                     best_params = params
                     best_is_result = is_res
 
-            # Out-of-Sample (Test OOS) Phase: evaluate best_params on test_slice
+            # Out-of-Sample (Test OOS) Phase with Purge and Warmup (RES-RED-18)
+            oos_start = start + train_window_bars + purge_bars
+            warmup_start = max(0, oos_start - warmup_bars)
+            actual_warmup = oos_start - warmup_start
+
+            test_slice_with_warmup = purified_data.slice(warmup_start, actual_warmup + test_window_bars)
+
             best_strat_logic = strategy_factory(best_params) if best_params is not None else None
             oos_res = self.run_backtest(
                 strategy_logic=best_strat_logic,
-                historical_data=test_slice,
+                historical_data=test_slice_with_warmup,
                 initial_capital=initial_capital,
                 timeframe_seconds=timeframe_seconds,
                 spread_pct=spread_pct,
@@ -475,19 +521,39 @@ class IsolatedBacktestEngine:
                 commission_pct=commission_pct,
             )
 
+            # Score strict OOS portion only (excluding warmup bars)
+            if actual_warmup > 0 and len(oos_res.equity_curve) > actual_warmup:
+                oos_equity = oos_res.equity_curve.slice(actual_warmup, test_window_bars)
+                oos_returns = oos_equity["strategy_return"].to_list() if "strategy_return" in oos_equity.columns else []
+                oos_sharpe = calculate_sharpe_ratio(oos_returns, timeframe_seconds=timeframe_seconds)
+                oos_metrics = dict(oos_res.metrics)
+                oos_metrics["sharpe_ratio"] = round(oos_sharpe, 4)
+                if len(oos_equity) > 0 and "equity" in oos_equity.columns:
+                    eq_init = float(oos_equity["equity"][0])
+                    eq_final = float(oos_equity["equity"][-1])
+                    oos_metrics["total_return"] = round((eq_final - eq_init) / eq_init, 4) if eq_init > 0 else 0.0
+                    oos_metrics["total_return_pct"] = round(oos_metrics["total_return"] * 100.0, 2)
+                    oos_metrics["net_return_pct"] = oos_metrics["total_return_pct"]
+            else:
+                oos_metrics = oos_res.metrics
+                oos_sharpe = float(oos_res.metrics.get("sharpe_ratio", 0.0))
+
             is_sharpe = float(best_is_result.metrics.get("sharpe_ratio", 0.0)) if best_is_result else 0.0
-            oos_sharpe = float(oos_res.metrics.get("sharpe_ratio", 0.0))
             wfe_ratio = (oos_sharpe / is_sharpe) if is_sharpe > 0.0 else 0.0
 
             folds.append({
                 "fold_index": fold_idx,
                 "train_start": start,
                 "train_end": start + train_window_bars,
-                "test_start": start + train_window_bars,
-                "test_end": start + train_window_bars + test_window_bars,
+                "purge_bars": purge_bars,
+                "warmup_bars": actual_warmup,
+                "test_start": oos_start,
+                "test_end": oos_start + test_window_bars,
                 "best_params": best_params,
+                "n_candidates_tested": len(param_grid),
+                "best_param_rank": 1,
                 "is_metrics": best_is_result.metrics if best_is_result else {},
-                "oos_metrics": oos_res.metrics,
+                "oos_metrics": oos_metrics,
                 "is_sharpe": is_sharpe,
                 "oos_sharpe": oos_sharpe,
                 "wfe_ratio": wfe_ratio,
@@ -519,6 +585,10 @@ class IsolatedBacktestEngine:
             "mean_oos_sharpe": float(mean_oos_sharpe),
             "mean_wfe": float(mean_wfe),
             "parameter_stability_score": float(param_stability_score),
+            "total_trials_per_fold": len(param_grid),
+            "total_trials_all_folds": len(param_grid) * n_folds,
+            "hypothesis_family_size": len(param_grid),
+            "selection_method": f"argmax_{optimization_metric}_in_sample",
             "folds": folds,
         }
 
