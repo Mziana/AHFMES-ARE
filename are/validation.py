@@ -599,18 +599,12 @@ def validate_wfo_integrity(evidence: WFOEvidence) -> WFOIntegrityResult:
     if overlap_count > 0:
         return WFOIntegrityResult(is_valid=False, fail_reason=f"OOS overlap detected between {overlap_count} folds", overlap_count=overlap_count)
         
-    data_dict = {
-        "folds": [
-            {
-                "winner_params": f.winner_params,
-                "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0)
-            } for f in evidence.folds
-        ],
-        "pooled_sharpe": evidence.pooled_oos_sharpe
-    }
+    from are.backtest import build_wfo_provenance_payload
+    payload = build_wfo_provenance_payload(evidence)
+    
     import hashlib
     import json
-    calculated_hash = hashlib.sha256(json.dumps(data_dict, sort_keys=True).encode()).hexdigest()
+    calculated_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     if calculated_hash != evidence.provenance_hash:
         return WFOIntegrityResult(is_valid=False, fail_reason="Provenance hash mismatch", overlap_count=0)
         

@@ -12,6 +12,24 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-30 — EXTERNAL AUDIT ALPHA & P0 FINDINGS REMEDIATION (DELEGASI_046..050)
+
+```text
+KATEGORI : EXTERNAL_AUDIT + RED_TEAM_HARDENING + EXECUTION_SAFETY + PROVENANCE_TRUTH + HERMETICITY + GLOBAL
+STATUS   : 5 Delegasi (DELEGASI_046..050) Resmi Dieksekusi dan Terverifikasi 100% Hijau.
+DETAIL   :
+  1. DELEGASI_046: Memulihkan semantik fatal fail-closed pada run_live_loop & run_tick_stream_async (emergency_flat -> raise RuntimeError).
+  2. DELEGASI_047: Menyelaraskan pooling equity WFO kontinu (warmup=0) + shared payload builder build_wfo_provenance_payload() + content-addressed dataset_hash.
+  3. DELEGASI_048: Menghapus self-certification pada Preflight Checkpoints (CP4 fail-closed strategy required, CP6 two-phase inject/recover, CP7 adversarial veto probes, CP2 simulated tracking).
+  4. DELEGASI_049: Mengoreksi status RES-COG-03 -> REOPENED, menerbitkan jurnal audit, requirements.txt, and GitHub Actions CI.
+  5. DELEGASI_050: Hermetic test guards patch.dict sys.modules {"MetaTrader5": mock_mt5} untuk integritas pengujian lintas platform.
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-EXTERNAL-AUDIT-ALPHA-P0-FINDINGS-JURNAL.md
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/RESIDUAL_REGISTER.md
+```
+
+---
+
 ## 2026-08-29 — WFO EVIDENCE CHAIN BLUEPRINT v2 ADOPTED (14 MANDATORY CHANGES & 12 TESTS)
 
 ```text

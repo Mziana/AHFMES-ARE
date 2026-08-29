@@ -101,7 +101,31 @@ class WFOEvidence:
     worst_wfe: float
     
     provenance_hash: str
-
+    
+def build_wfo_provenance_payload(evidence: WFOEvidence) -> Dict[str, Any]:
+    return {
+        "folds": [
+            {
+                "winner_params": f.winner_params,
+                "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0)
+            } for f in evidence.folds
+        ],
+        "pooled_sharpe": evidence.pooled_oos_sharpe,
+        "pooled_oos_return": evidence.pooled_oos_return,
+        "pooled_oos_max_drawdown": evidence.pooled_oos_max_drawdown,
+        "fold_count": evidence.fold_count,
+        "parameter_family_size": evidence.parameter_family_size,
+        "evaluation_count": evidence.evaluation_count,
+        "effective_trial_count": evidence.effective_trial_count,
+        "training_overlap_ratio": evidence.training_overlap_ratio,
+        "oos_overlap_ratio": evidence.oos_overlap_ratio,
+        "purge_bars": evidence.purge_bars,
+        "label_horizon_bars": evidence.label_horizon_bars,
+        "warmup_bars": evidence.warmup_bars,
+        "mean_wfe": evidence.mean_wfe,
+        "median_wfe": evidence.median_wfe,
+        "worst_wfe": evidence.worst_wfe,
+    }
 
 def calculate_sharpe_ratio(
     returns: List[float],
@@ -649,7 +673,13 @@ class IsolatedBacktestEngine:
                 if len(oos_res.equity_curve) > 0:
                     oos_returns = oos_res.equity_curve["strategy_return"].to_list() if "strategy_return" in oos_res.equity_curve.columns else []
                     pooled_returns.extend(oos_returns)
-                    pooled_equity.extend(oos_res.equity_curve["equity"].to_list() if "equity" in oos_res.equity_curve.columns else [])
+                    if not pooled_equity:
+                        pooled_equity.extend(oos_res.equity_curve["equity"].to_list() if "equity" in oos_res.equity_curve.columns else [])
+                    else:
+                        last_eq = pooled_equity[-1]
+                        for r in oos_returns:
+                            last_eq *= (1.0 + r)
+                            pooled_equity.append(last_eq)
 
             is_sharpe = float(best_cand["is_sharpe"])
             wfe_ratio = (oos_sharpe / is_sharpe) if is_sharpe > 0.0 else 0.0
@@ -730,22 +760,19 @@ class IsolatedBacktestEngine:
             
         run_id = f"wfo_{int(time.time())}_{os.urandom(4).hex()}"
         
-        data_dict = {
-            "folds": [
-                {
-                    "winner_params": f.winner_params,
-                    "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0)
-                } for f in folds
-            ],
-            "pooled_sharpe": pooled_oos_sharpe
-        }
         import json
         import hashlib
-        provenance_hash = hashlib.sha256(json.dumps(data_dict, sort_keys=True).encode()).hexdigest()
+        
+        if historical_data is not None and len(historical_data) > 0:
+            ts_list = historical_data["timestamp"].to_list() if "timestamp" in historical_data.columns else []
+            pr_list = historical_data["price"].to_list() if "price" in historical_data.columns else []
+            data_bytes = (str(ts_list) + str(pr_list)).encode()
+        else:
+            data_bytes = b"0"
 
         evidence = WFOEvidence(
             run_id=run_id,
-            dataset_hash=compute_sha256(str(len(historical_data)).encode()),
+            dataset_hash=compute_sha256(data_bytes),
             data_start_ts=float(historical_data["timestamp"][0]) if len(historical_data) > 0 else 0.0,
             data_end_ts=float(historical_data["timestamp"][-1]) if len(historical_data) > 0 else 0.0,
             folds=tuple(folds),
@@ -773,8 +800,14 @@ class IsolatedBacktestEngine:
             mean_wfe=_mean(fold_wfes),
             median_wfe=_median(fold_wfes),
             worst_wfe=_worst(fold_wfes),
-            provenance_hash=provenance_hash
+            provenance_hash=""
         )
+
+        payload = build_wfo_provenance_payload(evidence)
+        provenance_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        
+        import dataclasses
+        evidence = dataclasses.replace(evidence, provenance_hash=provenance_hash)
 
         return evidence
 

@@ -65,7 +65,7 @@ Otoritas: **Lead Architect & Red Team Advisory Council**
 | **RES-RED-10** | 2026-08-29 | DELEGASI_040 | Mengimplementasikan model friksi mikrostruktur proporsional baseline v1 (`spread_pct`, `slippage_pct`, `commission_pct`) pada `BacktestEngine`, menghitung turnover posisi per bar dan rincian biaya transaksi. |
 | **RES-RED-11** | 2026-08-29 | DELEGASI_040 | Mengimplementasikan metode Circular Block Bootstrap Monte Carlo pada `monte_carlo_simulation()`, mempertahankan dependensi lokal serial dalam window `block_size`. |
 | **RES-RED-12** | 2026-08-29 | DELEGASI_037b (`b80f413`) | Menyelaraskan penuh root `README.md` dengan `CURRENT_AUTHORITY_INDEX.md`, mengeliminasi divergensi status sistem. |
-| **RES-COG-03** | 2026-08-29 | DELEGASI_024 | GATED (Menunggu Validasi Stabilitas Bebas Infinite Loop) |
+| **RES-COG-03** | 2026-08-29 | DELEGASI_045 | REOPENED (AUDIT 2026-08-29): Klaim resolusi tidak berlaku — placeholder commit, suite hang saat klaim dibuat. Remediasi aktif via DELEGASI_046..049. |
 
 ### Gelombang 2 (Diselesaikan di DELEGASI_041)
 

@@ -1,11 +1,25 @@
-import pytest
+import hashlib
+import json
 import dataclasses
+import pytest
 import polars as pl
 from typing import Dict, Any
 
-from are.backtest import IsolatedBacktestEngine, WFOEvidence, WFOFoldEvidence, BacktestResult
+from are.backtest import (
+    IsolatedBacktestEngine,
+    WFOEvidence,
+    WFOFoldEvidence,
+    BacktestResult,
+    build_wfo_provenance_payload,
+)
 from are.preflight import Phase5PreFlightAuditor, GateStatus
 from are.validation import validate_wfo_integrity
+
+
+def _compute_hash(ev: WFOEvidence) -> str:
+    payload = build_wfo_provenance_payload(ev)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
 
 def test_oos_overlap_rejection():
     # Construct a dummy WFOEvidence with overlapping OOS periods
@@ -43,12 +57,13 @@ def test_oos_overlap_rejection():
         mean_wfe=1.0,
         median_wfe=1.0,
         worst_wfe=1.0,
-        provenance_hash="dummy" # This will cause a hash mismatch anyway, but we want to check overlap count
+        provenance_hash="dummy"
     )
     
     res = validate_wfo_integrity(ev)
     assert not res.is_valid
     assert res.overlap_count > 0
+
 
 def test_purge_violation():
     engine = IsolatedBacktestEngine()
@@ -62,13 +77,14 @@ def test_purge_violation():
             strategy_factory=dummy_factory,
             param_grid=[{"p": 1}],
             purge_bars=5,
-            label_horizon_bars=10  # label_horizon > purge_bars
+            label_horizon_bars=10
         )
 
+
 def test_evidence_tampering_detection():
-    # Construct a valid evidence but tamper with pooled_oos_sharpe
-    f1 = WFOFoldEvidence(1, 0, 100, 101, 105, 106, 200, 2, "sr", {"a":1}, 1.0, None, None, 0, "", {}, {}, (0.01,), 1.0)
-    ev = WFOEvidence(
+    # Construct a valid evidence
+    f1 = WFOFoldEvidence(1, 0, 100, 101, 105, 106, 200, 2, "sr", {"a":1}, 1.0, None, None, 0, "", {}, {"sharpe_ratio": 1.0}, (0.01,), 1.0)
+    ev_base = WFOEvidence(
         run_id="test",
         dataset_hash="hash",
         data_start_ts=0,
@@ -98,39 +114,117 @@ def test_evidence_tampering_detection():
         mean_wfe=1.0,
         median_wfe=1.0,
         worst_wfe=1.0,
-        provenance_hash="invalid" # Tampered!
+        provenance_hash=""
+    )
+    valid_hash = _compute_hash(ev_base)
+    valid_ev = dataclasses.replace(ev_base, provenance_hash=valid_hash)
+    
+    # 1. Untampered -> Valid
+    res_valid = validate_wfo_integrity(valid_ev)
+    assert res_valid.is_valid
+
+    # 2. Tamper pooled_oos_sharpe
+    tampered_sharpe = dataclasses.replace(valid_ev, pooled_oos_sharpe=2.5)
+    res_tampered_sharpe = validate_wfo_integrity(tampered_sharpe)
+    assert not res_tampered_sharpe.is_valid
+    assert "hash mismatch" in res_tampered_sharpe.fail_reason.lower()
+
+    # 3. Tamper pooled_oos_max_drawdown (RES-WFO-15)
+    tampered_dd = dataclasses.replace(valid_ev, pooled_oos_max_drawdown=0.01)
+    res_tampered_dd = validate_wfo_integrity(tampered_dd)
+    assert not res_tampered_dd.is_valid
+    assert "hash mismatch" in res_tampered_dd.fail_reason.lower()
+
+
+def test_dataset_hash_content_sensitive():
+    engine = IsolatedBacktestEngine()
+    df1 = pl.DataFrame({
+        "timestamp": [1000 + i * 60 for i in range(50)],
+        "price": [100.0 + i for i in range(50)],
+    })
+    df2 = pl.DataFrame({
+        "timestamp": [1000 + i * 60 for i in range(50)],
+        "price": [200.0 - i for i in range(50)],
+    })
+    
+    def dummy_factory(params):
+        def logic(df):
+            return df.with_columns(pl.lit(1.0).alias("signal"))
+        return logic
+
+    ev1 = engine.run_walk_forward_optimization(
+        strategy_factory=dummy_factory,
+        param_grid=[{"p": 1}],
+        historical_data=df1,
+        train_window_bars=20,
+        test_window_bars=10,
+        step_bars=10,
+    )
+    ev2 = engine.run_walk_forward_optimization(
+        strategy_factory=dummy_factory,
+        param_grid=[{"p": 1}],
+        historical_data=df2,
+        train_window_bars=20,
+        test_window_bars=10,
+        step_bars=10,
     )
     
-    res = validate_wfo_integrity(ev)
-    assert not res.is_valid
-    assert "hash mismatch" in res.fail_reason.lower()
+    assert ev1.dataset_hash != ev2.dataset_hash
+
+
+def test_wfo_pooling_always_long_uptrend_no_equity_jump():
+    engine = IsolatedBacktestEngine()
+    # 4 folds of purely increasing prices
+    prices = [100.0 * (1.001 ** i) for i in range(100)]
+    df = pl.DataFrame({
+        "timestamp": [1000 + i * 60 for i in range(100)],
+        "price": prices,
+    })
+    
+    def always_long_factory(params):
+        def logic(data_df):
+            return data_df.with_columns(pl.lit(1.0).alias("signal"))
+        return logic
+        
+    ev = engine.run_walk_forward_optimization(
+        strategy_factory=always_long_factory,
+        param_grid=[{"p": 1}],
+        historical_data=df,
+        train_window_bars=20,
+        test_window_bars=15,
+        step_bars=15,
+        warmup_bars=0,
+        spread_pct=0.0,
+        slippage_pct=0.0,
+        commission_pct=0.0,
+    )
+    
+    eq = list(ev.pooled_oos_equity)
+    assert len(eq) > 0
+    # Assert monotonic increase without artificial jump-down across fold boundaries
+    for i in range(1, len(eq)):
+        assert eq[i] >= eq[i-1] - 1e-6, f"Equity dropped at index {i}: {eq[i-1]} -> {eq[i]}"
+
 
 def test_deterministic_tie_breaker(monkeypatch):
     engine = IsolatedBacktestEngine()
     
-    # Mock run_backtest to return identical sharpe for 3 candidates, but different Max DD / Turnover
     def mock_run_backtest(strategy_logic, **kwargs):
-        # Determine candidate by inspecting strategy_logic params closure or something
-        # For simplicity, let's just make it stateful based on a counter
         if not hasattr(mock_run_backtest, "counter"):
             mock_run_backtest.counter = 0
             
         c = mock_run_backtest.counter
         mock_run_backtest.counter += 1
         
-        # We have 3 candidates in train_window (IS), then 1 in test (OOS)
-        # IS responses:
         if c == 0:
             metrics = {"sharpe_ratio": 2.0, "max_drawdown": 0.15, "total_turnover_count": 50}
         elif c == 1:
-            metrics = {"sharpe_ratio": 2.0, "max_drawdown": 0.10, "total_turnover_count": 60} # Better max_dd
+            metrics = {"sharpe_ratio": 2.0, "max_drawdown": 0.10, "total_turnover_count": 60}
         elif c == 2:
-            metrics = {"sharpe_ratio": 2.0, "max_drawdown": 0.10, "total_turnover_count": 40} # Best! Same max_dd, lower turnover
+            metrics = {"sharpe_ratio": 2.0, "max_drawdown": 0.10, "total_turnover_count": 40}
         else:
-            # OOS
             metrics = {"sharpe_ratio": 1.5, "max_drawdown": 0.12, "total_turnover_count": 40}
             
-        # We need equity curve and trade log for OOS
         df = pl.DataFrame({"equity": [1.0, 1.1], "strategy_return": [0.1, 0.1]})
         return BacktestResult(equity_curve=df, trade_log=pl.DataFrame(), metrics=metrics)
         
@@ -145,12 +239,12 @@ def test_deterministic_tie_breaker(monkeypatch):
         param_grid=[{"id": 1}, {"id": 2}, {"id": 3}],
         train_window_bars=10,
         test_window_bars=5,
-        step_bars=1000 # Only 1 fold
+        step_bars=1000
     )
     
-    # Candidate 3 should win because it has lowest max_dd (0.10) and then lowest turnover (40)
     assert ev.folds[0].winner_params["id"] == 3
     assert ev.folds[0].tie_count == 3
+
 
 def test_final_gate_permutations():
     auditor = Phase5PreFlightAuditor(None, None, None, None, None)
@@ -162,24 +256,10 @@ def test_final_gate_permutations():
     
     # Helper to create valid evidence with modifiable fields
     def make_ev(pooled_sharpe, p_val_adjust=False):
-        f1 = WFOFoldEvidence(1, 0, 100, 101, 105, 106, 200, 2, "sr", {"a":1}, 1.0, None, None, 0, "", {}, {}, (0.01,), 1.0)
-        # Adjust evaluation count so DSR passes/fails
+        f1 = WFOFoldEvidence(1, 0, 100, 101, 105, 106, 200, 2, "sr", {"a":1}, 1.0, None, None, 0, "", {}, {"sharpe_ratio": 1.0}, (0.01,), 1.0)
         ev_count = 1 if p_val_adjust else 100000 
         
-        # Calculate proper hash
-        import json, hashlib
-        data_dict = {
-            "folds": [
-                {
-                    "winner_params": f1.winner_params,
-                    "oos_sharpe": f1.oos_metrics.get("sharpe_ratio", 0.0)
-                }
-            ],
-            "pooled_sharpe": pooled_sharpe
-        }
-        computed_hash = hashlib.sha256(json.dumps(data_dict, sort_keys=True).encode()).hexdigest()
-        
-        return WFOEvidence(
+        ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
             data_start_ts=0,
@@ -197,7 +277,7 @@ def test_final_gate_permutations():
             label_horizon_bars=0,
             label_horizon_unit="BARS",
             warmup_bars=0,
-            pooled_oos_returns=tuple([0.01]*1000), # Enough obs
+            pooled_oos_returns=tuple([0.01]*1000),
             pooled_oos_equity=tuple([1.0]*1000),
             pooled_oos_sharpe=pooled_sharpe,
             pooled_oos_return=0.1,
@@ -209,17 +289,20 @@ def test_final_gate_permutations():
             mean_wfe=1.0,
             median_wfe=1.0,
             worst_wfe=1.0,
-            provenance_hash=computed_hash
+            provenance_hash=""
         )
+        
+        computed_hash = _compute_hash(ev_proto)
+        return dataclasses.replace(ev_proto, provenance_hash=computed_hash)
     
     # 2. FAIL due to DSR
-    ev2 = make_ev(pooled_sharpe=0.1, p_val_adjust=False) # High trials, low sharpe -> bad DSR p-val
+    ev2 = make_ev(pooled_sharpe=0.1, p_val_adjust=False)
     res2 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=ev2)
     assert res2.passed == False
     assert res2.details["gate_status"] == GateStatus.FAIL.value
     
     # 3. BORDERLINE due to Performance
-    ev3 = make_ev(pooled_sharpe=0.9, p_val_adjust=True) # Low trials, passes DSR, but sharpe < 1.0 fails Perf
+    ev3 = make_ev(pooled_sharpe=0.9, p_val_adjust=True)
     res3 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=ev3)
     assert res3.passed == False
     assert res3.details["gate_status"] == GateStatus.BORDERLINE.value

@@ -13,3 +13,5 @@ are_interactive.db*
 tmp/*
 UI/
 skills/
+.agent-memory/
+.opencode/

@@ -109,7 +109,7 @@ class Phase5PreFlightAuditor:
                 error_message=str(e),
             )
 
-    def audit_checkpoint_2_stability_harness(self, test_hours: int = 2) -> CheckpointResult:
+    def audit_checkpoint_2_stability_harness(self, test_hours: int = 1) -> CheckpointResult:
         """Checkpoint 2: Step-Based Hourly Stability Run."""
         try:
             harness = HourlyStabilityHarness(
@@ -123,6 +123,8 @@ class Phase5PreFlightAuditor:
                 harness.run_simulated_hour_block(hour_index=h, ticks_per_hour=300)
 
             summary = harness.get_stability_summary()
+            summary["simulated"] = True
+            summary["stability_hours"] = test_hours
             passed = summary["stability_status"] == "STABLE"
             return CheckpointResult(
                 checkpoint_id=2,
@@ -135,7 +137,7 @@ class Phase5PreFlightAuditor:
                 checkpoint_id=2,
                 name="Hourly Stability & Zero-Leakage Harness",
                 passed=False,
-                details={},
+                details={"simulated": True, "stability_hours": test_hours},
                 error_message=str(e),
             )
 
@@ -186,6 +188,14 @@ class Phase5PreFlightAuditor:
         2. 2015 EURCHF Flash Depeg (-30%)
         3. 2020 COVID Market Plunge (-35%)
         """
+        if strategy_logic is None:
+            return CheckpointResult(
+                checkpoint_id=4,
+                name="Black Swan Triple Crisis Survival Certificate",
+                passed=False,
+                details={"reason": "STRATEGY_REQUIRED_NO_DEFAULT"},
+                error_message="strategy_logic cannot be None for CP4 (fail-closed anti-self-certification)",
+            )
         try:
             crises = [
                 {"name": "2008_GFC_CRASH", "drop": 0.50, "spread": 0.0005, "bars": 300},
@@ -301,16 +311,42 @@ class Phase5PreFlightAuditor:
             )
 
     def audit_checkpoint_6_alerting_heartbeat(self) -> CheckpointResult:
-        """Checkpoint 6: Emergency Alerting & System Health Monitor Heartbeat."""
+        """
+        Checkpoint 6: Emergency Alerting & System Health Monitor Heartbeat.
+        Two-phase adversarial probe:
+        Phase 1 (Inject): Force/simulate CRITICAL condition -> verify status transitions to CRITICAL.
+        Phase 2 (Recover): Restore nominal conditions -> verify status returns to HEALTHY.
+        """
         try:
-            status = self.health_monitor.get_status()
-            # Verify monitor can transition and record status
-            passed = status != HealthStatus.CRITICAL
+            now = time.time()
+            # Phase 1: Inject failure (heartbeat silence)
+            critical_report = self.health_monitor.evaluate_system_health(
+                last_tick_ts=now - 30.0,
+                latencies=[10.0],
+                event_store=self.event_store,
+                current_time=now,
+            )
+            phase1_ok = critical_report.status == HealthStatus.CRITICAL
+
+            # Phase 2: Recover to nominal
+            recovered_report = self.health_monitor.evaluate_system_health(
+                last_tick_ts=now,
+                latencies=[10.0],
+                event_store=self.event_store,
+                current_time=now,
+            )
+            phase2_ok = recovered_report.status == HealthStatus.HEALTHY
+
+            passed = phase1_ok and phase2_ok
             return CheckpointResult(
                 checkpoint_id=6,
                 name="Emergency Alerting & CCTV Heartbeat",
                 passed=passed,
-                details={"health_status": str(status)},
+                details={
+                    "phase1_inject_critical_ok": phase1_ok,
+                    "phase2_recover_healthy_ok": phase2_ok,
+                    "critical_details": critical_report.details,
+                },
             )
         except Exception as e:
             return CheckpointResult(
@@ -324,30 +360,48 @@ class Phase5PreFlightAuditor:
     def audit_checkpoint_7_sec_risk_collar(self) -> CheckpointResult:
         """
         Checkpoint 7: SEC 15c3-5 Pre-Trade Risk Collar.
-        Verifies:
-        - Lot clamping
-        - Sliding 60s rate limit (ACC-404)
-        - Verified emergency flat liquidation (ACC-604)
+        Adversarial Veto Probes:
+        1. Rate limit probe: simulate order count exceeding max_order_rate_per_min -> verify CSK veto.
+        2. Lot size clamping probe: request extreme lot size -> verify clamping to max_position_size.
+        3. Emergency flat verification probe: execute emergency flat -> verify zero residual open positions.
         """
         try:
-            # 1. Rate limiter check
-            rate_count = self.gateway.get_recent_order_count(60.0)
+            # 1. Adversarial Rate Limiter Probe (VETO path)
+            max_rate = self.safety_kernel.limits.max_order_rate_per_min
+            dummy_req = MT5OrderRequest(symbol="BTCUSD", action="BUY", volume=0.1, price=50000.0)
+            veto_ok, veto_res, veto_status = self.gateway.execute_order(
+                dummy_req,
+                {"order_count": max_rate + 1, "drawdown": 0.0, "volatility": 1.0}
+            )
+            rate_veto_passed = (not veto_ok) and ("CSK_VETO" in veto_status)
 
-            # 2. Emergency flat verification probe
+            # 2. Adversarial Lot Sizing Clamping Probe
+            max_pos_limit = self.safety_kernel.limits.max_position_size
+            computed_lot = self.gateway.calculate_lot_size(
+                account_equity=10_000_000.0,
+                risk_pct=0.10,
+                stop_loss_points=1.0,
+            )
+            lot_clamp_passed = (computed_lot == max_pos_limit) and (computed_lot > 0.0)
+
+            # 3. Emergency Flat Verification Probe
+            if self.gateway.use_mock:
+                self.gateway.execute_order(dummy_req, {"order_count": 0, "drawdown": 0.0, "volatility": 1.0})
+            closed_count = self.gateway.emergency_flat()
             open_pos = self.gateway.get_open_positions()
+            flat_passed = (len(open_pos) == 0)
 
-            # 3. Lot sizing guard check
-            lot_size = self.gateway.calculate_lot_size(account_equity=10000.0, stop_loss_points=50.0)
-
-            passed = (rate_count >= 0) and (isinstance(open_pos, list)) and (lot_size > 0.0)
+            passed = rate_veto_passed and lot_clamp_passed and flat_passed
             return CheckpointResult(
                 checkpoint_id=7,
                 name="SEC 15c3-5 Pre-Trade Risk Collar (CSK Hard Veto)",
                 passed=passed,
                 details={
-                    "rate_count_recent": rate_count,
-                    "open_positions_count": len(open_pos),
-                    "computed_lot_size": lot_size,
+                    "rate_veto_passed": rate_veto_passed,
+                    "lot_clamp_passed": lot_clamp_passed,
+                    "flat_verified_passed": flat_passed,
+                    "computed_lot_size": computed_lot,
+                    "max_position_limit": max_pos_limit,
                     "csk_limits": asdict(self.safety_kernel.limits),
                 },
             )
@@ -364,6 +418,7 @@ class Phase5PreFlightAuditor:
         self,
         strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
         wfo_evidence: Optional[WFOEvidence] = None,
+        stability_hours: int = 1,
     ) -> Phase5PreFlightReport:
         """
         Executes all 7 Iron Checkpoints and generates an authoritative Phase 5 Report.
@@ -371,7 +426,7 @@ class Phase5PreFlightAuditor:
         t_now = time.time()
         results: List[CheckpointResult] = [
             self.audit_checkpoint_1_dynamic_drawdown(),
-            self.audit_checkpoint_2_stability_harness(test_hours=1),
+            self.audit_checkpoint_2_stability_harness(test_hours=stability_hours),
             self.audit_checkpoint_3_vault_integrity(),
             self.audit_checkpoint_4_triple_crisis_survival(strategy_logic=strategy_logic),
             self.audit_checkpoint_5_institutional_rigor(strategy_logic=strategy_logic, wfo_evidence=wfo_evidence),
