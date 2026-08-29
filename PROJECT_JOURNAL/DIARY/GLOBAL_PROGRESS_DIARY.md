@@ -12,6 +12,27 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — WFO EVIDENCE CHAIN BLUEPRINT v2 ADOPTED (14 MANDATORY CHANGES & 12 TESTS)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + BLUEPRINT_V2 + PRODUCER_CONSUMER_ISOLATION + DEEP_IMMUTABILITY + GLOBAL
+STATUS   : Master Design v2 Resmi Dikunci Berdasarkan Koreksi Mendalam Red Team Council.
+           14 Perubahan Wajib dan 12 Invariant Test End-to-End Siap Diimplementasikan.
+DETAIL   :
+  1. PERUBAHAN ARSITEKTURAL KRITIS v2:
+     - Preflight Strictly Consumer: are/preflight.py DILARANG auto-run WFO. Wajib mengonsumsi WFOEvidence.
+     - Deep Immutability: WFOEvidence & WFOFoldEvidence menggunakan frozen dataclass dan immutable tuple.
+     - Triad Verifikasi Terpisah: WFOIntegrityResult (Integritas), DSRResult (Bias Seleksi), PerformanceResult (Ambang).
+     - WFE Formula Murni: WFE_i = OOS_i / IS_i per fold (mean_wfe, median_wfe, worst_wfe).
+     - Chronological Non-Overlap Invariant: Validasi mutlak t_oos_start[i+1] >= t_oos_end[i] sebelum pooling.
+     - 4-State Final Gate: Hanya status PASS murni yang eligible untuk GO (BORDERLINE/FAIL/INVALID = NO_GO).
+  2. SPESIFIKASI TEST: 12 Invariant Tests End-to-End (Test A s/d L).
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/GRAND_DESIGN/WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md (v2.0)
+```
+
+---
+
 ## 2026-08-29 — GELOMBANG 3 RED TEAM REGISTRATION: WFO -> DSR -> FINAL GATE EVIDENCE CHAIN (RES-WFO-01..11)
 
 ```text

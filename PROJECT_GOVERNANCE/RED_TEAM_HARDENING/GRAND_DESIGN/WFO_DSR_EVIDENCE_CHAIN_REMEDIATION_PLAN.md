@@ -1,29 +1,28 @@
-# MASTER DESIGN & REMEDIATION PLAN: WFO -> DSR -> FINAL GATE EVIDENCE CHAIN
+# MASTER DESIGN & REMEDIATION PLAN v2: CANONICAL WFO EVIDENCE CHAIN & DSR INTEGRITY
 
 ```text
-DOKUMEN          : GRAND_DESIGN / WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md
+DOKUMEN          : GRAND_DESIGN / WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md (VERSION 2.0)
 OTORITAS         : Lead Architect & Red Team Advisory Council
 STATUS           : BLUEPRINT RESMI TERKUNCI (GELOMBANG 3 RED TEAM)
 TANGGAL          : 2026-08-29
 BASELINE KODE    : Commit 6767cc9 on main (457 tests pass 100%)
-TARGET REMEDIASI : 11 Residu Kritis (RES-WFO-01 s/d RES-WFO-11)
+TARGET REMEDIASI : 11 Residu Kritis (RES-WFO-01 s/d RES-WFO-11) + 14 Perubahan Wajib
 ```
 
 ---
 
-## I. Latar Belakang & Akar Masalah (The Core Vulnerability)
+## I. Prinsip Rekayasa Mutlak v2 (Core Mandates)
 
-Pada audit penutup commit `6767cc9`, Red Team menemukan bahwa meskipun fungsi `run_walk_forward_optimization()` sudah mampu melakukan train-test grid search, **rantai pembuktian out-of-sample ke Final Gate belum terikat secara fisik (disconnected evidence chain)**:
-
-1. **Injeksi Parameter Manual:** `are/preflight.py` mengevaluasi validasi statistik dengan menyuntikkan angka manual `wf_score=0.80` dan `num_trials=10` ke `validate_statistical_robustness()`, bukan mengekstraknya langsung dari objek WFO nyata.
-2. **Ketiadaan Objek Kanonikal:** WFO mengembalikan dictionary longgar tanpa tipe data kanonikal immutable (`WFOEvidence`) yang menyatukan deret return OOS gabungan, metadata fold, dan hash pembuktian.
-3. **Distorsi `mean_oos_sharpe`:** Menggunakan rata-rata aritmatika Sharpe fold yang secara matematis bukan Sharpe dari keseluruhan jalur ekuitas OOS gabungan (*pooled OOS Sharpe*).
-4. **Purge Tanpa Kontrak Label Horizon:** `purge_bars` tidak memiliki batas bawah formal terhadap `label_horizon_bars` strategi, membuka potensi kontaminasi label.
-5. **DSR Tidak Terkunci ke OOS Terpilih:** DSR mengevaluasi Sharpe dari single backtest in-sample/full-sample, bukan dari OOS murni pemenang seleksi.
+1. **Preflight Strictly Consumer (Producer-Consumer Separation):** `are/preflight.py` DILARANG menjalankan WFO sendiri. Preflight murni mengonsumsi objek kanonikal `WFOEvidence`. Jika `wfo_evidence is None` -> status langsung `INVALID` / `NO_GO`.
+2. **Deep Immutability:** Seluruh struktur data bukti (`WFOEvidence`, `WFOFoldEvidence`) menggunakan `@dataclass(frozen=True)` dan struktur data immutable `tuple`, bukan `list`.
+3. **Pemisahan Bukti Mentah vs Derivasi:** `WFOEvidence` menyimpan data kebenaran faktual. Evaluasi integritas menghasilkan `WFOIntegrityResult`, evaluasi bias seleksi menghasilkan `DSRResult`, dan evaluasi ambang batas performa menghasilkan `PerformanceResult`.
+4. **WFE Formula Per-Fold:** $WFE_i = \frac{OOS_i}{IS_i}$ per fold. Dilaporkan sebagai `mean_wfe`, `median_wfe`, `worst_wfe`.
+5. **OOS Chronological Non-Overlap Invariant:** Penggabungan deret OOS wajib melewati validasi waktu $t_{oos\_start}[i+1] \ge t_{oos\_end}[i]$.
+6. **4-State Gate Composition:** Status kelayakan terdiri dari `INVALID`, `FAIL`, `BORDERLINE`, dan `PASS`. Hanya status `PASS` murni yang *eligible* untuk `GO`.
 
 ---
 
-## II. Arsitektur Target Rantai Bukti (Target Architecture)
+## II. Arsitektur Target Rantai Bukti v2
 
 ```text
                     RAW HISTORICAL DATA
@@ -37,10 +36,10 @@ Pada audit penutup commit `6767cc9`, Red Team menemukan bahwa meskipun fungsi `r
             ▼                ▼                ▼
           TRAIN            PURGE             OOS
      [t0 ... t_train]  [purge_bars]     [t_oos_start ... t_oos_end]
-            │          (>= label_h)           │
+            │       (>= label_horizon)        │
             ▼                                 │
-     PARAMETER GRID                           │
-     (Argmax Sharpe)                          │
+     PARAMETER SEARCH                         │
+     (_wfo_selection_key)                     │
             │                                 │
             ▼                                 │
      TIE-BREAK AUDIT                          │
@@ -51,55 +50,110 @@ Pada audit penutup commit `6767cc9`, Red Team menemukan bahwa meskipun fungsi `r
             │                                 │
             └────────────────┬────────────────┘
                              ▼
-                    WFO FOLD EVIDENCE
-                    (IS Metrics, OOS Returns,
-                     Winner, Runner-up, Ties)
+                 CANONICAL WFO EVIDENCE
+             (Immutable Frozen Data Object)
                              │
+             ┌───────────────┼───────────────┐
+             ▼               ▼               ▼
+     WFOIntegrityResult  DSRResult   PerformanceResult
+             │               │               │
+             └───────────────┼───────────────┘
                              ▼
-                    CANONICAL WFO EVIDENCE
-                    (Pooled OOS Returns, Pooled Sharpe,
-                     Effective Trial Count, Overlap Ratio)
-                             │
-                             ▼
-                    MULTIPLE-TESTING AUDIT
-                    (Deflated Sharpe Ratio on Pooled OOS)
-                             │
-                             ▼
-                    FAIL-CLOSED FINAL GATE
-                    (Pre-Flight Checkpoint 5)
+                  PRE-FLIGHT FINAL GATE
+                  (Checkpoint 5 Consumer)
                              │
                      ┌───────┴───────┐
                      ▼               ▼
-                    GO             NO-GO
-               (Cryptographic   (INVALID /
-                Certificate)      FAIL)
+                   PASS            NO-GO
+                 (Eligible)   (INVALID / FAIL /
+                                BORDERLINE)
 ```
 
 ---
 
-## III. Rincian Remediasi 11 Residu (WFO-01 s/d WFO-11)
+## III. Spesifikasi Struktur Data Kanonikal v2
 
-| ID Residu | Target File & Komponen | Solusi Teknis Mendalam |
-| :--- | :--- | :--- |
-| **RES-WFO-01** | `are/preflight.py` | Mengikat Checkpoint 5 secara langsung untuk menerima `wfo_evidence: WFOEvidence`. Menghapus total hardcoded `wf_score=0.80` dan `num_trials=10`. |
-| **RES-WFO-02** | `are/backtest.py` | Memisahkan `parameter_family_size`, `evaluation_count`, dan `effective_trial_count` dengan deklarasi eksplisit `trial_count_method="PARAMETER_FAMILY"`. |
-| **RES-WFO-03** | `are/validation.py`<br>`are/preflight.py` | Mengunci kalkulasi DSR pada `wfo_evidence.pooled_oos_sharpe` dan `wfo_evidence.effective_trial_count`. Dilarang menggunakan Sharpe in-sample. |
-| **RES-WFO-04** | `are/backtest.py` | Mengimplementasikan `WFOEvidence` dan `WFOFoldEvidence` sebagai return type kanonikal `run_walk_forward_optimization()`. |
-| **RES-WFO-05** | `are/backtest.py` | Menggabungkan (*concatenate*) seluruh irisan return OOS non-overlapping dan menghitung `pooled_oos_sharpe`. Menjadikan `mean_fold_oos_sharpe` murni metrik sekunder. |
-| **RES-WFO-06** | `are/backtest.py` | Menambahkan parameter `label_horizon_bars: int = 0` dan guard clause fail-closed `assert purge_bars >= label_horizon_bars`. |
-| **RES-WFO-07** | `are/backtest.py` | Menghitung `training_overlap_ratio` dan `oos_overlap_ratio` (wajib 0.0 untuk strict pooled OOS). |
-| **RES-WFO-08** | `are/backtest.py` | Merekam audit per-fold: pemenang, skor IS, runner-up, skor runner-up, dan batas temporal. |
-| **RES-WFO-09** | `are/backtest.py` | Menerapkan deterministic multi-tier tie-breaking: `(is_sharpe, -is_max_dd, -is_turnover)` dan mencatat `tie_count`. |
-| **RES-WFO-10** | `are/preflight.py` | Menerapkan fail-closed mutlak pada Final Gate: jika `wfo_evidence` hilang, korup, atau `dsr_passed == False`, status langsung `INVALID` / `NO_GO`. |
-| **RES-WFO-11** | `tests/are/test_wfo_evidence_chain_invariants.py` | Membuat 7 invariant test end-to-end (Test A s/d G) yang membuktikan kekedapan rantai bukti terhadap mutasi dan kebocoran. |
+```python
+@dataclass(frozen=True)
+class WFOFoldEvidence:
+    fold_id: int
+    train_start_ts: float
+    train_end_ts: float
+    purge_start_ts: float
+    purge_end_ts: float
+    oos_start_ts: float
+    oos_end_ts: float
+    candidate_count: int
+    selection_metric: str
+    winner_params: Dict[str, Any]
+    winner_is_score: float
+    runner_up_params: Optional[Dict[str, Any]]
+    runner_up_is_score: Optional[float]
+    tie_count: int
+    tie_break_rule: str
+    is_metrics: Dict[str, float]
+    oos_metrics: Dict[str, float]
+    oos_returns: Tuple[float, ...]
+    wfe: float
+
+@dataclass(frozen=True)
+class WFOEvidence:
+    run_id: str
+    dataset_hash: str
+    data_start_ts: float
+    data_end_ts: float
+    folds: Tuple[WFOFoldEvidence, ...]
+    
+    # Trial Accounting (RES-WFO-02)
+    fold_count: int
+    parameter_family_size: int
+    evaluation_count: int
+    effective_trial_count: int
+    effective_trial_method: str  # "CONSERVATIVE_FAMILY_SIZE_PROXY"
+    effective_trial_assumption: str
+    
+    # Overlap Disclosure (RES-WFO-07)
+    training_overlap_ratio: float
+    oos_overlap_ratio: float
+    
+    # Parameter Kontrak (RES-WFO-06)
+    purge_bars: int
+    label_horizon_bars: int
+    label_horizon_unit: str  # "BARS"
+    warmup_bars: int
+    
+    # Strict Pooled OOS Evidence (RES-WFO-05)
+    pooled_oos_returns: Tuple[float, ...]
+    pooled_oos_equity: Tuple[float, ...]
+    pooled_oos_sharpe: float
+    pooled_oos_return: float
+    pooled_oos_max_drawdown: float
+    
+    # Fold Distribution Metrics
+    mean_fold_oos_sharpe: float
+    median_fold_oos_sharpe: float
+    worst_fold_oos_sharpe: float
+    std_fold_oos_sharpe: float
+    mean_wfe: float
+    median_wfe: float
+    worst_wfe: float
+    
+    provenance_hash: str
+```
 
 ---
 
-## IV. Disposisi 4-Kelas Final Gate
+## IV. Spesifikasi 12 Test Invarian End-to-End
 
-Final Gate pada `are/preflight.py` mengadopsi 4 kelas disposisi:
-
-1. **`INVALID` (Evidence Broken):** Missing WFO, missing DSR, purge violation, fold overlap > 0, data hash mismatch -> **HALT OPERASIONAL**.
-2. **`FAIL` (Performance Unacceptable):** Bukti valid, namun `pooled_oos_sharpe < threshold`, `dsr_p_value >= 0.05`, atau `max_drawdown > limit` -> **VETO**.
-3. **`BORDERLINE` (Underpowered / Unstable):** Lolos batas minimum tetapi WFE < 0.50 atau `worst_fold_oos_sharpe < -1.0` -> **PERLU RISET TAMBAHAN**.
-4. **`PASS` (Authoritative GO):** 7/7 Checkpoints lolos, WFO valid, DSR valid, Triple Crisis selamat -> **SERTIFIKAT RESMI DITERBITKAN**.
+1. **Test A (Selection Leakage):** Parameter A menang IS, Parameter B menang OOS -> WFO wajib memilih A.
+2. **Test B (OOS Mutation Resistance):** Memutasi deret OOS -> `winner_params` tiap fold tidak berubah.
+3. **Test C (DSR Provenance Binding):** Sharpe arbitrer di luar `pooled_oos_returns` ditolak.
+4. **Test D (Trial Count Sensitivity):** Mutasi `parameter_family_size` mengubah DSR p-value secara konsisten.
+5. **Test E (Missing WFO Fail-Closed):** Pre-flight Checkpoint 5 dengan `wfo_evidence = None` menghasilkan `INVALID`.
+6. **Test F (Missing DSR Fail-Closed):** Evidence tanpa DSR evaluasi menghasilkan `NO_GO`.
+7. **Test G (Warmup Contamination Resistance):** Spike return di warmup tidak mengubah strict OOS returns.
+8. **Test H (OOS Overlap Rejection):** OOS tumpang tindih antar fold memicu `WFOIntegrityResult.is_valid = False`.
+9. **Test I (Purge Violation):** `label_horizon > purge_bars` memicu `ValueError("PURGE_VIOLATION")`.
+10. **Test J (Evidence Tampering Detection):** Mutasi `pooled_oos_sharpe` memicu hash mismatch pada audit integritas.
+11. **Test K (Deterministic Tie-Break):** Kandidat dengan Sharpe identik diurutkan via Max DD terendah lalu Turnover terendah.
+12. **Test L (Gate Permutations):** Kombinasi matriks status membuktikan hanya `PASS` murni yang berhak `GO`.
