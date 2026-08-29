@@ -12,6 +12,36 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — GELOMBANG 3 RED TEAM REGISTRATION: WFO -> DSR -> FINAL GATE EVIDENCE CHAIN (RES-WFO-01..11)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + GELOMBANG_3 + WFO_EVIDENCE_CHAIN + MULTIPLE_TESTING + DSR_INTEGRITY + GLOBAL
+STATUS   : 11 Temuan Kritis Red Team Resmi Didaftarkan dan Diverifikasi Terhadap Kode Fisik.
+           Master Design & Remediation Plan telah dibukukan di GRAND_DESIGN/WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md.
+DETAIL   :
+  1. TEMUAN KRITIS YANG DIVERIFIKASI (11 RESIDU):
+     - RES-WFO-01 (P0): Injeksi parameter manual wf_score=0.80 dan num_trials=10 pada Checkpoint 5 preflight.py.
+     - RES-WFO-02 (P0): Kerancuan definisi num_trials (parameter_family_size vs evaluation_count) untuk DSR.
+     - RES-WFO-03 (P0): DSR mengevaluasi single backtest Sharpe, bukan pooled out-of-sample returns terpilih.
+     - RES-WFO-04 (P0): Ketiadaan dataclass kanonikal WFOEvidence sebagai single source of truth.
+     - RES-WFO-05 (P1): Distorsi aritmatika mean_oos_sharpe vs pooled_oos_sharpe sesungguhnya.
+     - RES-WFO-06 (P1): purge_bars tidak terikat kontrak formal terhadap label_horizon_bars strategi.
+     - RES-WFO-07 (P1): Overlap ratio training dan OOS tidak diungkapkan secara transparan.
+     - RES-WFO-08 (P1): Ketiadaan pencatatan runner-up dan selection provenance per-fold.
+     - RES-WFO-09 (P2): Tie-breaking parameter pada Sharpe identik diserahkan ke urutan acak list tanpa audit.
+     - RES-WFO-10 (P0): Final Gate tidak fail-closed terhadap missing/invalid WFO evidence.
+     - RES-WFO-11 (P1): Belum adanya 7 invariant test end-to-end (Test A s/d G) anti-kebocoran.
+  2. DOKUMENTASI TATA KELOLA:
+     - RESIDUAL_REGISTER.md diperbarui dengan tabel Gelombang 3 (RES-WFO-01 s/d RES-WFO-11).
+     - GRAND_DESIGN/WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md diterbitkan.
+     - implementation_plan.md dibuat di direktori artifact.
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/RESIDUAL_REGISTER.md
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/GRAND_DESIGN/WFO_DSR_EVIDENCE_CHAIN_REMEDIATION_PLAN.md
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_043 INVERSION REMEDIATION & HOURLY STABILITY BATTERY (457 TESTS PASS)
 
 ```text

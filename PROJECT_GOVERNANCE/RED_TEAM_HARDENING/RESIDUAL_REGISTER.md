@@ -1,8 +1,9 @@
 # RED TEAM RESIDUAL REGISTER & ARCHITECTURAL DEBT LEDGER
 
-Status: **ACTIVE TRACKER / GELOMBANG 2 TERBUKA (11 TEMUAN BARU RED-13..23)**  
+Status: **ACTIVE TRACKER / GELOMBANG 3 TERBUKA (11 TEMUAN RANTAI WFO-01..11)**  
 Baseline Inisiasi: **740873f on main**  
 Baseline Gelombang 2: **1857269 on main**  
+Baseline Gelombang 3: **6767cc9 on main**  
 Otoritas: **Lead Architect & Red Team Advisory Council**
 
 ---
@@ -10,41 +11,31 @@ Otoritas: **Lead Architect & Red Team Advisory Council**
 ## 1. Register Temuan & Hutang Teknis Red Team
 
 ### Gelombang 1 (RED-01..12) — SELURUHNYA RESOLVED
+... (lihat riwayat di bawah)
 
-| ID Residu | Kategori | Tingkat Keparahan | File : Baris Terkait | Deskripsi Masalah & Dampak Kegagalan | Target Remediasi | Status |
-|---|---|:---:|---|---|---|:---:|
-| **RES-RED-01** | Execution / CSK | 🚨 **P0 (CRITICAL)** | `are/mt5_runner.py:67`<br>`are/mt5_gateway.py:264` | **Semantic Inversion pada Rate Limiter:** Parameter `order_count` diisi `len(open_positions)` bukan frekuensi order per menit. Memblokir order baru jika posisi di-hold lama, dan meloloskan spam order jika posisi langsung tertutup. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-02** | Gateway / Live | 🚨 **P0 (CRITICAL)** | `are/mt5_gateway.py:315-318` | **Live Gateway Open Positions Empty:** Pada mode non-mock, `get_open_positions()` mengembalikan `[]` statis tanpa memanggil `mt5.positions_get()`, melumpuhkan rate limiter di live mode. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-03** | Safety / Mode | 🚨 **P0 (CRITICAL)** | `are/mt5_gateway.py:112-119` | **Silent Mock Fallback (Mode Confusion):** Jika user meminta `use_mock=False` namun library MT5 tidak ada, sistem diam-diam beralih ke Mock tanpa error, melanggar hukum Fail-Closed. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-04** | Safety / Liquidation | 🚨 **P0 (CRITICAL)** | `are/mt5_gateway.py:277-308` | **Unverified Emergency Flat:** `emergency_flat()` hanya menghitung close order yang dikirim tanpa verifikasi *read-back* bahwa `positions_get() == 0`. Posisi liar yang gagal tertutup broker diabaikan. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-05** | Runtime / Runner | 🚨 **P0 (CRITICAL)** | `are/mt5_runner.py:64` | **Hardcoded Risk State Stub:** Nilai drawdown di-hardcode statis `drawdown: 0.01` dan default `account_equity: 10000.0`. Sensor risiko tidak membaca data live account dari MT5 terminal. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-06** | Watchdog / Loop | 🚨 **P0 (CRITICAL)** | `are/mt5_runner.py:177, 235` | **Silent Loop Termination:** Exception pada `run_live_loop()` hanya melakukan `break` tanpa memicu alert status `CRITICAL` ke `SystemHealthMonitor` dan tanpa mencatat insiden fatal. | DELEGASI_038 | ✅ RESOLVED @DELEGASI_038 |
-| **RES-RED-07** | Statistics / Contract | 📊 **P1 (HIGH)** | `are/backtest.py:136` | **Sharpe Annualization Scale Mismatch:** Formula mengalikan `sqrt(252)` pada bar 1-menit (`+60s`). Faktor tahunan yang benar harus diskalakan terhadap frekuensi sampling bar. | DELEGASI_039 | ✅ RESOLVED @DELEGASI_039 |
-| **RES-RED-08** | Provenance / Scientific | 📊 **P1 (HIGH)** | `are/validation.py:228-235` | **Semantic Verification Theater:** Placeholder hash `"0"*64` dilabeli `provenance_status = "VERIFIED"`. Wajib dilabeli `UNPROVEN` / `SENTINEL_UNVERIFIED`. | DELEGASI_039 | ✅ RESOLVED @DELEGASI_039 |
-| **RES-RED-09** | Validation / WFA | 📊 **P1 (HIGH)** | `are/backtest.py:240-275` | **Static Logic Rolling Backtest:** WFA saat ini hanya evaluasi rolling pada fungsi statis, belum melakukan *True Walk-Forward Optimization* (`fit(train)` -> `test(oos)` parameter drift). | DELEGASI_039 | ✅ RESOLVED @DELEGASI_039 |
-| **RES-RED-10** | Simulator / Backtest | 📊 **P1 (HIGH)** | `are/backtest.py:95-115` | **Frictionless P&L Assumption:** Backtest P&L murni `signal * price_return` tanpa model komisi, spread, slippage, latency, financing swap, dan partial fills. | DELEGASI_040 | ✅ RESOLVED @DELEGASI_040 |
-| **RES-RED-11** | Stress Testing / MC | 📊 **P1 (HIGH)** | `are/validation.py:165-190` | **Shuffling Destroys Volatility Clustering:** Monte Carlo murni `random.shuffle()` mengabaikan dependensi serial dan pengelompokan volatilitas nyata pasar. | DELEGASI_040 | ✅ RESOLVED @DELEGASI_040 |
-| **RES-RED-12** | Governance / Source | 📋 **P2 (MEDIUM)** | `README.md:14-17` | **Source of Truth Divergence:** Root `README.md` mencatat `ARE-2 AUTHORIZED`, berbeda dengan `CURRENT_AUTHORITY_INDEX.md` yang sudah menyelesaikan Fase 4. | DELEGASI_037b | ✅ RESOLVED @b80f413 |
+### Gelombang 2 (RED-13..23) — 9 RESOLVED, 2 DEFERRED
+... (lihat riwayat di bawah)
 
 ---
 
-### Gelombang 2 (RED-13..23) — DEEP CORRECTION AUDIT (Stage 4 Red Team)
+### Gelombang 3 (WFO-01..11) — AUDIT INTEGRITAS RANTAI BUKTI WFO → DSR → FINAL GATE
 
-> Ditemukan oleh Lead Architect Deep Correction Audit pada 2026-08-29 setelah verifikasi fisik kode commit `1857269`. Temuan ini berada pada lapisan yang lebih dalam: **semantic correctness, statistical validity, dan evidence integrity** — bukan bug software biasa.
+> Ditemukan oleh Red Team Deep Targeted Audit pada 2026-08-29 setelah verifikasi commit `6767cc9`.
+> Fokus audit: **Integritas Rantai Bukti Out-of-Sample, Pengendalian Multiple-Testing Selection Bias, dan Eliminasi Injeksi Parameter Manual pada Final Gate.**
 
 | ID Residu | Kategori | Tingkat Keparahan | File : Baris Terkait | Deskripsi Masalah & Dampak Kegagalan | Target Remediasi | Status |
 |---|---|:---:|---|---|---|:---:|
-| **RES-RED-13** | Safety / Drawdown | 📊 **P1 (HIGH)** | `are/mt5_gateway.py:142` | **Drawdown Semantics Mismatch:** `get_account_info()` menghitung drawdown sebagai `(balance - equity) / balance`, bukan peak-equity drawdown standar `(peak_equity - equity) / peak_equity`. Menyebabkan CSK gate bisa **underreport risiko** dan meloloskan order pada drawdown sebenarnya >15%. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-14** | Safety / Gateway | 🚨 **P0 (CRITICAL)** | `are/mt5_gateway.py:364-366` | **MT5 API None vs Empty Positions Ambiguity:** `get_open_positions()` menggunakan `if not positions: return []` yang menyamakan `None` (API error/unknown state) dengan `()` (benar-benar kosong). Emergency flat bisa menyatakan "FLAT" padahal state sebenarnya UNKNOWN. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-15** | Provenance / Artifact | 📋 **P2 (MEDIUM)** | `are/backtest.py:226` | **Non-deterministic Research Artifact Hash:** `save_artifact()` memasukkan `time.time()` ke dalam canonical JSON payload sebelum hashing. Komputasi identik menghasilkan `proof_hash` berbeda karena timestamp run berbeda, melanggar prinsip content-addressed proof. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-16** | Simulator / Crisis | 📊 **P1 (HIGH)** | `are/backtest.py:284-288` | **Crisis Replay Uses Static Default Friction:** `run_crisis_replay()` memanggil `run_backtest()` tanpa mempropagasikan `spread_pct`, `slippage_pct`, `commission_pct`. Crisis dataset (CHF, COVID, 2008) disimulasikan dengan spread 1 bps — tidak realistis. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-17** | API / Semantics | 📊 **P1 (HIGH)** | `are/backtest.py:308-396` | **Dual WFA Semantics Confusion:** `run_walk_forward_analysis()` (static logic rolling backtest) dan `run_walk_forward_optimization()` (true WFO with grid search) coexist sebagai API publik. Developer bisa salah memanggil yang pertama dan mengklaim "WFA" padahal bukan WFO. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-18** | WFO / Leakage | 📊 **P1 (HIGH)** | `are/backtest.py:441-442` | **WFO Boundary: No Warm-up, No Purge/Embargo:** OOS test slice dimulai tepat setelah train berakhir tanpa lookback context (strategy dengan `slow_MA=30` menghasilkan 30 bar NaN). Tidak ada purge/embargo window untuk mencegah label overlap information leakage. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-19** | Statistics / Bias | 📊 **P1 (HIGH)** | `are/backtest.py:449-464`<br>`are/validation.py:328-340` | **No Research-Family Accounting / Effective Trial Count:** WFO grid search `argmax(Sharpe)` per fold tidak mencatat `total_trials_count` atau `hypothesis_family_size`. DSR tidak bisa mengkoreksi selection bias karena jumlah hypothesis yang dicoba tidak diketahui. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-20** | Statistics / MC | 📊 **P1 (HIGH)** | `are/validation.py:282-295` | **Monte Carlo: No Uncertainty Interval:** Output `mc_probability_of_ruin` dan `mc_95th_pct_drawdown` adalah point estimate tanpa confidence interval. Gate `prob_ruin > 10%` bisa terlalu percaya diri. Percentile computation menggunakan `int(0.95 * N)` tanpa definisi kuantil eksplisit. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-21** | MC / Architecture | 📋 **P2 (MEDIUM)** | `are/validation.py:247-258` | **MC Does Not Preserve Execution-Cost Path Dependency:** Monte Carlo hanya resample `strategy_return` yang sudah jadi. Hubungan `market_path → signal → turnover → friction_cost` putus setelah resampling. | BACKLOG | 🟡 DEFERRED |
-| **RES-RED-22** | Input / Validation | 📊 **P1 (HIGH)** | `are/backtest.py:63-71, 119` | **No Parameter Validation / Negative Friction Accepted:** `spread_pct`, `slippage_pct`, `commission_pct` tidak divalidasi. Nilai negatif menghasilkan "friction credit" yang secara semantik tidak masuk akal. Tidak ada guard untuk NaN, Inf, atau signal di luar [-1, 1]. | DELEGASI_041 | ✅ RESOLVED @DELEGASI_041 |
-| **RES-RED-23** | Safety / Rate | 📋 **P2 (MEDIUM)** | `are/mt5_gateway.py:111` | **Process-Local Order Rate State:** `_order_timestamps` adalah `deque` in-memory per-instance. Multi-process, restart, atau multiple gateway instances menyebabkan rate limit terfragmentasi. Singleton constraint belum dibuktikan. | BACKLOG | 🟡 DEFERRED |
+| **RES-WFO-01** | Final Gate / Wiring | 🚨 **P0 (CRITICAL)** | `are/preflight.py:251-256` | **Final Gate Not Wired to WFO (Manual Parameter Injection):** Pre-Flight Checkpoint 5 tidak memanggil `run_walk_forward_optimization()` melainkan menyuntikkan `wf_score=0.80` dan `num_trials=10` secara manual. Rantai bukti terputus. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-02** | Statistics / Trials | 🚨 **P0 (CRITICAL)** | `are/backtest.py:589-591` | **Ill-defined Trial Count for DSR:** Terdapat kerancuan antara `parameter_family_size`, `evaluation_count`, dan `effective_trial_count`. DSR mengonsumsi trial count tanpa deklarasi metode aproksimasi dan model dependensi yang jelas. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-03** | DSR / Coupling | 🚨 **P0 (CRITICAL)** | `are/validation.py:388-403`<br>`are/preflight.py:240-248` | **DSR Not Bound to Selected OOS Evidence:** DSR mengevaluasi Sharpe dari single backtest, bukan Sharpe deret return out-of-sample gabungan (*pooled OOS returns*) yang dipilih melalui proses seleksi parameter. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-04** | Architecture / Object | 🚨 **P0 (CRITICAL)** | `are/backtest.py:575-595` | **No Canonical WFOEvidence Object:** WFO mengembalikan dictionary longgar tanpa tipe data kanonikal immutable yang menyatukan metadata fold, deret return OOS, hasil seleksi, dan hash pembuktian. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-05** | Statistics / Aggregation | 📊 **P1 (HIGH)** | `are/backtest.py:582` | **Arithmetic Mean OOS Sharpe Distortion:** WFO menggunakan `mean_oos_sharpe = sum(oos_sharpes)/N` sebagai metrik ringkasan. Rata-rata Sharpe per fold secara matematis bukan Sharpe dari keseluruhan jalur ekuitas OOS gabungan (*pooled OOS Sharpe*). | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-06** | WFO / Leakage | 📊 **P1 (HIGH)** | `are/backtest.py:447, 513` | **Purge Unbound to Label Horizon:** Nilai `purge_bars` tidak memiliki kontrak invarian terhadap horizon label strategi (`assert purge_bars >= label_horizon_bars`), membuka risiko kontaminasi informasi jika strategi memiliki feature lookahead. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-07** | WFO / Contract | 📊 **P1 (HIGH)** | `are/backtest.py:475-495` | **Fold Dependence & Overlap Undisclosed:** WFO rolling window tidak menghitung dan melaporkan rasio overlap data training dan OOS. OOS yang tumpang tindih tidak boleh diperlakukan sebagai observasi independen pada pooling. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-08** | Provenance / Audit | 📊 **P1 (HIGH)** | `are/backtest.py:530-534` | **Incomplete Selection Provenance per Fold:** WFO tidak mencatat rincian pemilihan pemenang per fold (skor pemenang, runner-up, skor runner-up, tie count, batas data IS/Purge/OOS) untuk audit stabilitas seleksi. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-09** | WFO / Degeneracy | 📋 **P2 (MEDIUM)** | `are/backtest.py:532` | **Undocumented Tie-Breaking in Grid Search:** Sorting kandidat pada Sharpe yang sama (*tie*) diserahkan ke urutan default list tanpa pencatatan `tie_count` dan aturan tie-break sekunder (misal: lower Max DD, lower Turnover). | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-10** | Safety / Fail-Closed | 🚨 **P0 (CRITICAL)** | `are/preflight.py:258, 360` | **Final Gate Not Fail-Closed on Missing WFO:** Jika `wfo_evidence` bernilai `None` atau bukti rusak, Final Gate tidak langsung mengeluarkan disposisi `INVALID` / `NO_GO`, melainkan berisiko menggunakan fallback. | DELEGASI_044 | 🔴 OPEN |
+| **RES-WFO-11** | Test / End-to-End | 📊 **P1 (HIGH)** | `tests/are/` | **Lack of End-to-End Evidence Chain Tests:** Belum ada test suite invarian yang menguji ketahanan rantai penuh dari kebocoran (Selection Leakage, OOS Mutation, DSR Provenance, Missing WFO fail-closed, Warmup Contamination). | DELEGASI_044 | 🔴 OPEN |
 
 ---
 
