@@ -21,7 +21,7 @@ records, commit identities, and qualification credit do not transfer.
 | **FASE 2: Imunitas & Vault** | 🟢 FULLY_CLOSED | 340 tests pass (`@fc4540e`) | Vault Witness, Data Cleansing, Watchdog |
 | **FASE 3: Penelitian & XAI** | 🟢 FULLY_CLOSED | 352 tests pass (`@a93ab98`) | XAI, Alpha Ingestion, Monte Carlo, Scraper |
 | **FASE 4: Rigor, Crisis & WFA** | 🟢 FULLY_CLOSED | 400 tests pass (`@61f54c9`) | FDR, DSR, RAG, Vault DR, Crisis Replay, WFA |
-| **GELOMBANG RED TEAM HARDENING** | 🛠️ ACTIVE | 12 Residu Terkatalog (`RES-RED-01..12`) | `PROJECT_GOVERNANCE/RED_TEAM_HARDENING/` |
+| **GELOMBANG RED TEAM HARDENING** | 🟢 FULLY_CLOSED | 416 tests pass (`@1857269`) | 12/12 Residu Terkatalog Tuntas (`RES-RED-01..12`) |
 | **Residu Keamanan RES-COG-03** | 🟡 GATED | DELEGASI_024 Token Auth | Prasyarat: 7x24 Jam Daemon Stability Run |
 | **FASE 5: Live / Paper Readiness** | 🔴 LOCKED | `PHASE_5_READINESS_MANIFESTO.md` | Gatekeeping Active: 7 Pre-Flight Checkpoints |
 | **Status Lingkungan Produksi** | 🔴 CLOSED | Production Hard Gate Active | `PRODUCTION = CLOSED` |
