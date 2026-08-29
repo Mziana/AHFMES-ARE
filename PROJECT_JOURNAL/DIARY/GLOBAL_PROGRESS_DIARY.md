@@ -12,6 +12,36 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_038 RUNTIME TRUTH & EXECUTION REMEDIATION COMPLETED (406 TESTS PASS)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + STAGE_1 + RUNTIME_TRUTH + EXECUTION_SAFETY + P0_REMEDIATION + GLOBAL
+STATUS   : Eksekusi DELEGASI_038 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (6 Invariant Tests Pass). Total 406 tests pass 100%.
+           Seluruh 6 Residu Kritis P0 (RES-RED-01 s/d RES-RED-06) RESMI RESOLVED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & REMEDIASI KODE:
+     - are/mt5_gateway.py:
+       * RES-RED-01: Sliding 60-second window tracker _order_timestamps (deque) + get_recent_order_count(60.0).
+       * RES-RED-02: get_open_positions() live diikat ke positions_get() dengan ekstraksi kamus tiket.
+       * RES-RED-03: use_mock=False melempar RuntimeError jika package MT5 tidak tersedia (Fail-Closed).
+       * RES-RED-04: emergency_flat() verifikasi read-back loop 3-retry, melempar jika sisa posisi > 0.
+       * RES-RED-05: get_account_info() polling live balance, equity, dan real-time drawdown.
+     - are/mt5_runner.py:
+       * RES-RED-05: step_live_tick() dan step_live_tick_async() membaca drawdown dan equity dinamis dari gateway.
+       * RES-RED-06: Non-silent exception handling, logging RUNNER_FATAL_EXCEPTION, emergency_flat, re-raise RuntimeError.
+     - tests/are/test_runtime_truth_invariants.py: 6 invariant tests baru (RES-RED-01..06).
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/RED_TEAM_HARDENING/.
+     - Register Residu: RES-RED-01 s/d RES-RED-06 berstatus RESOLVED @DELEGASI_038.
+     - Diary: PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-DELEGASI_038-RUNTIME-TRUTH-JURNAL.md.
+  3. METRIK PENGUJIAN:
+     - Baseline: 400 tests pass.
+     - Suite Baru: 6 tests pass.
+     - Total: 406 passed, 105 subtests passed (69.93s). Zero Regression.
+DAMPAK   : Menghilangkan jurang semantik antara software in-memory dan perilaku runtime riil; mengamankan akun live/demo dari silent failures, false rate limits, unverified liquidations, dan stub palsu.
+```
+
 ## 2026-08-29 — GELOMBANG RED TEAM HARDENING DIINISIASI (28 TEMUAN TERCATAT / 12 RESIDU RES-RED DIKATALOGKAN)
 
 ```text

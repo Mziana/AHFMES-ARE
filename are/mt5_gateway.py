@@ -11,6 +11,7 @@ import asyncio
 import concurrent.futures
 import json
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -107,6 +108,7 @@ class MT5ExecutionGateway:
         self.use_mock = use_mock
         self._mock_gateway = MT5MockGateway() if use_mock else None
         self._mt5_lib: Optional[Any] = None
+        self._order_timestamps: deque[float] = deque()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MT5GatewayWorker")
 
         if not use_mock:
@@ -115,7 +117,31 @@ class MT5ExecutionGateway:
                 self._mt5_lib = mt5
             except ImportError:
                 self._mt5_lib = None
-                self._mock_gateway = MT5MockGateway()
+                self._mock_gateway = None
+                raise RuntimeError("LIVE_MT5_REQUIRED_BUT_UNAVAILABLE: MetaTrader5 package is not installed or unavailable.")
+
+    def get_recent_order_count(self, window_seconds: float = 60.0) -> int:
+        """Counts orders filled within the sliding window (ACC-404 / RES-RED-01)."""
+        now = time.time()
+        cutoff = now - window_seconds
+        while self._order_timestamps and self._order_timestamps[0] < cutoff:
+            self._order_timestamps.popleft()
+        return len(self._order_timestamps)
+
+    def record_order_timestamp(self, ts: Optional[float] = None) -> None:
+        """Records the timestamp of a successfully dispatched/filled order."""
+        self._order_timestamps.append(ts if ts is not None else time.time())
+
+    def get_account_info(self, default_equity: float = 10000.0) -> Dict[str, float]:
+        """Polls live account balance, equity, and computes real-time drawdown (RES-RED-05)."""
+        if self._mt5_lib is not None:
+            acc = self._mt5_lib.account_info()
+            if acc is not None:
+                bal = float(getattr(acc, "balance", default_equity))
+                eq = float(getattr(acc, "equity", default_equity))
+                dd = max(0.0, (bal - eq) / bal) if bal > 0 else 0.0
+                return {"balance": bal, "equity": eq, "drawdown": dd}
+        return {"balance": default_equity, "equity": default_equity, "drawdown": 0.0}
 
     def calculate_lot_size(
         self,
@@ -144,7 +170,7 @@ class MT5ExecutionGateway:
         """
         drawdown = current_risk_state.get("drawdown", 0.0)
         volatility = current_risk_state.get("volatility", 1.0)
-        order_count = current_risk_state.get("order_count", 0)
+        order_count = current_risk_state.get("order_count", self.get_recent_order_count(60.0))
 
         intended_action = {
             "action": request.action,
@@ -180,6 +206,7 @@ class MT5ExecutionGateway:
         # 3. Deliver to Terminal / Mock Gateway
         if self._mock_gateway is not None:
             res = self._mock_gateway.send_order(adjusted_request)
+            self.record_order_timestamp()
             return True, res, "FILLED_MOCK"
 
         if self._mt5_lib is not None:
@@ -202,6 +229,7 @@ class MT5ExecutionGateway:
                 ret = res_mt5.retcode if res_mt5 else -1
                 return False, None, f"MT5_ERROR_{ret}"
 
+            self.record_order_timestamp()
             return True, MT5OrderResult(
                 success=True,
                 retcode=res_mt5.retcode,
@@ -261,7 +289,7 @@ class MT5ExecutionGateway:
         risk_state = {
             "drawdown": market_state.get("drawdown", 0.0),
             "volatility": market_state.get("volatility", 1.0),
-            "order_count": len(self.get_open_positions()),
+            "order_count": self.get_recent_order_count(60.0),
         }
 
         success, result, status_msg = await self.execute_order_async(req, risk_state)
@@ -277,34 +305,49 @@ class MT5ExecutionGateway:
     def emergency_flat(self) -> int:
         """
         Immediate emergency liquidation of all positions across all symbols (ACC-604).
+        Performs verified read-back loop ensuring zero residual positions (RES-RED-04).
         """
         closed_count = 0
-        if self._mock_gateway is not None:
-            tickets = self._mock_gateway.close_all_positions()
-            return len(tickets)
 
-        if self._mt5_lib is not None:
-            positions = self._mt5_lib.positions_get()
-            if positions:
-                for pos in positions:
-                    tick = self._mt5_lib.symbol_info_tick(pos.symbol)
-                    price = tick.bid if pos.type == self._mt5_lib.ORDER_TYPE_BUY else tick.ask
-                    close_type = self._mt5_lib.ORDER_TYPE_SELL if pos.type == self._mt5_lib.ORDER_TYPE_BUY else self._mt5_lib.ORDER_TYPE_BUY
-                    close_req = {
-                        "action": self._mt5_lib.TRADE_ACTION_DEAL,
-                        "position": pos.ticket,
-                        "symbol": pos.symbol,
-                        "volume": pos.volume,
-                        "type": close_type,
-                        "price": price,
-                        "magic": pos.magic,
-                        "comment": "ARE_EMERGENCY_FLAT",
-                        "type_time": self._mt5_lib.ORDER_TIME_GTC,
-                        "type_filling": self._mt5_lib.ORDER_FILLING_IOC,
-                    }
-                    res = self._mt5_lib.order_send(close_req)
-                    if res and res.retcode == self._mt5_lib.TRADE_RETCODE_DONE:
-                        closed_count += 1
+        # Attempt liquidation with up to 3 retries (4 total attempts)
+        for attempt in range(4):
+            if self._mock_gateway is not None:
+                tickets = self._mock_gateway.close_all_positions()
+                closed_count += len(tickets)
+            elif self._mt5_lib is not None:
+                positions = self._mt5_lib.positions_get()
+                if positions:
+                    for pos in positions:
+                        tick = self._mt5_lib.symbol_info_tick(pos.symbol)
+                        price = tick.bid if pos.type == self._mt5_lib.ORDER_TYPE_BUY else tick.ask
+                        close_type = self._mt5_lib.ORDER_TYPE_SELL if pos.type == self._mt5_lib.ORDER_TYPE_BUY else self._mt5_lib.ORDER_TYPE_BUY
+                        close_req = {
+                            "action": self._mt5_lib.TRADE_ACTION_DEAL,
+                            "position": pos.ticket,
+                            "symbol": pos.symbol,
+                            "volume": pos.volume,
+                            "type": close_type,
+                            "price": price,
+                            "magic": pos.magic,
+                            "comment": "ARE_EMERGENCY_FLAT",
+                            "type_time": self._mt5_lib.ORDER_TIME_GTC,
+                            "type_filling": self._mt5_lib.ORDER_FILLING_IOC,
+                        }
+                        res = self._mt5_lib.order_send(close_req)
+                        if res and res.retcode == self._mt5_lib.TRADE_RETCODE_DONE:
+                            closed_count += 1
+
+            # Read-back verification
+            open_pos = self.get_open_positions()
+            if len(open_pos) == 0:
+                return closed_count
+
+            time.sleep(0.05)
+
+        residual = len(self.get_open_positions())
+        if residual > 0:
+            raise RuntimeError(f"EMERGENCY_FLAT_VERIFICATION_FAILED: {residual} residual positions remain open.")
+
         return closed_count
 
     async def emergency_flat_async(self) -> int:
@@ -313,8 +356,30 @@ class MT5ExecutionGateway:
         return await loop.run_in_executor(self._executor, self.emergency_flat)
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
+        """Returns open positions from Mock or Live MT5 terminal (RES-RED-02)."""
         if self._mock_gateway is not None:
             return self._mock_gateway.get_open_positions()
+
+        if self._mt5_lib is not None:
+            positions = self._mt5_lib.positions_get()
+            if not positions:
+                return []
+            pos_list = []
+            for p in positions:
+                pos_list.append({
+                    "ticket": getattr(p, "ticket", 0),
+                    "symbol": getattr(p, "symbol", ""),
+                    "type": "BUY" if getattr(p, "type", 0) == 0 else "SELL",
+                    "volume": getattr(p, "volume", 0.0),
+                    "open_price": getattr(p, "price_open", 0.0),
+                    "sl": getattr(p, "sl", 0.0),
+                    "tp": getattr(p, "tp", 0.0),
+                    "magic": getattr(p, "magic", 0),
+                    "comment": getattr(p, "comment", ""),
+                    "open_time": getattr(p, "time", 0),
+                })
+            return pos_list
+
         return []
 
     def close(self) -> None:

@@ -59,11 +59,15 @@ class MT5LiveRunner:
         # 2. Extract Quantitative Features
         features = self.feature_extractor.extract_features(ticks)
 
-        # 3. Process Tick through Operational Brain
+        # 3. Dynamic Account Info & Risk State (RES-RED-05, RES-RED-01)
+        acc_info = self.gateway.get_account_info(default_equity=account_equity)
+        current_dd = acc_info.get("drawdown", 0.0)
+        real_equity = acc_info.get("equity", account_equity)
+
         risk_state = {
-            "drawdown": 0.01,
+            "drawdown": current_dd,
             "volatility": features.get("realized_volatility", 1.0) * 100.0,
-            "order_count": len(self.gateway.get_open_positions()),
+            "order_count": self.gateway.get_recent_order_count(60.0),
         }
 
         signal: OperationalSignal = self.brain.process_tick(
@@ -78,8 +82,10 @@ class MT5LiveRunner:
         order_res: Optional[MT5OrderResult] = None
 
         # 4. Gated Execution
-        if signal.final_action in ("BUY", "SELL"):
-            lots = self.gateway.calculate_lot_size(account_equity=account_equity, risk_pct=0.01)
+        if signal.safety_decision and not signal.safety_decision.allowed:
+            exec_status = f"CSK_VETO: {signal.safety_decision.reason}"
+        elif signal.final_action in ("BUY", "SELL"):
+            lots = self.gateway.calculate_lot_size(account_equity=real_equity, risk_pct=0.01)
             req = MT5OrderRequest(
                 symbol=self.symbol,
                 action=signal.final_action,
@@ -116,13 +122,16 @@ class MT5LiveRunner:
         latest_tick = ticks[-1]
         now_ts = latest_tick.get("time", time.time())
 
-        # Extract Features
+        # Extract Features & Dynamic Account Risk State (RES-RED-05, RES-RED-01)
         features = self.feature_extractor.extract_features(ticks)
+        acc_info = self.gateway.get_account_info(default_equity=account_equity)
+        current_dd = acc_info.get("drawdown", 0.0)
+        real_equity = acc_info.get("equity", account_equity)
 
         risk_state = {
-            "drawdown": 0.01,
+            "drawdown": current_dd,
             "volatility": features.get("realized_volatility", 1.0) * 100.0,
-            "order_count": len(self.gateway.get_open_positions()),
+            "order_count": self.gateway.get_recent_order_count(60.0),
         }
 
         signal: OperationalSignal = self.brain.process_tick(
@@ -149,8 +158,10 @@ class MT5LiveRunner:
             }
 
         # Gated Execution
-        if signal.final_action in ("BUY", "SELL"):
-            lots = self.gateway.calculate_lot_size(account_equity=account_equity, risk_pct=0.01)
+        if signal.safety_decision and not signal.safety_decision.allowed:
+            exec_status = f"CSK_VETO: {signal.safety_decision.reason}"
+        elif signal.final_action in ("BUY", "SELL"):
+            lots = self.gateway.calculate_lot_size(account_equity=real_equity, risk_pct=0.01)
             req = MT5OrderRequest(
                 symbol=self.symbol,
                 action=signal.final_action,
@@ -199,8 +210,18 @@ class MT5LiveRunner:
                     time.sleep(interval_sec)
             except KeyboardInterrupt:
                 break
-            except Exception:
-                break
+            except Exception as exc:
+                self._running = False
+                if hasattr(self.evidence_ledger, "record_incident"):
+                    try:
+                        self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                    except Exception:
+                        pass
+                try:
+                    self.gateway.emergency_flat()
+                except Exception:
+                    pass
+                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False
         return processed
@@ -222,8 +243,18 @@ class MT5LiveRunner:
                     await asyncio.sleep(interval_seconds)
             except asyncio.CancelledError:
                 break
-            except Exception:
-                break
+            except Exception as exc:
+                self._running = False
+                if hasattr(self.evidence_ledger, "record_incident"):
+                    try:
+                        self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                    except Exception:
+                        pass
+                try:
+                    await self.gateway.emergency_flat_async()
+                except Exception:
+                    pass
+                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False
         return processed
