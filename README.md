@@ -1,39 +1,45 @@
 # AHFMES-ARE
 
-Repositori terpisah untuk arsitektur dan tata kelola **AHFMES Autonomous
-Research Engine (ARE)**.
+Repositori mandiri untuk arsitektur, tata kelola kuantitatif, dan mesin riset otonom **AHFMES Autonomous Research Engine (ARE)**.
 
-## Batas migrasi
+---
 
-Repositori ini merupakan ekstraksi byte-identical dokumen ARE dari
-`Mziana/AHFMES-CHATGPT` pada commit sumber
-`dcecafd1f9caae130da3880170f018026b1d5183`.
+## 🎛️ Status Keselamatan & Otoritas Sistem (HEAD `main`)
 
-Condition Atlas, Position Path Replay, data riset, kode production/runtime,
-test, artefak hasil, serta dokumen status campuran sengaja tidak dibawa ke
-sini. Rujukan historis terhadap sistem tersebut yang masih ada di dokumen ARE
-hanya merupakan sitasi sejarah; artefak sumbernya tidak ada di repositori ini.
+Berdasarkan pencatatan resmi pada [`PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md`](PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md):
 
-## Aturan branch — keras
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ AHFMES-ARE COCKPIT GOVERNANCE DASHBOARD                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 🟢 Organ 1 (Otak / Kognisi)       : SOFTWARE_VERIFIED (462 Alpha Seeds)     │
+│ 🟢 Organ 2 (Sistem Kekebalan)     : SOFTWARE_VERIFIED (DSR, WFA, Corr Gate) │
+│ 🟢 Organ 3 (Indra / Input)        : SOFTWARE_VERIFIED (DataPurifier, LOCF)  │
+│ 🟢 Organ 4 (Otot / Eksekusi)      : SOFTWARE_VERIFIED (MT5 Bridge, Zero-LLM)│
+│ 🟢 Organ 5 (Memori & DNA)         : SOFTWARE_VERIFIED (Vault Dual-Layer DR) │
+│ 🟢 Organ 6 (Pusat Bahasa)         : SOFTWARE_VERIFIED (Evidence RAG, XAI)   │
+│ 🟢 Organ 7 (Pencernaan Eksternal) : SOFTWARE_VERIFIED (Scraper Isolated)    │
+│                                                                             │
+│ 🟢 FASE 1: Dasar & Isolasi        : FULLY_CLOSED (@328 tests)               │
+│ 🟢 FASE 2: Imunitas & Vault       : FULLY_CLOSED (@340 tests)               │
+│ 🟢 FASE 3: Penelitian & XAI       : FULLY_CLOSED (@352 tests)               │
+│ 🟢 FASE 4: Rigor, Crisis & WFA    : FULLY_CLOSED (@400 tests)               │
+│ 🛠️ GELOMBANG RED TEAM HARDENING   : ACTIVE (P0 Runtime Truth Remediation)   │
+│ 🟡 RESIDU KEAMANAN RES-COG-03     : GATED (Prasyarat 7x24 Jam Stability Run)│
+│ 🔴 FASE 5: Live / Paper Readiness : LOCKED / GATEKEEPING_ACTIVE             │
+│ 🔴 STATUS PRODUKSI                : PRODUCTION = CLOSED                     │
+│ 🟡 STATUS LIVE / PAPER TRADING    : DEMO_TESTING_ONLY_AUTHORIZED            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-- Repositori ini hanya memakai branch `main`.
-- **Dilarang membuat branch baru**, worktree baru, branch per-AI, branch audit,
-  branch perbaikan, maupun branch handoff.
-- Pengecualian hanya boleh terjadi atas instruksi eksplisit pemilik proyek.
+---
 
-## Status keselamatan saat ini
+## 🔒 Aturan Cabang & Pintu Masuk Otoritas
 
-Migrasi ini **tidak** memindahkan authority untuk menjalankan apa pun.
-
-- Penutupan desain ARE-0: **SELESAI @03aec99**
-- Penutupan desain ARE-1: **SELESAI @a6711d6** (code 83f73c0, binder 697b53a, ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED)
-- Kesiapan external audit: **SELESAI** (ARE-1 ACCEPT_ARE1_SCIENTIFIC_KERNEL_CLOSED)
-- Implementasi ARE-1: **SELESAI** (code 83f73c0, 172 tests, 136/136 blob, 41 tags)
-- Implementasi ARE-2: **AUTHORIZED** (Charter T4 ratified 2026-08-27, DELEGASI_005 issued, IAQ_LEDGER_ARE2.md 17 entries)
-- Riset substantif / P001: **TIDAK DIIZINKAN**
-- Production, paper trading, atau live trading: **DITUTUP**
-
-Mulailah dari
-[`PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md`](PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md).
-Identitas commit di repositori sumber tetap merupakan bukti provenance
-historis, bukan identitas kandidat audit baru untuk repositori ini.
+- **Aturan Branch:** Repositori ini HANYA menggunakan branch `main`. Dilarang membuat cabang per-AI, perbaikan liar, atau branch lepas tanpa izin eksplisit.
+- **Tingkat Pembuktian:** Sistem saat ini berada pada level **L3 Software Correctness / L0 Operational Readiness** (400 automated tests pass, zero regression).
+- **Titik Masuk Dokumen Resmi:**
+  1. Otoritas Utama: [`PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md`](PROJECT_GOVERNANCE/CURRENT_AUTHORITY_INDEX.md)
+  2. Red Team Wave: [`PROJECT_GOVERNANCE/RED_TEAM_HARDENING/README.md`](PROJECT_GOVERNANCE/RED_TEAM_HARDENING/README.md)
+  3. Pre-Flight Flight Manual: [`PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/PHASE_5_READINESS_MANIFESTO.md`](PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/PHASE_5_READINESS_MANIFESTO.md)
+  4. Indeks Progres Global: [`PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md`](PROJECT_JOURNAL/DIARY/GLOBAL_PROGRESS_DIARY.md)
