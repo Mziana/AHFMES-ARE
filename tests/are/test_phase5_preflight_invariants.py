@@ -194,6 +194,61 @@ class TestPhase5PreFlightInvariants(unittest.TestCase):
         self.assertNotEqual(report.passed_checkpoints, 7)
         self.assertEqual(report.readiness_disposition, "NO_GO")
 
+    def test_checkpoint_5_fails_closed_on_negative_sharpe_strategy(self):
+        """
+        REV-01: Checkpoint 5 WAJIB menolak strategi dengan Sharpe buruk/negatif.
+        Dilarang menggunakan artificial floor max(1.5, sr).
+        """
+        # Strategi rugi konstan (selalu posisi salah)
+        def loser_strategy(df: pl.DataFrame) -> pl.DataFrame:
+            return df.with_columns(pl.lit(-1.0).alias("signal"))
+
+        res = self.auditor.audit_checkpoint_5_institutional_rigor(strategy_logic=loser_strategy)
+        self.assertFalse(res.passed, "Strategi Sharpe negatif WAJIB gagal di Checkpoint 5")
+        self.assertLess(res.details["psr"], 0.50, "PSR untuk Sharpe negatif harus < 0.50")
+
+    def test_hourly_stability_harness_uses_real_process_memory(self):
+        """
+        REV-02: HourlyStabilityHarness WAJIB mencatat memori proses nyata (> 1 MB),
+        bukan sekadar shallow pointer size sys.getsizeof (< 10 KB).
+        """
+        harness = HourlyStabilityHarness(
+            safety_kernel=self.safety_kernel,
+            gateway=self.gateway,
+            health_monitor=self.health_monitor,
+            evidence_ledger=self.evidence_ledger,
+            event_store=self.event_store,
+        )
+        rec = harness.run_simulated_hour_block(hour_index=0, ticks_per_hour=50)
+        # Process memory Python di Windows biasanya >= 10 MB (10,240 KB)
+        self.assertGreater(rec.estimated_memory_kb, 1024.0, "Memori harus mencerminkan Process RAM nyata (> 1MB)")
+
+    def test_three_hour_continuous_stability_battery(self):
+        """
+        Bagian 2: 3-Jam Simulative Hourly Stability Battery.
+        Verifies 3 sequential hour blocks maintain STABLE status,
+        sub-50ms P95 latency, and memory growth < 5MB/hr.
+        """
+        harness = HourlyStabilityHarness(
+            safety_kernel=self.safety_kernel,
+            gateway=self.gateway,
+            health_monitor=self.health_monitor,
+            evidence_ledger=self.evidence_ledger,
+            event_store=self.event_store,
+        )
+        for h in range(3):
+            rec = harness.run_simulated_hour_block(hour_index=h, ticks_per_hour=1000)
+            self.assertIsNotNone(rec.checkpoint_hash)
+            self.assertEqual(len(rec.checkpoint_hash), 64)
+            self.assertLess(rec.p95_latency_ms, 50.0)
+
+        summary = harness.get_stability_summary()
+        self.assertEqual(summary["total_hours_evaluated"], 3)
+        self.assertEqual(summary["total_ticks_processed"], 3000)
+        self.assertEqual(summary["stability_status"], "STABLE")
+        self.assertLess(summary["max_p95_latency_ms"], 50.0)
+        self.assertLess(summary["memory_growth_rate_kb_per_hour"], 5000.0)
+
 
 if __name__ == "__main__":
     unittest.main()
