@@ -305,7 +305,7 @@ class MT5ExecutionGateway:
     def emergency_flat(self) -> int:
         """
         Immediate emergency liquidation of all positions across all symbols (ACC-604).
-        Performs verified read-back loop ensuring zero residual positions (RES-RED-04).
+        Performs verified read-back loop ensuring zero residual positions (RES-RED-04, RES-RED-14).
         """
         closed_count = 0
 
@@ -316,6 +316,12 @@ class MT5ExecutionGateway:
                 closed_count += len(tickets)
             elif self._mt5_lib is not None:
                 positions = self._mt5_lib.positions_get()
+
+                # CRITICAL: None = unknown, NOT flat. Continue retry (RES-RED-14).
+                if positions is None:
+                    time.sleep(0.1)
+                    continue
+
                 if positions:
                     for pos in positions:
                         tick = self._mt5_lib.symbol_info_tick(pos.symbol)
@@ -338,13 +344,27 @@ class MT5ExecutionGateway:
                             closed_count += 1
 
             # Read-back verification
-            open_pos = self.get_open_positions()
+            try:
+                open_pos = self.get_open_positions()
+            except RuntimeError:
+                # State unknown — continue retry, do NOT treat as flat (RES-RED-14)
+                time.sleep(0.1)
+                continue
+
             if len(open_pos) == 0:
                 return closed_count
 
             time.sleep(0.05)
 
-        residual = len(self.get_open_positions())
+        # Final check — may raise RuntimeError if still None
+        try:
+            residual = len(self.get_open_positions())
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"EMERGENCY_FLAT_VERIFICATION_FAILED: Position state UNKNOWN after 4 attempts. "
+                f"MT5 API returned None. Original: {e}"
+            )
+
         if residual > 0:
             raise RuntimeError(f"EMERGENCY_FLAT_VERIFICATION_FAILED: {residual} residual positions remain open.")
 
@@ -356,14 +376,24 @@ class MT5ExecutionGateway:
         return await loop.run_in_executor(self._executor, self.emergency_flat)
 
     def get_open_positions(self) -> List[Dict[str, Any]]:
-        """Returns open positions from Mock or Live MT5 terminal (RES-RED-02)."""
+        """Returns open positions from Mock or Live MT5 terminal (RES-RED-02, RES-RED-14)."""
         if self._mock_gateway is not None:
             return self._mock_gateway.get_open_positions()
 
         if self._mt5_lib is not None:
             positions = self._mt5_lib.positions_get()
-            if not positions:
+
+            # CRITICAL: Distinguish None (API error) from () (verified empty) (RES-RED-14)
+            if positions is None:
+                raise RuntimeError(
+                    "MT5_POSITIONS_GET_RETURNED_NONE: "
+                    "API error or connection lost. Position state is UNKNOWN. "
+                    "Cannot safely assume flat."
+                )
+
+            if len(positions) == 0:
                 return []
+
             pos_list = []
             for p in positions:
                 pos_list.append({
