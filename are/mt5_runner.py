@@ -239,14 +239,13 @@ class MT5LiveRunner:
             except KeyboardInterrupt:
                 break
             except Exception as exc:
+                self._running = False
                 if hasattr(self.evidence_ledger, "record_incident"):
-                    try:
-                        self.evidence_ledger.record_incident(f"RUNNER_RECOVERABLE_EXCEPTION: {str(exc)}")
-                    except Exception:
-                        pass
-                if interval_sec > 0.0:
-                    time.sleep(interval_sec)
-                continue
+                    try: self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                    except Exception: pass
+                try: self.gateway.emergency_flat()
+                except Exception: pass
+                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False
         return processed
@@ -269,14 +268,13 @@ class MT5LiveRunner:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                self._running = False
                 if hasattr(self.evidence_ledger, "record_incident"):
-                    try:
-                        self.evidence_ledger.record_incident(f"RUNNER_RECOVERABLE_EXCEPTION: {str(exc)}")
-                    except Exception:
-                        pass
-                if interval_seconds > 0.0:
-                    await asyncio.sleep(interval_seconds)
-                continue
+                    try: self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                    except Exception: pass
+                try: await self.gateway.emergency_flat_async()
+                except Exception: pass
+                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False
         return processed
