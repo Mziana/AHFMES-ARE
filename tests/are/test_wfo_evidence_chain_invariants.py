@@ -62,6 +62,7 @@ def test_oos_overlap_rejection():
     ev = WFOEvidence(
         run_id="test",
         dataset_hash="hash",
+        timeframe_seconds=60.0,
         data_start_ts=0,
         data_end_ts=250,
         folds=(f1, f2),
@@ -119,6 +120,7 @@ def test_evidence_tampering_detection():
     ev_base = WFOEvidence(
         run_id="test",
         dataset_hash="hash",
+        timeframe_seconds=60.0,
         data_start_ts=0,
         data_end_ts=250,
         folds=(f1,),
@@ -297,6 +299,7 @@ def test_final_gate_permutations(mock_val):
         ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
+            timeframe_seconds=60.0,
             data_start_ts=0,
             data_end_ts=250,
             folds=(f1,),

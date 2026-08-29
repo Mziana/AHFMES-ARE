@@ -17,6 +17,7 @@ def create_valid_evidence():
     evidence = WFOEvidence(
         run_id="test_run",
         dataset_hash="hash_data",
+        timeframe_seconds=60.0,
         data_start_ts=100.0,
         data_end_ts=300.0,
         folds=folds,

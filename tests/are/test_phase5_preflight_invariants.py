@@ -183,6 +183,7 @@ class TestPhase5PreFlightInvariants(unittest.TestCase):
         valid_ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
+            timeframe_seconds=60.0,
             data_start_ts=0,
             data_end_ts=250,
             folds=(f1,),
@@ -276,6 +277,7 @@ class TestPhase5PreFlightInvariants(unittest.TestCase):
         valid_ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
+            timeframe_seconds=60.0,
             data_start_ts=0,
             data_end_ts=250,
             folds=(f1,),
@@ -339,6 +341,7 @@ class TestPhase5PreFlightInvariants(unittest.TestCase):
         bad_ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
+            timeframe_seconds=60.0,
             data_start_ts=0,
             data_end_ts=250,
             folds=(f1,),

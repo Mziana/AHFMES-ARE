@@ -62,6 +62,7 @@ class WFOFoldEvidence:
 class WFOEvidence:
     run_id: str
     dataset_hash: str
+    timeframe_seconds: float
     data_start_ts: float
     data_end_ts: float
     folds: Tuple[WFOFoldEvidence, ...]
