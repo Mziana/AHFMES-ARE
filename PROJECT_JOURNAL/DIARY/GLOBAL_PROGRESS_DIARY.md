@@ -12,6 +12,34 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_039 SCIENTIFIC PROVENANCE & WFO REALITY COMPLETED (411 TESTS PASS)
+
+```text
+KATEGORI : RED_TEAM_HARDENING + STAGE_2 + SCIENTIFIC_PROVENANCE + WFO_REALITY + P1_REMEDIATION + GLOBAL
+STATUS   : Eksekusi DELEGASI_039 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (5 Invariant Tests Pass). Total 411 tests pass 100%.
+           Seluruh 3 Residu Ilmiah P1 (RES-RED-07, RES-RED-08, RES-RED-09) RESMI RESOLVED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & REMEDIASI KODE:
+     - are/backtest.py:
+       * RES-RED-07: Penambahan parameter timeframe_seconds dan helper calculate_sharpe_ratio() dengan faktor tahunan dinamis sqrt(252 * bars_per_day).
+       * RES-RED-09: Implementasi run_walk_forward_optimization() dengan kalibrasi in-sample (train) dan uji out-of-sample (test) independen, kalkulasi WFE, serta skor stabilitas parameter.
+       * BacktestEngine alias terdaftar untuk kemudahan integrasi.
+     - are/validation.py:
+       * RES-RED-08: Eliminasi verification theater, sentinel hash nol ("0"*64) dilabeli SENTINEL_UNPROVEN dan is_provenance_verified = False.
+     - are/evidence.py:
+       * Penambahan status SENTINEL_UNPROVEN ke PROVENANCE_STATUSES dan penegakan fail-closed pada snapshot zero-hash.
+  2. PENGUJIAN INVARIAN BARU:
+     - tests/are/test_scientific_reality_invariants.py (5 test baru, 100% PASS).
+  3. INTEGRASI & ZERO REGRESSION:
+     - 411 passed, 105 subtests in 70s. Zero dependency bloat (stdlib + polars only).
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/RESIDUAL_REGISTER.md
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-DELEGASI_039-SCIENTIFIC-PROVENANCE-JURNAL.md
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_038 RUNTIME TRUTH & EXECUTION REMEDIATION COMPLETED (406 TESTS PASS)
 
 ```text

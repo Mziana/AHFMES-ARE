@@ -30,7 +30,7 @@ from are.canonical import canonicalize_json, domain_hash, VerificationError, Tag
 # Constants / Enums (fail-closed: unknown => deny)
 # ---------------------------------------------------------------------------
 
-PROVENANCE_STATUSES = frozenset({"UNVERIFIED", "VERIFIED", "INVALID"})
+PROVENANCE_STATUSES = frozenset({"UNVERIFIED", "VERIFIED", "INVALID", "SENTINEL_UNPROVEN"})
 ORIGINS = frozenset({
     "HISTORICAL_DISCOVERY",
     "HISTORICAL_RESERVED",
@@ -422,6 +422,9 @@ class EvidenceLedger:
         _validate_retention(retention)
         if counterfactual_quality is not None and counterfactual_quality not in COUNTERFACTUAL_QUALITIES:
             raise EvidenceError("CF_QUALITY_INVALID", f"unknown cf quality {counterfactual_quality}")
+        # Sentinel zero-hash cannot be VERIFIED (Anti-Theater / RES-RED-08)
+        if provenance_status == "VERIFIED" and (source_manifest_hash == ZERO_HASH or completeness_proof_hash == ZERO_HASH):
+            provenance_status = "SENTINEL_UNPROVEN"
         # provenance_status in snapshot per contract is VERIFIED|INVALID initially, but we allow UNVERIFIED for orthogonal dimension
         if not source_manifest_hash or not source_kind or not source_epoch:
             raise EvidenceError("MANIFEST_REQUIRED", "source manifest fields required")

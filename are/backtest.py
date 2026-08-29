@@ -35,6 +35,25 @@ class BacktestResult:
     metrics: Dict[str, Any]
 
 
+def calculate_sharpe_ratio(
+    returns: List[float],
+    timeframe_seconds: float = 60.0,
+) -> float:
+    """
+    Computes annualized Sharpe Ratio properly scaled to the bar timeframe (RES-RED-07).
+    """
+    if not returns or len(returns) < 2:
+        return 0.0
+    mean_ret = sum(returns) / len(returns)
+    var_ret = sum((r - mean_ret) ** 2 for r in returns) / len(returns)
+    std_ret = math.sqrt(var_ret) if var_ret > 0 else 0.0
+    if std_ret <= 1e-9:
+        return 0.0
+    bars_per_day = (86400.0 / timeframe_seconds) if timeframe_seconds > 0 else 1440.0
+    annual_factor = math.sqrt(252.0 * bars_per_day)
+    return float(mean_ret / std_ret * annual_factor)
+
+
 class IsolatedBacktestEngine:
     """
     High-Performance Isolated Backtest Engine (World 2: PROVE).
@@ -46,6 +65,7 @@ class IsolatedBacktestEngine:
         strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
         historical_data: Optional[pl.DataFrame] = None,
         initial_capital: float = 10000.0,
+        timeframe_seconds: float = 60.0,
     ) -> BacktestResult:
         """
         Executes a vectorized backtest computation over historical market data.
@@ -134,7 +154,9 @@ class IsolatedBacktestEngine:
         var_ret = sum((r - mean_ret) ** 2 for r in returns_series) / len(returns_series) if returns_series else 0.0
         std_ret = math.sqrt(var_ret) if var_ret > 0 else 0.0
 
-        sharpe_ratio = (mean_ret / std_ret * math.sqrt(252.0)) if std_ret > 1e-9 else 0.0
+        bars_per_day = (86400.0 / timeframe_seconds) if timeframe_seconds > 0 else 1440.0
+        annual_factor = math.sqrt(252.0 * bars_per_day)
+        sharpe_ratio = (mean_ret / std_ret * annual_factor) if std_ret > 1e-9 else 0.0
 
         gains = [r for r in returns_series if r > 0]
         losses = [abs(r) for r in returns_series if r < 0]
@@ -153,6 +175,8 @@ class IsolatedBacktestEngine:
             "profit_factor": round(profit_factor, 4),
             "total_bars": len(df),
             "total_trades": len(trade_df),
+            "timeframe_seconds": timeframe_seconds,
+            "annualization_factor": round(annual_factor, 4),
         }
 
         equity_curve = df.select(["timestamp", "price", "signal", "equity", "drawdown"])
@@ -343,5 +367,127 @@ class IsolatedBacktestEngine:
             "folds": folds,
         }
 
+    def run_walk_forward_optimization(
+        self,
+        strategy_factory: Callable[[Dict[str, Any]], Callable[[pl.DataFrame], pl.DataFrame]],
+        param_grid: List[Dict[str, Any]],
+        historical_data: Optional[pl.DataFrame] = None,
+        train_window_bars: int = 500,
+        test_window_bars: int = 100,
+        step_bars: int = 100,
+        optimization_metric: str = "sharpe_ratio",
+        initial_capital: float = 10000.0,
+        timeframe_seconds: float = 60.0,
+    ) -> Dict[str, Any]:
+        """
+        True Walk-Forward Optimization (WFO) with in-sample parameter fitting
+        and out-of-sample performance evaluation (RES-RED-09).
+        """
+        if historical_data is None:
+            # Generate deterministic dataset with sufficient bars
+            timestamps = [1700000000 + i * int(timeframe_seconds) for i in range(1500)]
+            prices = [65000.0 + (math.sin(i * 0.03) * 300.0) + (i * 0.2) for i in range(1500)]
+            historical_data = pl.DataFrame({
+                "timestamp": timestamps,
+                "price": prices,
+            })
+
+        purifier = DataPurifier()
+        purified_data = purifier.purify_tick_data(historical_data)
+
+        total_bars = len(purified_data)
+        min_required = train_window_bars + test_window_bars
+        if total_bars < min_required:
+            raise ValueError(
+                f"Historical data length ({total_bars}) is less than minimum required bars ({min_required})"
+            )
+
+        folds = []
+        start = 0
+        fold_idx = 0
+
+        while (start + train_window_bars + test_window_bars) <= total_bars:
+            train_slice = purified_data.slice(start, train_window_bars)
+            test_slice = purified_data.slice(start + train_window_bars, test_window_bars)
+
+            # In-Sample (Train) Phase: grid search over param_grid
+            best_params = None
+            best_is_metric = -float("inf")
+            best_is_result = None
+
+            for params in param_grid:
+                strat_logic = strategy_factory(params)
+                is_res = self.run_backtest(
+                    strategy_logic=strat_logic,
+                    historical_data=train_slice,
+                    initial_capital=initial_capital,
+                    timeframe_seconds=timeframe_seconds,
+                )
+                metric_val = float(is_res.metrics.get(optimization_metric, 0.0))
+                if metric_val > best_is_metric or best_params is None:
+                    best_is_metric = metric_val
+                    best_params = params
+                    best_is_result = is_res
+
+            # Out-of-Sample (Test OOS) Phase: evaluate best_params on test_slice
+            best_strat_logic = strategy_factory(best_params) if best_params is not None else None
+            oos_res = self.run_backtest(
+                strategy_logic=best_strat_logic,
+                historical_data=test_slice,
+                initial_capital=initial_capital,
+                timeframe_seconds=timeframe_seconds,
+            )
+
+            is_sharpe = float(best_is_result.metrics.get("sharpe_ratio", 0.0)) if best_is_result else 0.0
+            oos_sharpe = float(oos_res.metrics.get("sharpe_ratio", 0.0))
+            wfe_ratio = (oos_sharpe / is_sharpe) if is_sharpe > 0.0 else 0.0
+
+            folds.append({
+                "fold_index": fold_idx,
+                "train_start": start,
+                "train_end": start + train_window_bars,
+                "test_start": start + train_window_bars,
+                "test_end": start + train_window_bars + test_window_bars,
+                "best_params": best_params,
+                "is_metrics": best_is_result.metrics if best_is_result else {},
+                "oos_metrics": oos_res.metrics,
+                "is_sharpe": is_sharpe,
+                "oos_sharpe": oos_sharpe,
+                "wfe_ratio": wfe_ratio,
+            })
+
+            fold_idx += 1
+            start += step_bars
+
+        n_folds = len(folds)
+        if n_folds > 0:
+            mean_is_sharpe = sum(f["is_sharpe"] for f in folds) / n_folds
+            mean_oos_sharpe = sum(f["oos_sharpe"] for f in folds) / n_folds
+            mean_wfe = sum(f["wfe_ratio"] for f in folds) / n_folds
+
+            param_changes = 0
+            for i in range(1, n_folds):
+                if folds[i]["best_params"] != folds[i - 1]["best_params"]:
+                    param_changes += 1
+            param_stability_score = 1.0 - (param_changes / (n_folds - 1)) if n_folds > 1 else 1.0
+        else:
+            mean_is_sharpe = 0.0
+            mean_oos_sharpe = 0.0
+            mean_wfe = 0.0
+            param_stability_score = 0.0
+
+        return {
+            "n_folds": n_folds,
+            "mean_is_sharpe": float(mean_is_sharpe),
+            "mean_oos_sharpe": float(mean_oos_sharpe),
+            "mean_wfe": float(mean_wfe),
+            "parameter_stability_score": float(param_stability_score),
+            "folds": folds,
+        }
+
     # Alias for explicit API naming
     run_vectorized_backtest = run_backtest
+
+
+# Module-level aliases
+BacktestEngine = IsolatedBacktestEngine
