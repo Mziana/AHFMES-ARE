@@ -12,6 +12,29 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_035A STATISTICAL RIGOR & GOVERNOR HARDENING COMPLETED (364 TESTS PASS)
+
+```text
+KATEGORI : ARE_VALIDATION + GOVERNOR + COGNITIVE_ROADMAP + FASE_4 + GLOBAL
+STATUS   : Eksekusi DELEGASI_035A diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS. Total 364 tests pass 100%.
+           FDR Benjamini-Hochberg, Acklam's Inverse Normal CDF, PSR, dan Deflated Sharpe Ratio (DSR) resmi QUALIFIED.
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - are/validation.py: standard_normal_cdf(), acklam_inverse_normal_cdf() (error < 1.15e-9, pure stdlib), apply_fdr_correction() (anti p-hacking), calculate_probabilistic_sharpe_ratio(), calculate_deflated_sharpe_ratio() (Bailey-Lopez de Prado 2012, 100% stdlib).
+     - are/governor.py: GovernorEngine.evaluate_promotion() menolak kandidat dengan DSR p-value >= 0.05 atau PSR < 0.95.
+     - tests/are/test_fdr_invariants.py: 8 pengujian invarian statistik murni.
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-29-DELEGASI_035A-FDR-DSR-PSR-JURNAL.md.
+     - Register Residu: RES-COG-06B terselesaikan (ed2f438).
+  3. METRIK PENGUJIAN:
+     - Baseline: 352 tests pass.
+     - Suite Baru: 8 tests pass (tests/are/test_fdr_invariants.py) + 4 tests E2E.
+     - Total: 364 passed, 105 subtests passed (69.85s).
+DAMPAK   : Seluruh batch hipotesis strategi massal (462 Alpha Seeds) kini terlindungi dari bahaya p-hacking dan data snooping. Governor hanya meloloskan alpha yang secara statistik terbukti bukan ilusi keberuntungan acak.
+```
+
 ## 2026-08-28 — DELEGASI_032 MULTIMODAL EXTERNAL ALPHA PIPELINE COMPLETED (352 TESTS PASS & PHASE 3 QUALIFIED)
 
 ```text
