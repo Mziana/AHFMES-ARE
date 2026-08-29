@@ -214,6 +214,17 @@ def _extract_returns(trade_log: Any, initial_capital: float = 10000.0) -> List[f
     return []
 
 
+def _wilson_ci(successes: int, trials: int, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson score interval for binomial proportion (95% CI by default) (RES-RED-20)."""
+    if trials == 0:
+        return 0.0, 0.0
+    p_hat = successes / trials
+    denominator = 1.0 + z * z / trials
+    center = (p_hat + z * z / (2.0 * trials)) / denominator
+    margin = z * math.sqrt((p_hat * (1.0 - p_hat) + z * z / (4.0 * trials)) / trials) / denominator
+    return max(0.0, center - margin), min(1.0, center + margin)
+
+
 def monte_carlo_simulation(
     trade_log_df: Any,
     num_simulations: int = 500,
@@ -222,25 +233,34 @@ def monte_carlo_simulation(
     block_size: int = 10,             # Block size for circular block bootstrap
 ) -> Dict[str, Any]:
     """
-    Performs Monte Carlo simulation using either Circular Block Bootstrap or classic IID Shuffle (RES-RED-11).
+    Performs Monte Carlo simulation using either Circular Block Bootstrap or classic IID Shuffle (RES-RED-11, RES-RED-20).
     Circular Block Bootstrap preserves volatility clustering and streak dependencies.
-    Computes 95th-percentile maximum drawdown, probability of ruin (<50% capital), and mean final equity.
+    Computes nearest-rank 95th-percentile drawdown, Wilson score confidence intervals for ruin probability,
+    and path vs terminal ruin metrics.
     """
     returns = _extract_returns(trade_log_df, initial_capital)
     if not returns:
         return {
             "mc_95th_pct_drawdown": 0.0,
+            "mc_quantile_method": "nearest_rank",
+            "mc_path_ruin_probability": 0.0,
+            "mc_terminal_ruin_probability": 0.0,
             "mc_probability_of_ruin": 0.0,
+            "mc_ruin_ci_lower_95": 0.0,
+            "mc_ruin_ci_upper_95": 0.0,
             "mc_mean_final_equity": initial_capital,
+            "mc_std_final_equity": 0.0,
             "mc_simulation_method": method,
             "mc_block_size": block_size if method == "BLOCK_BOOTSTRAP" else 1,
+            "mc_num_simulations": num_simulations,
         }
 
     n_samples = len(returns)
     rng = random.Random(42)
     max_drawdowns: List[float] = []
     final_equities: List[float] = []
-    ruin_count = 0
+    path_ruin_count = 0
+    terminal_ruin_count = 0
 
     ruin_threshold = initial_capital * 0.5
 
@@ -275,23 +295,38 @@ def monte_carlo_simulation(
         max_drawdowns.append(max_dd)
         final_equities.append(equity)
 
-        if min_equity < ruin_threshold or equity < ruin_threshold:
-            ruin_count += 1
+        if min_equity < ruin_threshold:
+            path_ruin_count += 1
+        if equity < ruin_threshold:
+            terminal_ruin_count += 1
 
+    # Nearest-rank method (NIST Engineering Statistics Handbook)
     max_drawdowns.sort()
-    idx_95 = int(0.95 * len(max_drawdowns))
-    idx_95 = min(idx_95, len(max_drawdowns) - 1)
-    mc_95th_pct_drawdown = float(max_drawdowns[idx_95])
+    rank = int(math.ceil(0.95 * len(max_drawdowns))) - 1
+    rank = max(0, min(rank, len(max_drawdowns) - 1))
+    mc_95th_pct_drawdown = float(max_drawdowns[rank])
 
-    mc_probability_of_ruin = float(ruin_count / num_simulations)
-    mc_mean_final_equity = float(sum(final_equities) / len(final_equities))
+    path_ruin_prob = float(path_ruin_count / num_simulations)
+    terminal_ruin_prob = float(terminal_ruin_count / num_simulations)
+    ci_lower, ci_upper = _wilson_ci(path_ruin_count, num_simulations)
+
+    mean_final_eq = float(sum(final_equities) / len(final_equities))
+    var_final_eq = sum((e - mean_final_eq) ** 2 for e in final_equities) / len(final_equities)
+    std_final_eq = math.sqrt(var_final_eq)
 
     return {
         "mc_95th_pct_drawdown": round(mc_95th_pct_drawdown, 4),
-        "mc_probability_of_ruin": round(mc_probability_of_ruin, 4),
-        "mc_mean_final_equity": round(mc_mean_final_equity, 2),
+        "mc_quantile_method": "nearest_rank",
+        "mc_path_ruin_probability": round(path_ruin_prob, 4),
+        "mc_terminal_ruin_probability": round(terminal_ruin_prob, 4),
+        "mc_probability_of_ruin": round(path_ruin_prob, 4),  # backward compat
+        "mc_ruin_ci_lower_95": round(ci_lower, 4),
+        "mc_ruin_ci_upper_95": round(ci_upper, 4),
+        "mc_mean_final_equity": round(mean_final_eq, 2),
+        "mc_std_final_equity": round(std_final_eq, 2),
         "mc_simulation_method": method,
         "mc_block_size": block_size if method == "BLOCK_BOOTSTRAP" else 1,
+        "mc_num_simulations": num_simulations,
     }
 
 
