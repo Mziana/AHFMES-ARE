@@ -12,6 +12,31 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_035C HISTORICAL CRISIS REPLAY ENGINE COMPLETED (390 TESTS PASS & DELEGASI_035 UNIFIED COMPLETE)
+
+```text
+KATEGORI : ARE_BACKTEST + GOVERNOR + TOOLS + COGNITIVE_ROADMAP + FASE_4 + GLOBAL
+STATUS   : Eksekusi DELEGASI_035C diverifikasi dan diaudit secara formal via Protokol 5-Dimensi Dampak Lintas Sistem.
+           Hasil: 100% Kriteria Terima PASS (4 Invariant Tests Pass). Total 390 tests pass 100%.
+           Historical Crisis Replay Engine, Black Swan Bankruptcy Veto, dan Data Seeder resmi QUALIFIED.
+           SELURUH 3 TAHAP ATOMIK DELEGASI_035 (035A, 035B, 035C) RESMI 100% SELESAI & TERTUTUP (CLOSED).
+DETAIL   :
+  1. AUDIT ARSITEKTUR & DAMPAK LINTAS SISTEM:
+     - TOOLS/fetch_historical_crises.py: Ingestion dan pemurnian 3 krisis (2008 GFC, 2015 CHF Depeg, 2020 COVID Crash) via DataPurifier (yfinance terisolasi di Organ 7 dengan synthetic fallback offline).
+     - are/backtest.py: run_crisis_replay() (evaluasi ketahanan krisis, threshold survival >= 50% capital & max DD <= 50%, bankruptcy < 10%).
+     - are/governor.py: GovernorEngine.evaluate_promotion() terintegrasi dengan crisis_survival gate; otomatis DISMISSED jika bangkrut saat uji krisis.
+     - tests/are/test_crisis_replay_invariants.py: 4 pengujian invarian krisis.
+  2. DOKUMEN TATA KELOLA & SINKRONISASI:
+     - Folder: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/.
+     - Diary: PROJECT_GOVERNANCE/COGNITIVE_ROADMAP/DIARY/2026-08-29-DELEGASI_035C-CRISIS-REPLAY-JURNAL.md.
+     - Register Residu: RES-COG-08 terselesaikan (0c26c4f).
+  3. METRIK PENGUJIAN:
+     - Baseline: 386 tests pass.
+     - Suite Baru: 4 tests pass.
+     - Total: 390 passed, 105 subtests passed (69.03s).
+DAMPAK   : Seluruh strategi kandidat kini wajib melewati ujian ketahanan Black Swan nyata sebelum dipromosikan. Mengeliminasi risiko kerugian katastropik saat terjadi guncangan pasar ekstrem.
+```
+
 ## 2026-08-29 — DELEGASI_035B EVIDENCE RAG COPILOT & SYSTEM RESILIENCE COMPLETED (386 TESTS PASS)
 
 ```text
