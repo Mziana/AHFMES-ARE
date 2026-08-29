@@ -39,7 +39,7 @@ class ConversationalCopilot:
         server_state: Any = None,
         ollama_url: Optional[str] = None,
         model_name: Optional[str] = None,
-        timeout_sec: float = 1.0,
+        timeout_sec: float = 30.0,
         event_store: Optional[Any] = None,
     ):
         self.server_state = server_state
