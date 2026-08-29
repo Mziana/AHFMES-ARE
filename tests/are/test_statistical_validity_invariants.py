@@ -131,8 +131,12 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
             purge_bars=0,
         )
         self.assertEqual(res["folds"][0]["warmup_bars"], 30)
-        # Verify OOS metrics exist and are finite numbers
+        # Verify OOS metrics exist, are finite numbers, and computed from return series
         self.assertFalse(math.isnan(res["folds"][0]["oos_sharpe"]))
+        self.assertIn("total_return", res["folds"][0]["oos_metrics"])
+        self.assertIn("net_return_pct", res["folds"][0]["oos_metrics"])
+        # Ensure oos_metrics contains calculated Sharpe
+        self.assertEqual(res["folds"][0]["oos_metrics"]["sharpe_ratio"], round(res["folds"][0]["oos_sharpe"], 4))
 
     def test_wfo_purge_creates_gap_between_train_and_test(self):
         """
@@ -310,6 +314,42 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             self.engine.run_backtest(timeframe_seconds=-60.0)
         self.assertIn("INVALID_TIMEFRAME", str(ctx.exception))
+
+
+    def test_validate_statistical_robustness_dsr_veto_on_low_significance(self):
+        """
+        DSR Gate: When high trial count deflates Sharpe ratio significance (p-value >= 0.05),
+        validate_statistical_robustness must fail-closed and reject.
+        """
+        from are.validation import validate_statistical_robustness
+
+        bt_metrics = {"sharpe_ratio": 1.0, "total_bars": 100, "max_drawdown": 0.10}
+        mc_metrics = {"mc_probability_of_ruin": 0.02, "mc_95th_pct_drawdown": 0.15}
+        wf_score = 0.85
+
+        # With 1000 trials on a modest Sharpe of 1.0 with 100 bars, DSR p-value is > 0.05
+        passed, reason = validate_statistical_robustness(
+            bt_metrics, mc_metrics, wf_score, num_trials=1000
+        )
+        self.assertFalse(passed)
+        self.assertIn("DSR_SELECTION_BIAS_REJECTED", reason)
+
+    def test_validate_statistical_robustness_dsr_pass_on_high_significance(self):
+        """
+        DSR Gate: High Sharpe with sufficient observations survives multiple-testing penalty.
+        """
+        from are.validation import validate_statistical_robustness
+
+        bt_metrics = {"sharpe_ratio": 4.5, "total_bars": 1000, "max_drawdown": 0.08}
+        mc_metrics = {"mc_probability_of_ruin": 0.01, "mc_95th_pct_drawdown": 0.12}
+        wf_score = 0.90
+        wfo_metrics = {"hypothesis_family_size": 10, "total_trials_all_folds": 30}
+
+        passed, reason = validate_statistical_robustness(
+            bt_metrics, mc_metrics, wf_score, wfo_metrics=wfo_metrics
+        )
+        self.assertTrue(passed)
+        self.assertEqual(reason, "STATISTICALLY_ROBUST")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,44 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_042 INVERSION POLISH & PHASE 5 PRE-FLIGHT READINESS ENGINE (454 TESTS PASS)
+
+```text
+KATEGORI : PHASE_5_READINESS + PREFLIGHT_AUTOMATION + HOURLY_STABILITY_HARNESS + INVERSION_POLISH + GLOBAL
+STATUS   : Eksekusi DELEGASI_042 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (+11 Invariant Tests Baru). Total 454 tests pass 100%.
+           Otomasi 7 Iron Checkpoints Phase 5 dan Hourly Stability Engine aktif.
+DETAIL   :
+  1. AUDIT INVERSION & POLISH KODE:
+     - are/backtest.py:
+       * Menyertakan kolom 'strategy_return' pada equity_curve selection agar evaluasi OOS saat warmup_bars > 0
+         menghitung Sharpe ratio dan return secara presisi.
+     - are/validation.py:
+       * Mengintegrasikan Deflated Sharpe Ratio (DSR) multiple-testing gate ke dalam validate_statistical_robustness()
+         saat wfo_metrics / num_trials disediakan (p-value < 0.05).
+     - are/health_monitor.py:
+       * Menambahkan convenience method get_status() pada SystemHealthMonitor.
+  2. ENGINE FASE 5 BARU:
+     - are/stability_harness.py:
+       * HourlyStabilityHarness untuk pengujian stabilitas step-based / sistem jam (latency p50/p95/max,
+         memory leakage rate KB/hour, order rate tracking, circuit breaker monitoring, checkpoint SHA-256 hash).
+     - are/preflight.py:
+       * Phase5PreFlightAuditor yang mengotomasi verifikasi 7/7 Checkpoints Phase 5 Readiness Manifesto
+         (Dynamic Drawdown, Hourly Stability, Vault Dual-Layer, Black Swan Triple Crisis 2008/2015/2020,
+         Institutional DSR/PSR, CCTV Heartbeat, SEC 15c3-5 Pre-Trade Collar) serta penerbitan Sertifikat Kriptografis.
+  3. PENGUJIAN INVARIAN BARU (+11 TESTS):
+     - tests/are/test_phase5_preflight_invariants.py (9 tests, 100% PASS)
+     - tests/are/test_statistical_validity_invariants.py (2 tests DSR validation gate baru, 100% PASS)
+  4. INTEGRASI & ZERO REGRESSION:
+     - 454 passed, 4 warnings, 105 subtests in 73.82s. Zero external dependency bloat.
+REFERENSI:
+  - are/preflight.py
+  - are/stability_harness.py
+  - tests/are/test_phase5_preflight_invariants.py
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_041 SEMANTIC CORRECTNESS & STATISTICAL VALIDITY COMPLETED (443 TESTS PASS)
 
 ```text
