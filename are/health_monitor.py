@@ -324,3 +324,21 @@ class SystemHealthMonitor:
             vault_ok=True,
             details="System nominal",
         )
+
+    def get_status(
+        self,
+        last_tick_ts: Optional[float] = None,
+        latencies: Optional[List[float]] = None,
+        event_store: Optional[Any] = None,
+    ) -> HealthStatus:
+        """Convenience method returning current HealthStatus."""
+        now = time.time()
+        tick_ts = last_tick_ts if last_tick_ts is not None else now
+        lats = latencies if latencies is not None else [10.0]
+        report = self.evaluate_system_health(
+            last_tick_ts=tick_ts,
+            latencies=lats,
+            event_store=event_store,
+            current_time=now,
+        )
+        return report.status

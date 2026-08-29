@@ -364,9 +364,12 @@ def validate_statistical_robustness(
     backtest_metrics: Dict[str, Any],
     mc_metrics: Dict[str, Any],
     wf_score: float,
+    wfo_metrics: Optional[Dict[str, Any]] = None,
+    num_trials: Optional[int] = None,
 ) -> Tuple[bool, str]:
     """
-    Enforces brutal statistical validation gates against lucky sequences, ruin risk, and regime decay.
+    Enforces brutal statistical validation gates against lucky sequences, ruin risk, regime decay,
+    and multiple-testing selection bias (DSR).
     """
     # 1. Ruin Probability Gate (> 10%)
     prob_ruin = float(mc_metrics.get("mc_probability_of_ruin", 0.0))
@@ -385,6 +388,22 @@ def validate_statistical_robustness(
     # 3. Walk-Forward Retention Gate (< 50%)
     if wf_score < 0.50:
         return (False, "WFA_REGIME_DECAY: Out-of-sample performance retention fell below 50%.")
+
+    # 4. Deflated Sharpe Ratio (DSR) Multiple-Testing Gate
+    trials = num_trials
+    if trials is None and wfo_metrics is not None:
+        trials = int(wfo_metrics.get("total_trials_all_folds", wfo_metrics.get("hypothesis_family_size", 1)))
+
+    if trials is not None and trials > 1:
+        sr = float(backtest_metrics.get("sharpe_ratio", 0.0))
+        n_obs = int(backtest_metrics.get("total_bars", 252))
+        _, p_val = calculate_deflated_sharpe_ratio(
+            observed_sharpe=sr,
+            num_trials=trials,
+            num_observations=n_obs,
+        )
+        if p_val >= 0.05:
+            return (False, f"DSR_SELECTION_BIAS_REJECTED: p-value {p_val:.4f} >= 0.05 across {trials} hypothesis trials.")
 
     return (True, "STATISTICALLY_ROBUST")
 

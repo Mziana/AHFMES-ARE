@@ -225,7 +225,7 @@ class IsolatedBacktestEngine:
             "annualization_factor": round(annual_factor, 4),
         }
 
-        equity_curve = df.select(["timestamp", "price", "signal", "equity", "drawdown"])
+        equity_curve = df.select(["timestamp", "price", "signal", "equity", "drawdown", "strategy_return"])
         return BacktestResult(equity_curve=equity_curve, trade_log=trade_df, metrics=metrics)
 
     def save_artifact(self, result: BacktestResult, evidence_ledger: EvidenceLedger) -> str:
