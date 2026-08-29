@@ -10,17 +10,18 @@ records, commit identities, and qualification credit do not transfer.
 
 | Sistem & Dimensi Operasional | Status Kualifikasi | Baseline / Bukti Verifikasi | Catatan & Gatekeeping |
 | :--- | :---: | :---: | :--- |
-| **Organ 1 (Otak / Kognisi)** | 🟢 CERTIFIED | 462 Alpha Seeds, Tree of Thoughts | `are/alpha_generator.py`, `are/search_tree.py` |
-| **Organ 2 (Sistem Kekebalan)** | 🟢 CERTIFIED | Governor, Critic, CSK Firewall | DSR, PSR, MC, WFA, Correlation Gate |
-| **Organ 3 (Indra / Input)** | 🟢 CERTIFIED | DataPurifier, LOCF Micro-gap | Anti-GIGO, Toxic Spread Neutralization |
-| **Organ 4 (Otot / Eksekusi)** | 🟢 CERTIFIED | MT5 Bridge & Gateway | Zero-LLM, Deterministic Sub-millisecond |
-| **Organ 5 (Memori & DNA)** | 🟢 CERTIFIED | The Windows Vault Protocol | Dual-Layer Witness + Replicator DR |
-| **Organ 6 (Pusat Bahasa)** | 🟢 CERTIFIED | Evidence RAG Copilot, XAI | Text-to-Query, Hallucination Detector |
-| **Organ 7 (Pencernaan Eksternal)** | 🟢 CERTIFIED | Scraper, Seed Extractor, Crisis Data | `TOOLS/` strictly isolated from core |
+| **Organ 1 (Otak / Kognisi)** | 🟢 SOFTWARE_VERIFIED | 462 Alpha Seeds, Tree of Thoughts | `are/alpha_generator.py`, `are/search_tree.py` |
+| **Organ 2 (Sistem Kekebalan)** | 🟢 SOFTWARE_VERIFIED | Governor, Critic, CSK Firewall | DSR, PSR, MC, WFA, Correlation Gate |
+| **Organ 3 (Indra / Input)** | 🟢 SOFTWARE_VERIFIED | DataPurifier, LOCF Micro-gap | Anti-GIGO, Toxic Spread Neutralization |
+| **Organ 4 (Otot / Eksekusi)** | 🟢 SOFTWARE_VERIFIED | MT5 Bridge & Gateway | Zero-LLM, Deterministic Sub-millisecond |
+| **Organ 5 (Memori & DNA)** | 🟢 SOFTWARE_VERIFIED | The Windows Vault Protocol | Dual-Layer Witness + Replicator DR |
+| **Organ 6 (Pusat Bahasa)** | 🟢 SOFTWARE_VERIFIED | Evidence RAG Copilot, XAI | Text-to-Query, Hallucination Detector |
+| **Organ 7 (Pencernaan Eksternal)** | 🟢 SOFTWARE_VERIFIED | Scraper, Seed Extractor, Crisis Data | `TOOLS/` strictly isolated from core |
 | **FASE 1: Dasar & Isolasi** | 🟢 FULLY_CLOSED | 328 tests pass (`@962e06b`) | Property Fuzzing, Async MT5, Backtest |
 | **FASE 2: Imunitas & Vault** | 🟢 FULLY_CLOSED | 340 tests pass (`@fc4540e`) | Vault Witness, Data Cleansing, Watchdog |
 | **FASE 3: Penelitian & XAI** | 🟢 FULLY_CLOSED | 352 tests pass (`@a93ab98`) | XAI, Alpha Ingestion, Monte Carlo, Scraper |
-| **FASE 4: Rigor, Resilience, Crisis & WFA** | 🟢 FULLY_CLOSED | 400 tests pass (`@61f54c9`) | FDR, DSR, RAG, Vault DR, Crisis Replay, WFA |
+| **FASE 4: Rigor, Crisis & WFA** | 🟢 FULLY_CLOSED | 400 tests pass (`@61f54c9`) | FDR, DSR, RAG, Vault DR, Crisis Replay, WFA |
+| **GELOMBANG RED TEAM HARDENING** | 🛠️ ACTIVE | 12 Residu Terkatalog (`RES-RED-01..12`) | `PROJECT_GOVERNANCE/RED_TEAM_HARDENING/` |
 | **Residu Keamanan RES-COG-03** | 🟡 GATED | DELEGASI_024 Token Auth | Prasyarat: 7x24 Jam Daemon Stability Run |
 | **FASE 5: Live / Paper Readiness** | 🔴 LOCKED | `PHASE_5_READINESS_MANIFESTO.md` | Gatekeeping Active: 7 Pre-Flight Checkpoints |
 | **Status Lingkungan Produksi** | 🔴 CLOSED | Production Hard Gate Active | `PRODUCTION = CLOSED` |
