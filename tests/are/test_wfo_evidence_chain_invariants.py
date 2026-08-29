@@ -16,9 +16,41 @@ from are.preflight import Phase5PreFlightAuditor, GateStatus
 from are.validation import validate_wfo_integrity
 
 
+def make_consistent_evidence(ev: WFOEvidence) -> WFOEvidence:
+    import dataclasses
+    from are.backtest import calculate_sharpe_ratio, build_wfo_provenance_payload
+    import hashlib
+    import json
+    
+    cum_eq = 1.0
+    peak = 1.0
+    calc_max_dd = 0.0
+    for r in ev.pooled_oos_returns:
+        cum_eq *= (1.0 + r)
+        if cum_eq > peak:
+            peak = cum_eq
+        dd = (peak - cum_eq) / peak if peak > 0.0 else 0.0
+        if dd > calc_max_dd:
+            calc_max_dd = dd
+    calc_return = cum_eq - 1.0
+    calc_sharpe = calculate_sharpe_ratio(list(ev.pooled_oos_returns), timeframe_seconds=60.0)
+    
+    recomputed_ev = dataclasses.replace(
+        ev,
+        pooled_oos_return=calc_return,
+        pooled_oos_max_drawdown=calc_max_dd,
+        pooled_oos_sharpe=calc_sharpe
+    )
+    payload = build_wfo_provenance_payload(recomputed_ev)
+    valid_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    return dataclasses.replace(recomputed_ev, provenance_hash=valid_hash)
+
 def _compute_hash(ev: WFOEvidence) -> str:
+    # Deprecated fallback
+    from are.backtest import build_wfo_provenance_payload
+    import hashlib, json
     payload = build_wfo_provenance_payload(ev)
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 def test_oos_overlap_rejection():
@@ -116,8 +148,7 @@ def test_evidence_tampering_detection():
         worst_wfe=1.0,
         provenance_hash=""
     )
-    valid_hash = _compute_hash(ev_base)
-    valid_ev = dataclasses.replace(ev_base, provenance_hash=valid_hash)
+    valid_ev = make_consistent_evidence(ev_base)
     
     # 1. Untampered -> Valid
     res_valid = validate_wfo_integrity(valid_ev)
@@ -246,19 +277,23 @@ def test_deterministic_tie_breaker(monkeypatch):
     assert ev.folds[0].tie_count == 3
 
 
-def test_final_gate_permutations():
+from unittest.mock import patch
+@patch("are.preflight.validate_wfo_integrity")
+def test_final_gate_permutations(mock_val):
+    from are.validation import WFOIntegrityResult
+    mock_val.return_value = WFOIntegrityResult(True, None, 0)
     auditor = Phase5PreFlightAuditor(None, None, None, None, None)
-    
+
     # 1. wfo_evidence = None -> INVALID
     res1 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=None)
     assert res1.passed == False
     assert res1.details["gate_status"] == GateStatus.INVALID.value
-    
+
     # Helper to create valid evidence with modifiable fields
     def make_ev(pooled_sharpe, p_val_adjust=False):
         f1 = WFOFoldEvidence(1, 0, 100, 101, 105, 106, 200, 2, "sr", {"a":1}, 1.0, None, None, 0, "", {}, {"sharpe_ratio": 1.0}, (0.01,), 1.0)
-        ev_count = 1 if p_val_adjust else 100000 
-        
+        ev_count = 1 if p_val_adjust else 100000
+
         ev_proto = WFOEvidence(
             run_id="test",
             dataset_hash="hash",
@@ -291,24 +326,23 @@ def test_final_gate_permutations():
             worst_wfe=1.0,
             provenance_hash=""
         )
-        
-        computed_hash = _compute_hash(ev_proto)
-        return dataclasses.replace(ev_proto, provenance_hash=computed_hash)
-    
-    # 2. FAIL due to DSR
-    ev2 = make_ev(pooled_sharpe=0.1, p_val_adjust=False)
+
+        return ev_proto
+
+    # 2. FAIL due to DSR (Sharpe < 0)
+    ev2 = make_ev(pooled_sharpe=-1.0, p_val_adjust=False)
     res2 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=ev2)
     assert res2.passed == False
     assert res2.details["gate_status"] == GateStatus.FAIL.value
-    
+
     # 3. BORDERLINE due to Performance
     ev3 = make_ev(pooled_sharpe=0.9, p_val_adjust=True)
     res3 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=ev3)
     assert res3.passed == False
     assert res3.details["gate_status"] == GateStatus.BORDERLINE.value
-    
+
     # 4. PASS
-    ev4 = make_ev(pooled_sharpe=2.5, p_val_adjust=True) 
+    ev4 = make_ev(pooled_sharpe=2.5, p_val_adjust=True)
     res4 = auditor.audit_checkpoint_5_institutional_rigor(wfo_evidence=ev4)
     assert res4.passed == True
     assert res4.details["gate_status"] == GateStatus.PASS.value

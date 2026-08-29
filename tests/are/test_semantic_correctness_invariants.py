@@ -17,26 +17,28 @@ class TestSemanticCorrectnessInvariants(unittest.TestCase):
     def test_get_open_positions_raises_on_none_api_response(self):
         """
         RES-RED-14: Ketika MT5 API mengembalikan None (error/disconnect),
-        get_open_positions() WAJIB raise RuntimeError, BUKAN return [].
+        get_open_positions() WAJIB raise ARETransientError, BUKAN return [].
         """
+        from are.mt5_gateway import ARETransientError
         mock_mt5 = MagicMock()
         mock_mt5.positions_get.return_value = None
         with patch.dict(sys.modules, {"MetaTrader5": mock_mt5}):
             gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=False)
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(ARETransientError) as ctx:
                 gateway.get_open_positions()
             self.assertIn("MT5_POSITIONS_GET_RETURNED_NONE", str(ctx.exception))
 
     def test_emergency_flat_retries_on_none_not_treats_as_flat(self):
         """
         RES-RED-14: emergency_flat() TIDAK BOLEH menganggap None sebagai "flat".
-        Harus retry, dan jika tetap None setelah 4 attempt, raise RuntimeError.
+        Harus retry, dan jika tetap None setelah 4 attempt, raise ARETransientError.
         """
+        from are.mt5_gateway import ARETransientError
         mock_mt5 = MagicMock()
         mock_mt5.positions_get.return_value = None  # Always None = persistent error
         with patch.dict(sys.modules, {"MetaTrader5": mock_mt5}):
             gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=False)
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(ARETransientError) as ctx:
                 gateway.emergency_flat()
             self.assertIn("EMERGENCY_FLAT_VERIFICATION_FAILED", str(ctx.exception))
             # Verify mt5 was called multiple times (retried, not treated as flat on first None)

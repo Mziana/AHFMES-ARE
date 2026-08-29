@@ -116,14 +116,14 @@ class TestRuntimeTruthInvariants(unittest.TestCase):
 
         self.assertEqual(len(self.gateway.get_open_positions()), 3)
 
-        closed = self.gateway.emergency_flat()
-        self.assertEqual(closed, 3)
+        unclosed = self.gateway.emergency_flat()
+        self.assertEqual(unclosed, [])
         self.assertEqual(len(self.gateway.get_open_positions()), 0)
 
-    def test_emergency_flat_raises_if_positions_remain(self):
+    def test_emergency_flat_returns_residual_positions_if_remain(self):
         """
         RES-RED-04: If positions remain after liquidation attempts,
-        emergency_flat() raises RuntimeError with EMERGENCY_FLAT_VERIFICATION_FAILED.
+        emergency_flat() returns a list of residual unclosed positions.
         """
         faulty_mock = MagicMock()
         faulty_mock.close_all_positions.return_value = ["pos_1"]
@@ -132,10 +132,9 @@ class TestRuntimeTruthInvariants(unittest.TestCase):
         gateway = MT5ExecutionGateway(self.safety_kernel, use_mock=True)
         gateway._mock_gateway = faulty_mock
 
-        with self.assertRaises(RuntimeError) as ctx:
-            gateway.emergency_flat()
-
-        self.assertIn("EMERGENCY_FLAT_VERIFICATION_FAILED", str(ctx.exception))
+        unclosed = gateway.emergency_flat()
+        self.assertEqual(len(unclosed), 1)
+        self.assertEqual(unclosed[0]["ticket"], 999)
         gateway.close()
 
     def test_runner_uses_dynamic_account_drawdown(self):

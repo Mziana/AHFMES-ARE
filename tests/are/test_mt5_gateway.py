@@ -65,8 +65,8 @@ class TestMT5Gateway(unittest.TestCase):
         self.assertEqual(len(self.gateway.get_open_positions()), 2)
 
         # Trigger Emergency Flat
-        closed = self.gateway.emergency_flat()
-        self.assertEqual(closed, 2)
+        unclosed = self.gateway.emergency_flat()
+        self.assertEqual(unclosed, [])
         self.assertEqual(len(self.gateway.get_open_positions()), 0)
 
 

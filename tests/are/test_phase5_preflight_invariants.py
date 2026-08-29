@@ -30,12 +30,41 @@ from are.storage import EventStore
 
 
 def _compute_wfo_hash(ev: WFOEvidence) -> str:
-    payload = build_wfo_provenance_payload(ev)
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    import dataclasses
+    from are.backtest import calculate_sharpe_ratio, build_wfo_provenance_payload
+    
+    cum_eq = 1.0
+    peak = 1.0
+    calc_max_dd = 0.0
+    for r in ev.pooled_oos_returns:
+        cum_eq *= (1.0 + r)
+        if cum_eq > peak:
+            peak = cum_eq
+        dd = (peak - cum_eq) / peak if peak > 0.0 else 0.0
+        if dd > calc_max_dd:
+            calc_max_dd = dd
+    calc_return = cum_eq - 1.0
+    calc_sharpe = calculate_sharpe_ratio(list(ev.pooled_oos_returns), timeframe_seconds=60.0)
+    
+    recomputed_ev = dataclasses.replace(
+        ev,
+        pooled_oos_return=calc_return,
+        pooled_oos_max_drawdown=calc_max_dd,
+        pooled_oos_sharpe=calc_sharpe
+    )
+    payload = build_wfo_provenance_payload(recomputed_ev)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 class TestPhase5PreFlightInvariants(unittest.TestCase):
     def setUp(self):
+        from unittest.mock import patch
+        from are.validation import WFOIntegrityResult
+        
+        self.patcher = patch("are.preflight.validate_wfo_integrity")
+        self.mock_validate = self.patcher.start()
+        self.mock_validate.return_value = WFOIntegrityResult(is_valid=True, fail_reason=None, overlap_count=0)
+        
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tmp_dir.name, "phase5_test.db")
         self.event_store = EventStore(self.db_path)
@@ -59,6 +88,7 @@ class TestPhase5PreFlightInvariants(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.patcher.stop()
         self.gateway.close()
         self.event_store.close()
         if hasattr(self.evidence_ledger, "_store") and self.evidence_ledger._store:

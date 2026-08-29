@@ -19,6 +19,19 @@ from are.operational import OperationalSignal
 from are.safety import CapitalSafetyKernel, SafetyDecision, SafetyLimits
 
 
+class ARETransientError(Exception):
+    """Exception for transient errors (e.g., timeout, stale data)."""
+    pass
+
+class AREFatalError(Exception):
+    """Exception for fatal errors (e.g., account query fail)."""
+    pass
+
+class AREAmbiguousExecutionError(Exception):
+    """Exception for ambiguous states (e.g., order sent but confirmation lost)."""
+    pass
+
+
 @dataclass(frozen=True)
 class MT5OrderRequest:
     symbol: str
@@ -153,6 +166,8 @@ class MT5ExecutionGateway:
                     "peak_equity": self._peak_equity,
                     "drawdown": dd,
                 }
+            else:
+                raise AREFatalError("Failed to fetch account info from MT5.")
 
         # Mock/default path — also track peak
         self._peak_equity = max(self._peak_equity, default_equity)
@@ -246,7 +261,9 @@ class MT5ExecutionGateway:
                 "type_filling": self._mt5_lib.ORDER_FILLING_IOC,
             }
             res_mt5 = self._mt5_lib.order_send(req_dict)
-            if res_mt5 is None or res_mt5.retcode != self._mt5_lib.TRADE_RETCODE_DONE:
+            if res_mt5 is None:
+                raise AREAmbiguousExecutionError("Order dispatched but MT5 returned None. State ambiguous.")
+            if res_mt5.retcode != self._mt5_lib.TRADE_RETCODE_DONE:
                 ret = res_mt5.retcode if res_mt5 else -1
                 return False, None, f"MT5_ERROR_{ret}"
 
@@ -289,9 +306,9 @@ class MT5ExecutionGateway:
             return {"status": "ABSTAIN", "reason": "Signal is ABSTAIN / neutral", "latency_ms": 0.0}
 
         if signal.final_action == "EMERGENCY_FLAT":
-            closed = await self.emergency_flat_async()
+            unclosed_positions = await self.emergency_flat_async()
             latency_ms = (time.time() - t_start) * 1000.0
-            return {"status": "EMERGENCY_FLAT", "closed_positions": closed, "latency_ms": latency_ms}
+            return {"status": "EMERGENCY_FLAT", "unclosed_positions": unclosed_positions, "latency_ms": latency_ms}
 
         symbol = market_state.get("symbol", "BTCUSD")
         price = market_state.get("price")
@@ -323,10 +340,11 @@ class MT5ExecutionGateway:
             "latency_ms": latency_ms,
         }
 
-    def emergency_flat(self) -> int:
+    def emergency_flat(self) -> List[Dict[str, Any]]:
         """
         Immediate emergency liquidation of all positions across all symbols (ACC-604).
         Performs verified read-back loop ensuring zero residual positions (RES-RED-04, RES-RED-14).
+        Returns a list of positions that failed to close.
         """
         closed_count = 0
 
@@ -346,6 +364,8 @@ class MT5ExecutionGateway:
                 if positions:
                     for pos in positions:
                         tick = self._mt5_lib.symbol_info_tick(pos.symbol)
+                        if tick is None:
+                            continue
                         price = tick.bid if pos.type == self._mt5_lib.ORDER_TYPE_BUY else tick.ask
                         close_type = self._mt5_lib.ORDER_TYPE_SELL if pos.type == self._mt5_lib.ORDER_TYPE_BUY else self._mt5_lib.ORDER_TYPE_BUY
                         close_req = {
@@ -367,31 +387,31 @@ class MT5ExecutionGateway:
             # Read-back verification
             try:
                 open_pos = self.get_open_positions()
+            except ARETransientError:
+                time.sleep(0.1)
+                continue
             except RuntimeError:
                 # State unknown — continue retry, do NOT treat as flat (RES-RED-14)
                 time.sleep(0.1)
                 continue
 
             if len(open_pos) == 0:
-                return closed_count
+                return []
 
             time.sleep(0.05)
 
-        # Final check — may raise RuntimeError if still None
+        # Final check — may raise exception if still None
         try:
-            residual = len(self.get_open_positions())
-        except RuntimeError as e:
-            raise RuntimeError(
+            residual_positions = self.get_open_positions()
+        except Exception as e:
+            raise ARETransientError(
                 f"EMERGENCY_FLAT_VERIFICATION_FAILED: Position state UNKNOWN after 4 attempts. "
-                f"MT5 API returned None. Original: {e}"
+                f"Original: {e}"
             )
 
-        if residual > 0:
-            raise RuntimeError(f"EMERGENCY_FLAT_VERIFICATION_FAILED: {residual} residual positions remain open.")
+        return residual_positions
 
-        return closed_count
-
-    async def emergency_flat_async(self) -> int:
+    async def emergency_flat_async(self) -> List[Dict[str, Any]]:
         """Non-blocking emergency liquidation via threadpool worker (ACC-604)."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.emergency_flat)
@@ -406,7 +426,7 @@ class MT5ExecutionGateway:
 
             # CRITICAL: Distinguish None (API error) from () (verified empty) (RES-RED-14)
             if positions is None:
-                raise RuntimeError(
+                raise ARETransientError(
                     "MT5_POSITIONS_GET_RETURNED_NONE: "
                     "API error or connection lost. Position state is UNKNOWN. "
                     "Cannot safely assume flat."

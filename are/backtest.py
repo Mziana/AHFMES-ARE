@@ -110,6 +110,7 @@ def build_wfo_provenance_payload(evidence: WFOEvidence) -> Dict[str, Any]:
                 "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0)
             } for f in evidence.folds
         ],
+        "pooled_oos_returns": evidence.pooled_oos_returns,
         "pooled_sharpe": evidence.pooled_oos_sharpe,
         "pooled_oos_return": evidence.pooled_oos_return,
         "pooled_oos_max_drawdown": evidence.pooled_oos_max_drawdown,
@@ -338,7 +339,7 @@ class IsolatedBacktestEngine:
             "artifact_type": "RESEARCH_PROOF",
         }
 
-        scientific_json = json.dumps(scientific_payload, sort_keys=True)
+        scientific_json = json.dumps(scientific_payload, sort_keys=True, allow_nan=False)
         proof_hash = compute_sha256(scientific_json)
 
         # Record to Evidence Ledger storage stream
@@ -649,6 +650,10 @@ class IsolatedBacktestEngine:
             if actual_warmup > 0 and len(oos_res.equity_curve) > actual_warmup:
                 oos_equity_df = oos_res.equity_curve.slice(actual_warmup, test_window_bars)
                 oos_returns = oos_equity_df["strategy_return"].to_list() if "strategy_return" in oos_equity_df.columns else []
+                for r in oos_returns:
+                    if r is None or not math.isfinite(r):
+                        raise ValueError("Gagal-Tutup: Non-finite value detected in oos_returns")
+
                 oos_sharpe = calculate_sharpe_ratio(oos_returns, timeframe_seconds=timeframe_seconds)
                 oos_metrics = dict(oos_res.metrics)
                 oos_metrics["sharpe_ratio"] = round(oos_sharpe, 4)
@@ -672,6 +677,10 @@ class IsolatedBacktestEngine:
                 oos_sharpe = float(oos_res.metrics.get("sharpe_ratio", 0.0))
                 if len(oos_res.equity_curve) > 0:
                     oos_returns = oos_res.equity_curve["strategy_return"].to_list() if "strategy_return" in oos_res.equity_curve.columns else []
+                    for r in oos_returns:
+                        if r is None or not math.isfinite(r):
+                            raise ValueError("Gagal-Tutup: Non-finite value detected in oos_returns")
+
                     pooled_returns.extend(oos_returns)
                     if not pooled_equity:
                         pooled_equity.extend(oos_res.equity_curve["equity"].to_list() if "equity" in oos_res.equity_curve.columns else [])
@@ -764,9 +773,19 @@ class IsolatedBacktestEngine:
         import hashlib
         
         if historical_data is not None and len(historical_data) > 0:
+            import struct
             ts_list = historical_data["timestamp"].to_list() if "timestamp" in historical_data.columns else []
             pr_list = historical_data["price"].to_list() if "price" in historical_data.columns else []
-            data_bytes = (str(ts_list) + str(pr_list)).encode()
+            vol_list = historical_data["volume"].to_list() if "volume" in historical_data.columns else [0.0]*len(ts_list)
+            
+            version = b"V1"
+            symbol = b"UNKNOWN"
+            tf_bytes = struct.pack(">d", float(timeframe_seconds))
+            ts_bytes = b"".join(struct.pack(">d", float(x)) for x in ts_list)
+            pr_bytes = b"".join(struct.pack(">d", float(x)) for x in pr_list)
+            vol_bytes = b"".join(struct.pack(">d", float(x)) for x in vol_list)
+            
+            data_bytes = version + symbol + tf_bytes + ts_bytes + pr_bytes + vol_bytes
         else:
             data_bytes = b"0"
 
@@ -804,7 +823,7 @@ class IsolatedBacktestEngine:
         )
 
         payload = build_wfo_provenance_payload(evidence)
-        provenance_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        provenance_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
         
         import dataclasses
         evidence = dataclasses.replace(evidence, provenance_hash=provenance_hash)

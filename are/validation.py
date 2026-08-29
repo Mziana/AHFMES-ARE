@@ -598,13 +598,44 @@ def validate_wfo_integrity(evidence: WFOEvidence) -> WFOIntegrityResult:
             
     if overlap_count > 0:
         return WFOIntegrityResult(is_valid=False, fail_reason=f"OOS overlap detected between {overlap_count} folds", overlap_count=overlap_count)
-        
-    from are.backtest import build_wfo_provenance_payload
-    payload = build_wfo_provenance_payload(evidence)
+
+    import dataclasses
+    from are.backtest import calculate_sharpe_ratio, build_wfo_provenance_payload
+    
+    # Recompute invariants
+    cum_eq = 1.0
+    peak = 1.0
+    calc_max_dd = 0.0
+    for r in evidence.pooled_oos_returns:
+        cum_eq *= (1.0 + r)
+        if cum_eq > peak:
+            peak = cum_eq
+        dd = (peak - cum_eq) / peak if peak > 0.0 else 0.0
+        if dd > calc_max_dd:
+            calc_max_dd = dd
+    calc_return = cum_eq - 1.0
+    
+    calc_sharpe = calculate_sharpe_ratio(list(evidence.pooled_oos_returns), timeframe_seconds=60.0)
     
     import hashlib
     import json
-    calculated_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    
+    # 1. Check original evidence hash (prevents simple metric tampering)
+    original_payload = build_wfo_provenance_payload(evidence)
+    original_hash = hashlib.sha256(json.dumps(original_payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    if original_hash != evidence.provenance_hash:
+        return WFOIntegrityResult(is_valid=False, fail_reason="Provenance hash mismatch", overlap_count=0)
+    
+    # 2. Check recomputed evidence hash (prevents forged metric+hash without forged returns)
+    recomputed_evidence = dataclasses.replace(
+        evidence,
+        pooled_oos_return=calc_return,
+        pooled_oos_max_drawdown=calc_max_dd,
+        pooled_oos_sharpe=calc_sharpe
+    )
+    
+    payload = build_wfo_provenance_payload(recomputed_evidence)
+    calculated_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
     if calculated_hash != evidence.provenance_hash:
         return WFOIntegrityResult(is_valid=False, fail_reason="Provenance hash mismatch", overlap_count=0)
         

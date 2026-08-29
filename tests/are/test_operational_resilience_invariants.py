@@ -25,7 +25,8 @@ class MockFeed(MT5MarketFeed):
 
     def get_latest_ticks(self, symbol: str, count: int) -> List[Dict[str, Any]]:
         if self.fail_mode:
-            raise ConnectionError("Network down")
+            from are.mt5_gateway import ARETransientError
+            raise ARETransientError("Network down")
         
         t = time.time()
         if self.nan_mode:
@@ -80,7 +81,7 @@ class TestOperationalResilienceInvariants(unittest.IsolatedAsyncioTestCase):
         """L1 RESILIENCE: mt5_runner must catch disconnects and recover automatically."""
         self.feed.fail_mode = True
         res = self.runner.step_live_tick()
-        self.assertEqual(res["status"], "FEED_ERROR")
+        self.assertEqual(res["status"], "RETRY_TRANSIENT")
         
         self.feed.fail_mode = False
         res2 = self.runner.step_live_tick()

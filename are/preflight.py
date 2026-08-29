@@ -110,7 +110,7 @@ class Phase5PreFlightAuditor:
             )
 
     def audit_checkpoint_2_stability_harness(self, test_hours: int = 1) -> CheckpointResult:
-        """Checkpoint 2: Step-Based Hourly Stability Run."""
+        """Checkpoint 2: Step-Based 300 Simulated Ticks Stability Run."""
         try:
             harness = HourlyStabilityHarness(
                 safety_kernel=self.safety_kernel,
@@ -128,14 +128,14 @@ class Phase5PreFlightAuditor:
             passed = summary["stability_status"] == "STABLE"
             return CheckpointResult(
                 checkpoint_id=2,
-                name="Hourly Stability & Zero-Leakage Harness",
+                name="300 Simulated Ticks Stability & Zero-Leakage Harness",
                 passed=passed,
                 details=summary,
             )
         except Exception as e:
             return CheckpointResult(
                 checkpoint_id=2,
-                name="Hourly Stability & Zero-Leakage Harness",
+                name="300 Simulated Ticks Stability & Zero-Leakage Harness",
                 passed=False,
                 details={"simulated": True, "stability_hours": test_hours},
                 error_message=str(e),
@@ -196,6 +196,69 @@ class Phase5PreFlightAuditor:
                 details={"reason": "STRATEGY_REQUIRED_NO_DEFAULT"},
                 error_message="strategy_logic cannot be None for CP4 (fail-closed anti-self-certification)",
             )
+
+        import pandas as pd
+        import polars as pl
+        
+        dummy_df = pd.DataFrame({
+            "timestamp": [1700000000, 1700000060, 1700000120],
+            "open": [100.0, 101.0, 102.0],
+            "high": [101.0, 102.0, 103.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [100.5, 101.5, 102.5],
+            "price": [100.5, 101.5, 102.5],
+            "volume": [1000, 1100, 1200]
+        })
+        try:
+            try:
+                dummy_pl = pl.DataFrame(dummy_df)
+                sig_out = strategy_logic(dummy_pl)
+            except Exception:
+                sig_out = strategy_logic(dummy_df)
+                
+            is_valid_type = False
+            vals = []
+            
+            if isinstance(sig_out, pd.Series):
+                is_valid_type = True
+                vals = sig_out.tolist()
+            elif isinstance(sig_out, pl.Series):
+                is_valid_type = True
+                vals = sig_out.to_list()
+            elif isinstance(sig_out, (pd.DataFrame, pl.DataFrame)):
+                if "signal" in sig_out.columns:
+                    is_valid_type = True
+                    if isinstance(sig_out, pd.DataFrame):
+                        vals = sig_out["signal"].tolist()
+                    else:
+                        vals = sig_out["signal"].to_list()
+            
+            if not is_valid_type:
+                return CheckpointResult(
+                    checkpoint_id=4,
+                    name="Black Swan Triple Crisis Survival Certificate",
+                    passed=False,
+                    details={"reason": "INVALID_STRATEGY_SIGNATURE"},
+                    error_message="INVALID_STRATEGY_SIGNATURE: wrong output type",
+                )
+                
+            if not all(v in [-1, 0, 1] for v in vals):
+                return CheckpointResult(
+                    checkpoint_id=4,
+                    name="Black Swan Triple Crisis Survival Certificate",
+                    passed=False,
+                    details={"reason": "INVALID_STRATEGY_SIGNATURE"},
+                    error_message="INVALID_STRATEGY_SIGNATURE: values must be [-1, 0, 1]",
+                )
+        except Exception as e:
+            return CheckpointResult(
+                checkpoint_id=4,
+                name="Black Swan Triple Crisis Survival Certificate",
+                passed=False,
+                details={"reason": "INVALID_STRATEGY_SIGNATURE"},
+                error_message=f"INVALID_STRATEGY_SIGNATURE: {str(e)}",
+            )
+            
         try:
             crises = [
                 {"name": "2008_GFC_CRASH", "drop": 0.50, "spread": 0.0005, "bars": 300},
@@ -391,7 +454,19 @@ class Phase5PreFlightAuditor:
             open_pos = self.gateway.get_open_positions()
             flat_passed = (len(open_pos) == 0)
 
-            passed = rate_veto_passed and lot_clamp_passed and flat_passed
+            # 4. Adversarial Stale Position Read-Back Probe
+            stale_probe_passed = False
+            if self.gateway.use_mock:
+                original_positions = dict(getattr(self.gateway._mock_gateway, "_positions", {}))
+                self.gateway._mock_gateway._positions[999999] = {"ticket": 999999, "symbol": "BTCUSD", "volume": 0.1, "type": 0, "open_price": 50000.0}
+                residue = self.gateway.get_open_positions()
+                if len(residue) == 1 and residue[0]["ticket"] == 999999:
+                    stale_probe_passed = True
+                self.gateway._mock_gateway._positions = original_positions
+            else:
+                stale_probe_passed = True
+
+            passed = rate_veto_passed and lot_clamp_passed and flat_passed and stale_probe_passed
             return CheckpointResult(
                 checkpoint_id=7,
                 name="SEC 15c3-5 Pre-Trade Risk Collar (CSK Hard Veto)",
@@ -400,6 +475,7 @@ class Phase5PreFlightAuditor:
                     "rate_veto_passed": rate_veto_passed,
                     "lot_clamp_passed": lot_clamp_passed,
                     "flat_verified_passed": flat_passed,
+                    "stale_probe_passed": stale_probe_passed,
                     "computed_lot_size": computed_lot,
                     "max_position_limit": max_pos_limit,
                     "csk_limits": asdict(self.safety_kernel.limits),
