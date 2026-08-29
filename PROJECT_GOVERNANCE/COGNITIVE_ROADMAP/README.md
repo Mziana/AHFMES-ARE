@@ -1,10 +1,10 @@
 # COGNITIVE_ROADMAP — Master Cognitive Cannibalization & Autonomic Intelligence Wave
 
-Status: **ACTIVE WAVE / ALL 3 PHASES QUALIFIED & CERTIFIED (352 TESTS PASS)**  
-Kategori: **COGNITIVE_ROADMAP (7 Computational Organs & 3-Phase Master Plan)**  
+Status: **PHASE 4 CLOSED & CERTIFIED (400 TESTS PASS) / PHASE 5 GATEKEEPING ACTIVE 🔴**  
+Kategori: **COGNITIVE_ROADMAP (7 Computational Organs & 5-Phase Master Plan)**  
 Aturan: `GOVERNANCE_FOLDER_STRUCTURE_RULES.md` & `ENGINEERING/RULES.md`  
 Baseline Inisiasi: `962e06b` (328 tests pass, DELEGASI_028 Certified)  
-Current State: `a93ab98` (352 tests pass, Full Cognitive Pipeline Certified)
+Current State: `61f54c9` (400 tests pass, DELEGASI_036 Certified)
 
 ---
 
@@ -14,16 +14,16 @@ Gelombang **COGNITIVE_ROADMAP** mengeksekusi peta jalan strategis kanibalisasi a
 
 ### 7 Organ Komputasional yang Dikelola:
 1. **🧠 Organ 1 (Otak / Kognisi):** `alpha_generator.py`, `search_tree.py` — Pola Tree of Thoughts & 462 Alpha Seeds.
-2. **🛡️ Organ 2 (Sistem Kekebalan):** `safety.py`, `governor.py`, `critic.py` — Walk-Forward & Monte Carlo Permutation Gatekeeper.
+2. **🛡️ Organ 2 (Sistem Kekebalan):** `safety.py`, `governor.py`, `critic.py` — Walk-Forward & Monte Carlo Permutation Gatekeeper, DSR, PSR, Correlation Gate, CSK Drawdown Sizing.
 3. **👁️👂 Organ 3 (Indra / Input):** `data_pipeline.py`, `ingestion.py`, `mt5_feed.py` — Data Purifier, LOCF gap-alignment, toxic spread neutralization.
 4. **💪 Organ 4 (Otot / Eksekusi):** `mt5_gateway.py`, `mt5_runner.py` — **ZERO-LLM RULE**, 100% algoritma deterministik sub-milidetik.
-5. **🗄️ Organ 5 (Memori & DNA):** `storage.py`, `evidence.py`, `hasher.py` — The Windows Vault Protocol (SQLite + JSONL Shadow Witness + Self-Healing).
-6. **🗣️ Organ 6 (Pusat Bahasa / Antarmuka):** `web_ui.py`, `copilot.py` — Explainable AI via Text-to-Query & Post-Trade Shadow Diagnostics.
-7. **🌐 Organ 7 (Pencernaan Eksternal):** `TOOLS/` — `external_alpha_scraper.py` & `alpha_seed_extractor.py` tanpa izin *self-modifying code*.
+5. **🗄️ Organ 5 (Memori & DNA):** `storage.py`, `evidence.py`, `hasher.py` — The Windows Vault Protocol (SQLite + JSONL Shadow Witness + VaultReplicator DR).
+6. **🗣️ Organ 6 (Pusat Bahasa / Antarmuka):** `web_ui.py`, `copilot.py` — Explainable AI via Text-to-Query, Evidence RAG Copilot, Post-Trade Shadow Diagnostics.
+7. **🌐 Organ 7 (Pencernaan Eksternal):** `TOOLS/` — `external_alpha_scraper.py`, `alpha_seed_extractor.py`, `fetch_historical_crises.py`.
 
 ---
 
-## 🗺️ Matriks Status Eksekusi 3 Fase
+## 🗺️ Matriks Status Eksekusi 5 Fase
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -46,10 +46,19 @@ Gelombang **COGNITIVE_ROADMAP** mengeksekusi peta jalan strategis kanibalisasi a
 │  ├─ ✅ DELEGASI_031 : LLM Hypothesis Generator (Alpha Zoo Ingestion)        │
 │  ├─ ✅ DELEGASI_031b: Governor Hardening (Walk-Forward & Monte Carlo)       │
 │  ├─ ✅ DELEGASI_032 : Multimodal External Alpha Pipeline (TOOLS/)           │
-│  └─ 📋 DELEGASI_024 : Token Auth Gateway (Gated on 7x24h local stability)   │
+│  └─ 🟡 DELEGASI_024 : Token Auth Gateway (Gated on 7x24h local stability)   │
+│                                                                             │
+│ [FASE 4: STATISTICAL RIGOR, RESILIENCE & CRISIS REPLAY] ─────── [SELESAI]   │
+│  ├─ ✅ DELEGASI_035A: Statistical Rigor (FDR, Acklam Probit, PSR, DSR)      │
+│  ├─ ✅ DELEGASI_035B: Evidence RAG Copilot, Vault DR Replicator, Alerting   │
+│  ├─ ✅ DELEGASI_035C: Black Swan Crisis Replay Engine & Bankruptcy Veto     │
+│  └─ ✅ DELEGASI_036 : Walk-Forward Analysis (WFA) & Correlation Gate        │
+│                                                                             │
+│ [FASE 5: OPERATIONAL READINESS & PRE-FLIGHT VERIFICATION] ──── [LOCKED 🔴]   │
+│  └─ 🔒 Tergembok di balik 7 Pre-Flight Checkpoints                          │
+│     (Lihat: PHASE_5_READINESS_MANIFESTO.md)                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
-```
 ```
 
 ---
