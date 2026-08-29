@@ -643,7 +643,7 @@ def validate_wfo_integrity(evidence: WFOEvidence) -> WFOIntegrityResult:
 
 def evaluate_dsr_from_evidence(evidence: WFOEvidence) -> DSRResult:
     sr = evidence.pooled_oos_sharpe
-    trials = evidence.evaluation_count
+    trials = evidence.effective_trial_count
     n_obs = len(evidence.pooled_oos_returns)
     if trials < 1: trials = 1
     if n_obs < 2: 

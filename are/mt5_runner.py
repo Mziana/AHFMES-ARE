@@ -179,8 +179,10 @@ class MT5LiveRunner:
                     asyncio.to_thread(self.gateway.get_account_info, account_equity),
                     timeout=2.0
                 )
-            except (asyncio.TimeoutError, Exception) as e:
+            except asyncio.TimeoutError as e:
                 raise ARETransientError(f"ACCOUNT_INFO_TIMEOUT: {str(e)}")
+            except Exception as e:
+                raise AREFatalError(f"ACCOUNT_INFO_ERROR: {str(e)}")
 
             current_dd = acc_info.get("drawdown", 0.0)
             real_equity = acc_info.get("equity", account_equity)
@@ -245,8 +247,10 @@ class MT5LiveRunner:
                     timeout=2.0
                 )
                 open_positions_count = len(open_positions)
-            except (asyncio.TimeoutError, Exception):
-                open_positions_count = 0
+            except asyncio.TimeoutError:
+                raise AREAmbiguousExecutionError("OPEN_POSITIONS_TIMEOUT: Could not verify open positions")
+            except Exception as e:
+                raise AREAmbiguousExecutionError(f"OPEN_POSITIONS_ERROR: {str(e)}")
 
             total_latency_ms = (time.time() - t_start) * 1000.0
             self.last_latency_ms = total_latency_ms
