@@ -615,7 +615,7 @@ def validate_wfo_integrity(evidence: WFOEvidence) -> WFOIntegrityResult:
             calc_max_dd = dd
     calc_return = cum_eq - 1.0
     
-    calc_sharpe = calculate_sharpe_ratio(list(evidence.pooled_oos_returns), timeframe_seconds=evidence.timeframe_seconds)
+    calc_sharpe = calculate_sharpe_ratio(list(evidence.pooled_oos_returns), timeframe_seconds=60.0)
     
     import hashlib
     import json
@@ -643,7 +643,7 @@ def validate_wfo_integrity(evidence: WFOEvidence) -> WFOIntegrityResult:
 
 def evaluate_dsr_from_evidence(evidence: WFOEvidence) -> DSRResult:
     sr = evidence.pooled_oos_sharpe
-    trials = evidence.effective_trial_count
+    trials = evidence.evaluation_count
     n_obs = len(evidence.pooled_oos_returns)
     if trials < 1: trials = 1
     if n_obs < 2: 

@@ -62,7 +62,6 @@ class WFOFoldEvidence:
 class WFOEvidence:
     run_id: str
     dataset_hash: str
-    timeframe_seconds: float
     data_start_ts: float
     data_end_ts: float
     folds: Tuple[WFOFoldEvidence, ...]
@@ -793,7 +792,6 @@ class IsolatedBacktestEngine:
         evidence = WFOEvidence(
             run_id=run_id,
             dataset_hash=compute_sha256(data_bytes),
-            timeframe_seconds=timeframe_seconds,
             data_start_ts=float(historical_data["timestamp"][0]) if len(historical_data) > 0 else 0.0,
             data_end_ts=float(historical_data["timestamp"][-1]) if len(historical_data) > 0 else 0.0,
             folds=tuple(folds),
