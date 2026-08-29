@@ -235,14 +235,14 @@ class Phase5PreFlightAuditor:
             # 2. Monte Carlo evaluation
             mc_res = monte_carlo_simulation(bt_res.trade_log, num_simulations=200)
 
-            # 3. DSR and PSR calculation
+            # 3. DSR and PSR calculation using ACTUAL strategy Sharpe ratio (RES-REV-01)
             expected_max_sr, dsr_p_val = calculate_deflated_sharpe_ratio(
-                observed_sharpe=max(1.5, sr),
+                observed_sharpe=sr,
                 num_trials=10,
                 num_observations=n_obs,
             )
             psr = calculate_probabilistic_sharpe_ratio(
-                observed_sharpe=max(1.5, sr),
+                observed_sharpe=sr,
                 benchmark_sharpe=0.0,
                 num_observations=n_obs,
             )

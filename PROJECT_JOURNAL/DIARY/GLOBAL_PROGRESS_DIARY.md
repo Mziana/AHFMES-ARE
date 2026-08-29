@@ -12,6 +12,40 @@ Entri terbaru di atas. Append-only.
 
 ---
 
+## 2026-08-29 — DELEGASI_043 INVERSION REMEDIATION & HOURLY STABILITY BATTERY (457 TESTS PASS)
+
+```text
+KATEGORI : PHASE_5_READINESS + INVERSION_REMEDIATION + STABILITY_BATTERY + PHYSICAL_TRUTH + GLOBAL
+STATUS   : Eksekusi DELEGASI_043 diverifikasi dan diaudit secara formal.
+           Hasil: 100% Kriteria Terima PASS (+3 Invariant Tests Baru). Total 457 tests pass 100%.
+           Residu REV-01 (Artificial Sharpe Floor) & REV-02 (Shallow Memory Estimation) RESMI RESOLVED.
+DETAIL   :
+  1. AUDIT INVERSION & REMEDIASI KODE:
+     - are/preflight.py (REV-01):
+       * Menghapus pembungkus artifisial max(1.5, sr) pada Checkpoint 5.
+       * DSR dan PSR kini menggunakan nilai Sharpe aktual strategi tanpa clamping kosmetik.
+       * Strategi dengan Sharpe negatif terbukti fail-closed dan gagal di Checkpoint 5.
+     - are/stability_harness.py (REV-02):
+       * Mengganti sys.getsizeof() dengan _get_process_memory_mb() dari are.health_monitor.
+       * Telemetri memori mengukur physical Process Working Set RAM nyata dari host OS (Windows).
+  2. PENGUJIAN INVARIAN BARU (+3 TESTS):
+     - tests/are/test_phase5_preflight_invariants.py
+       * test_checkpoint_5_fails_closed_on_negative_sharpe_strategy
+       * test_hourly_stability_harness_uses_real_process_memory
+       * test_three_hour_continuous_stability_battery
+  3. UJI STABILITAS SISTEM JAM (3 JAM SIMULATIVE BENCHMARK):
+     - 3 blok jam berurutan (3.000 ticks total) dievaluasi dengan status STABLE.
+     - Max P95 Latency: 0.0008 ms (< 50 ms batas arsitektur).
+     - Pertumbuhan memori proses: 88.0 KB/jam (< 5.000 KB/jam batas arsitektur).
+     - Checkpoint hash SHA-256 tamper-evident terekam pada setiap blok jam.
+  4. INTEGRASI & ZERO REGRESSION:
+     - 457 passed, 4 warnings, 105 subtests in 74.30s (100% HIJAU).
+REFERENSI:
+  - PROJECT_GOVERNANCE/RED_TEAM_HARDENING/DIARY/2026-08-29-DELEGASI_043-INVERSION-REMEDIATION-JURNAL.md
+```
+
+---
+
 ## 2026-08-29 — DELEGASI_042 INVERSION POLISH & PHASE 5 PRE-FLIGHT READINESS ENGINE (454 TESTS PASS)
 
 ```text

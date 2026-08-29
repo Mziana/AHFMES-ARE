@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from are.evidence import EvidenceLedger
 from are.hasher import compute_sha256
-from are.health_monitor import HealthStatus, SystemHealthMonitor
+from are.health_monitor import HealthStatus, SystemHealthMonitor, _get_process_memory_mb
 from are.mt5_gateway import MT5ExecutionGateway, MT5OrderRequest
 from are.safety import CapitalSafetyKernel, SafetyLimits
 from are.storage import EventStore
@@ -124,8 +124,9 @@ class HourlyStabilityHarness:
         p95 = latencies[int(0.95 * len(latencies))] if latencies else 0.0
         max_lat = max(latencies) if latencies else 0.0
 
-        # Memory estimation (approximate heap usage for telemetry)
-        mem_kb = float(sys.getsizeof(latencies) + sys.getsizeof(self.hourly_records)) / 1024.0
+        # Real Process Working Set RAM via OS ctypes (RES-REV-02)
+        process_ram_mb = _get_process_memory_mb()
+        mem_kb = float(process_ram_mb * 1024.0)
 
         health = self.health_monitor.get_status()
         health_str = health.name if hasattr(health, "name") else str(health)
