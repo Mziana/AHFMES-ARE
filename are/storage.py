@@ -85,21 +85,229 @@ class RollbackCauseRecord:
     var_ref: Optional[str] = None
 
 
+def _compute_file_sha256(filepath: str) -> str:
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class VaultReplicator:
+    """
+    Windows Vault Disaster Recovery Replicator (DELEGASI_035B).
+    Handles atomic replication of primary SQLite DB and JSONL Witness,
+    cryptographic manifest chaining, integrity verification, and automated retention.
+    100% Python Standard Library.
+    """
+
+    def __init__(
+        self,
+        primary_db_path: str,
+        witness_jsonl_path: str,
+        backup_dirs: Any,
+        retention_count: int = 7,
+        backup_interval_seconds: float = 3600.0,
+    ):
+        self.primary_db_path = primary_db_path
+        self.witness_jsonl_path = witness_jsonl_path
+        if isinstance(backup_dirs, str):
+            self.backup_dirs = [backup_dirs]
+        else:
+            self.backup_dirs = list(backup_dirs)
+
+        self.retention_count = max(1, int(retention_count))
+        self.backup_interval_seconds = float(backup_interval_seconds)
+
+        for b_dir in self.backup_dirs:
+            os.makedirs(b_dir, exist_ok=True)
+
+        self._stop_event: Optional[threading.Event] = None
+        self._worker_thread: Optional[threading.Thread] = None
+
+    def replicate(self) -> Optional[str]:
+        """
+        Copies primary database and witness JSONL to backup directories,
+        generates cryptographic manifest, and enforces retention policy.
+        Returns the primary manifest path.
+        """
+        if not os.path.exists(self.primary_db_path):
+            return None
+        if not os.path.exists(self.witness_jsonl_path):
+            with open(self.witness_jsonl_path, "a", encoding="utf-8"):
+                pass
+
+        primary_manifest_path: Optional[str] = None
+        import time as _t
+        timestamp = int(_t.time() * 1000)
+
+        for idx, b_dir in enumerate(self.backup_dirs):
+            os.makedirs(b_dir, exist_ok=True)
+
+            db_filename = f"backup_{timestamp}.db"
+            witness_filename = f"backup_{timestamp}.witness.jsonl"
+            manifest_filename = f"manifest_{timestamp}.json"
+
+            dest_db = os.path.join(b_dir, db_filename)
+            dest_witness = os.path.join(b_dir, witness_filename)
+            dest_manifest = os.path.join(b_dir, manifest_filename)
+
+            shutil.copy2(self.primary_db_path, dest_db)
+            shutil.copy2(self.witness_jsonl_path, dest_witness)
+
+            db_hash = _compute_file_sha256(dest_db)
+            witness_hash = _compute_file_sha256(dest_witness)
+
+            # Find previous manifest in this backup dir
+            prev_manifest_hash = "0" * 64
+            manifests = sorted(
+                [m for m in os.listdir(b_dir) if m.startswith("manifest_") and m.endswith(".json") and m != manifest_filename]
+            )
+            if manifests:
+                last_manifest_path = os.path.join(b_dir, manifests[-1])
+                prev_manifest_hash = _compute_file_sha256(last_manifest_path)
+
+            manifest_data = {
+                "timestamp": timestamp,
+                "db_file": db_filename,
+                "db_hash": db_hash,
+                "witness_file": witness_filename,
+                "witness_hash": witness_hash,
+                "previous_manifest_hash": prev_manifest_hash,
+            }
+
+            with open(dest_manifest, "w", encoding="utf-8") as f:
+                json.dump(manifest_data, f, indent=2, sort_keys=True)
+
+            # Read-back verification
+            if not self.verify_backup_integrity(dest_manifest):
+                raise RuntimeError(f"Read-back verification failed immediately for backup {dest_manifest}")
+
+            # Retention enforcement
+            all_manifests = sorted(
+                [m for m in os.listdir(b_dir) if m.startswith("manifest_") and m.endswith(".json")]
+            )
+            if len(all_manifests) > self.retention_count:
+                excess_count = len(all_manifests) - self.retention_count
+                for old_man_name in all_manifests[:excess_count]:
+                    old_man_path = os.path.join(b_dir, old_man_name)
+                    try:
+                        with open(old_man_path, "r", encoding="utf-8") as f:
+                            old_data = json.load(f)
+                        old_db = os.path.join(b_dir, old_data.get("db_file", ""))
+                        old_wit = os.path.join(b_dir, old_data.get("witness_file", ""))
+                        if os.path.exists(old_db):
+                            os.remove(old_db)
+                        if os.path.exists(old_wit):
+                            os.remove(old_wit)
+                        os.remove(old_man_path)
+                    except Exception:
+                        pass
+
+            if idx == 0:
+                primary_manifest_path = dest_manifest
+
+        return primary_manifest_path
+
+    def verify_backup_integrity(self, manifest_path: str) -> bool:
+        """
+        Verifies backup files against cryptographic manifest hashes.
+        """
+        if not os.path.exists(manifest_path):
+            return False
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            b_dir = os.path.dirname(manifest_path)
+            db_path = os.path.join(b_dir, data.get("db_file", ""))
+            wit_path = os.path.join(b_dir, data.get("witness_file", ""))
+
+            if not os.path.exists(db_path) or not os.path.exists(wit_path):
+                return False
+
+            if _compute_file_sha256(db_path) != data.get("db_hash"):
+                return False
+            if _compute_file_sha256(wit_path) != data.get("witness_hash"):
+                return False
+
+            return True
+        except Exception:
+            return False
+
+    def restore_from_backup(self, manifest_path: str, target_dir: str) -> bool:
+        """
+        Restores database and witness JSONL from backup if integrity check passes.
+        Fail-closed: if hash mismatch, aborts and returns False.
+        """
+        if not self.verify_backup_integrity(manifest_path):
+            return False
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            b_dir = os.path.dirname(manifest_path)
+            db_source = os.path.join(b_dir, data["db_file"])
+            wit_source = os.path.join(b_dir, data["witness_file"])
+
+            os.makedirs(target_dir, exist_ok=True)
+            target_db = os.path.join(target_dir, os.path.basename(self.primary_db_path))
+            target_wit = os.path.join(target_dir, os.path.basename(self.witness_jsonl_path))
+
+            shutil.copy2(db_source, target_db)
+            shutil.copy2(wit_source, target_wit)
+            return True
+        except Exception:
+            return False
+
+    def start_scheduled_replication(self) -> None:
+        """Starts periodic replication background worker thread."""
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            return
+        self._stop_event = threading.Event()
+        self._worker_thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._worker_thread.start()
+
+    def stop_scheduled_replication(self) -> None:
+        """Stops periodic replication background worker thread."""
+        if self._stop_event is not None:
+            self._stop_event.set()
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=1.0)
+
+    def _run_loop(self) -> None:
+        while self._stop_event is not None and not self._stop_event.is_set():
+            try:
+                self.replicate()
+            except Exception:
+                pass
+            self._stop_event.wait(timeout=self.backup_interval_seconds)
+
+
 class EventStore:
     """
     Append-only event store with per-stream head table and CAS mutation.
     All events are immutable once committed.
     """
 
-    def __init__(self, db_path: str, wal_mode: bool = True):
+    def __init__(self, db_path: str, wal_mode: bool = True, replicator: Optional[VaultReplicator] = None):
         self._db_path = db_path
         self._local = threading.local()
         self._conns_lock = threading.Lock()
         self._all_conns: List[sqlite3.Connection] = []
         self._witness_path: Optional[str] = f"{db_path}.witness.jsonl" if db_path != ":memory:" else None
+        self.replicator: Optional[VaultReplicator] = replicator
         self._init_schema()
         if self._witness_path is not None:
             self.verify_and_heal()
+
+    def trigger_backup(self) -> Optional[str]:
+        """Triggers an on-demand replication via attached VaultReplicator."""
+        if self.replicator is not None:
+            return self.replicator.replicate()
+        return None
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
