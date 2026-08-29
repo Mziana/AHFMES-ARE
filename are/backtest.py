@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -191,6 +192,66 @@ class IsolatedBacktestEngine:
             )
 
         return proof_hash
+
+    def run_crisis_replay(
+        self,
+        strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
+        crisis_dataset_path: Optional[str] = None,
+        crisis_df: Optional[pl.DataFrame] = None,
+        initial_capital: float = 10000.0,
+        survival_threshold_pct: float = 0.50,
+        crisis_name: str = "SYNTHETIC_CRISIS_CRASH",
+    ) -> Dict[str, Any]:
+        """
+        Runs strategy evaluation on historical or synthetic Black Swan crisis datasets.
+        Evaluates strict capital survival threshold (>= 50% capital retained and <= 50% max DD)
+        and bankruptcy barrier (< 10% capital).
+        """
+        data: Optional[pl.DataFrame] = None
+        if crisis_df is not None:
+            data = crisis_df
+        elif crisis_dataset_path is not None and os.path.exists(crisis_dataset_path):
+            if crisis_dataset_path.endswith(".parquet"):
+                data = pl.read_parquet(crisis_dataset_path)
+            elif crisis_dataset_path.endswith(".jsonl") or crisis_dataset_path.endswith(".json"):
+                data = pl.read_ndjson(crisis_dataset_path)
+            else:
+                data = pl.read_csv(crisis_dataset_path)
+            if not crisis_name or crisis_name == "SYNTHETIC_CRISIS_CRASH":
+                crisis_name = os.path.splitext(os.path.basename(crisis_dataset_path))[0]
+
+        if data is None:
+            # Generate deterministic synthetic severe crash data (-60% price plunge)
+            timestamps = [1700000000 + i * 60 for i in range(500)]
+            prices = [100.0 * (1.0 - (0.60 * (i / 499.0))) for i in range(500)]
+            data = pl.DataFrame({
+                "timestamp": timestamps,
+                "price": prices,
+            })
+
+        bt_result = self.run_backtest(
+            strategy_logic=strategy_logic,
+            historical_data=data,
+            initial_capital=initial_capital,
+        )
+
+        final_equity = bt_result.equity_curve["equity"][-1] if len(bt_result.equity_curve) > 0 else initial_capital
+        raw_max_dd = abs(float(bt_result.metrics.get("max_drawdown", 0.0)))
+        max_dd = raw_max_dd / 100.0 if raw_max_dd > 1.0 else raw_max_dd
+
+        # Survival criteria
+        survival_bool = bool((final_equity >= (initial_capital * survival_threshold_pct)) and (max_dd <= survival_threshold_pct))
+        bankruptcy_bool = bool(final_equity < (initial_capital * 0.10))
+
+        return {
+            "crisis_name": crisis_name,
+            "initial_capital": float(initial_capital),
+            "final_equity": float(final_equity),
+            "max_drawdown": float(max_dd),
+            "survival_bool": survival_bool,
+            "bankruptcy_bool": bankruptcy_bool,
+            "metrics": bt_result.metrics,
+        }
 
     # Alias for explicit API naming
     run_vectorized_backtest = run_backtest
