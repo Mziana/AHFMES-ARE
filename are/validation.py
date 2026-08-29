@@ -39,6 +39,8 @@ class ValidationReport:
     performance_metric: float
     exposure_penalty: float
     as_of_ts: float
+    provenance_status: str = "SENTINEL_UNPROVEN"
+    is_provenance_verified: bool = False
     report_hash: str = ""
 
     def __post_init__(self):
@@ -50,6 +52,8 @@ class ValidationReport:
                 "performance_metric": self.performance_metric,
                 "exposure_penalty": self.exposure_penalty,
                 "as_of_ts": self.as_of_ts,
+                "provenance_status": self.provenance_status,
+                "is_provenance_verified": self.is_provenance_verified,
             }
             raw = json.dumps(canonical_payload, sort_keys=True).encode("utf-8")
             digest = hashlib.sha256(raw).hexdigest()
@@ -74,6 +78,8 @@ class ValidationService:
         performance_threshold: float = 0.5,
         research_program_id: str = "ARE3_RESEARCH",
         role: str = "INTERNAL_VALIDATION",
+        source_manifest_hash: Optional[str] = None,
+        completeness_proof_hash: Optional[str] = None,
     ) -> ValidationReport:
         """
         Validates a candidate against dataset points strictly prior to as_of_ts.
@@ -90,18 +96,28 @@ class ValidationService:
                     f"Information-Time violation (SC-03): sample #{i} timestamp {row_ts} > cutoff {as_of_ts}"
                 )
 
-        # 2. Holdout Evidence Accounting (ACC-304)
+        # 2. Holdout Evidence Accounting (ACC-304 / Anti-Theater RES-RED-08)
+        manifest_hash = source_manifest_hash or ("0" * 64)
+        proof_hash = completeness_proof_hash or ("0" * 64)
+
+        if manifest_hash == "0" * 64 or proof_hash == "0" * 64:
+            provenance_status = "SENTINEL_UNPROVEN"
+        else:
+            provenance_status = "VERIFIED"
+
+        is_provenance_verified = (provenance_status == "VERIFIED")
+
         t_unique = int(time.time() * 1000000)
         snap_id = f"SNAP_VAL_{candidate_id}_{int(as_of_ts)}_{t_unique % 1000000}"
         snapshot = self.evidence_ledger.create_snapshot(
             evidence_snapshot_id=snap_id,
-            source_manifest_hash="0" * 64,
+            source_manifest_hash=manifest_hash,
             source_kind="HOLDOUT_DATASET",
             source_epoch=f"EPOCH_{int(as_of_ts)}",
             information_time_contract_hash="0" * 64,
             row_or_event_identity_contract_hash="0" * 64,
-            completeness_proof_hash="0" * 64,
-            provenance_status="VERIFIED",
+            completeness_proof_hash=proof_hash,
+            provenance_status=provenance_status,
             origin="PROSPECTIVE_STRICT_BLIND",
         )
 
@@ -156,6 +172,8 @@ class ValidationService:
             performance_metric=final_metric,
             exposure_penalty=exposure_penalty,
             as_of_ts=as_of_ts,
+            provenance_status=snapshot.provenance_status,
+            is_provenance_verified=is_provenance_verified,
         )
 
 
