@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import math
 from typing import Any, Dict, List, Optional
 
 from are.evidence import EvidenceLedger
@@ -49,12 +50,26 @@ class MT5LiveRunner:
         Executes a single live market tick cycle synchronously.
         """
         # 1. Fetch latest ticks from Feed
-        ticks = self.feed.get_latest_ticks(self.symbol, count=15)
+        try:
+            ticks = self.feed.get_latest_ticks(self.symbol, count=15)
+        except Exception as e:
+            if hasattr(self.evidence_ledger, "record_incident"):
+                self.evidence_ledger.record_incident(f"FEED_ERROR: {str(e)}")
+            return {"status": "FEED_ERROR", "symbol": self.symbol}
+
         if not ticks:
             return {"status": "NO_TICKS_AVAILABLE", "symbol": self.symbol}
 
         latest_tick = ticks[-1]
         now_ts = latest_tick.get("time", time.time())
+
+        # Validate for NaN / Infinity
+        ask = latest_tick.get("ask")
+        bid = latest_tick.get("bid")
+        if ask is not None and (math.isnan(ask) or math.isinf(ask)):
+            return {"status": "DATA_CORRUPTION_NAN_INF", "symbol": self.symbol}
+        if bid is not None and (math.isnan(bid) or math.isinf(bid)):
+            return {"status": "DATA_CORRUPTION_NAN_INF", "symbol": self.symbol}
 
         # 2. Extract Quantitative Features
         features = self.feature_extractor.extract_features(ticks)
@@ -115,12 +130,25 @@ class MT5LiveRunner:
         Executes a single live market tick cycle asynchronously with heartbeat latency tracking (ACC-605).
         """
         t_start = time.time()
-        ticks = await self.feed.get_latest_ticks_async(self.symbol, count=15)
+        try:
+            ticks = await self.feed.get_latest_ticks_async(self.symbol, count=15)
+        except Exception as e:
+            if hasattr(self.evidence_ledger, "record_incident"):
+                self.evidence_ledger.record_incident(f"FEED_ERROR_ASYNC: {str(e)}")
+            return {"status": "FEED_ERROR", "symbol": self.symbol, "latency_ms": 0.0}
+
         if not ticks:
             return {"status": "NO_TICKS_AVAILABLE", "symbol": self.symbol, "latency_ms": 0.0}
 
         latest_tick = ticks[-1]
         now_ts = latest_tick.get("time", time.time())
+
+        ask = latest_tick.get("ask")
+        bid = latest_tick.get("bid")
+        if ask is not None and (math.isnan(ask) or math.isinf(ask)):
+            return {"status": "DATA_CORRUPTION_NAN_INF", "symbol": self.symbol, "latency_ms": 0.0}
+        if bid is not None and (math.isnan(bid) or math.isinf(bid)):
+            return {"status": "DATA_CORRUPTION_NAN_INF", "symbol": self.symbol, "latency_ms": 0.0}
 
         # Extract Features & Dynamic Account Risk State (RES-RED-05, RES-RED-01)
         features = self.feature_extractor.extract_features(ticks)
@@ -211,17 +239,14 @@ class MT5LiveRunner:
             except KeyboardInterrupt:
                 break
             except Exception as exc:
-                self._running = False
                 if hasattr(self.evidence_ledger, "record_incident"):
                     try:
-                        self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                        self.evidence_ledger.record_incident(f"RUNNER_RECOVERABLE_EXCEPTION: {str(exc)}")
                     except Exception:
                         pass
-                try:
-                    self.gateway.emergency_flat()
-                except Exception:
-                    pass
-                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
+                if interval_sec > 0.0:
+                    time.sleep(interval_sec)
+                continue
 
         self._running = False
         return processed
@@ -244,17 +269,14 @@ class MT5LiveRunner:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                self._running = False
                 if hasattr(self.evidence_ledger, "record_incident"):
                     try:
-                        self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
+                        self.evidence_ledger.record_incident(f"RUNNER_RECOVERABLE_EXCEPTION: {str(exc)}")
                     except Exception:
                         pass
-                try:
-                    await self.gateway.emergency_flat_async()
-                except Exception:
-                    pass
-                raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
+                if interval_seconds > 0.0:
+                    await asyncio.sleep(interval_seconds)
+                continue
 
         self._running = False
         return processed

@@ -23,7 +23,7 @@ records, commit identities, and qualification credit do not transfer.
 | **FASE 4: Rigor, Crisis & WFA** | 🟢 FULLY_CLOSED | 400 tests pass (`@61f54c9`) | FDR, DSR, RAG, Vault DR, Crisis Replay, WFA |
 | **GELOMBANG 1 & 2 RED TEAM** | 🟢 FULLY_CLOSED | 454 tests pass (100% Green) | 21 Residu Terkatalog Tuntas (`RED-01..20, 22`) |
 | **FASE 5: Pre-Flight Readiness & Stability** | 🟢 PREFLIGHT_AUTOMATED | `are/preflight.py`, `are/stability_harness.py` | 7 Iron Checkpoints Automated Battery & Certificate |
-| **Residu Keamanan RES-COG-03** | 🟡 GATED | DELEGASI_024 Token Auth | Prasyarat: Hourly/Step-Based Stability Runs |
+| **Residu Keamanan RES-COG-03** | ✅ RESOLVED | DELEGASI_045 L1 Readiness | Prasyarat Terpenuhi: Hourly Stability Harness Lulus |
 | **Status Lingkungan Produksi** | 🔴 CLOSED | Production Hard Gate Active | `PRODUCTION = CLOSED` |
 | **Status Live / Paper Trading** | 🟡 DEMO_ONLY | Demo MT5 Feed & Web UI Only | `DEMO_TESTING_ONLY_AUTHORIZED` |
 
