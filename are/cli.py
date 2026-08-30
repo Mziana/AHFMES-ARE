@@ -110,6 +110,8 @@ def build_parser() -> argparse.ArgumentParser:
     res_inspect.add_argument("run_id", help="Run ID to inspect")
     res_subs.add_parser("datasets", help="List frozen datasets")
     res_subs.add_parser("strategies", help="List registered strategies")
+    res_replay = res_subs.add_parser("replay", help="Deterministic replay of a run")
+    res_replay.add_argument("run_id", help="Run ID to replay")
 
     return parser
 
@@ -507,6 +509,8 @@ def handle_research(args: argparse.Namespace) -> int:
         return _research_datasets()
     elif args.res_command == "strategies":
         return _research_strategies()
+    elif args.res_command == "replay":
+        return _research_replay(args)
 
     return 0
 
@@ -685,6 +689,132 @@ def _research_strategies() -> int:
     for s in strategies:
         print(f"  {s.strategy_id}: {s.strategy_name} v{s.strategy_version} family={s.strategy_family} src={s.source_hash[:12]}...")
     return 0
+
+
+def _research_replay(args: argparse.Namespace) -> int:
+    """Deterministic replay: re-run a backtest from frozen config and verify hashes match."""
+    import json as _json
+    from are.research import BacktestOrchestrator, DatasetRegistry, StrategyRegistry, build_execution_model, build_parameter_grid, build_experiment_config
+    from are.strategy_engine import load_strategy_from_config
+    from are.hasher import compute_sha256
+    import polars as pl
+
+    print(f"=" * 60)
+    print(f"  DETERMINISTIC REPLAY: {args.run_id}")
+    print(f"=" * 60)
+
+    # Load original run
+    orch = BacktestOrchestrator()
+    try:
+        original_run = orch.load_run(args.run_id)
+    except FileNotFoundError:
+        print(f"  Run {args.run_id} not found.")
+        return 1
+
+    print(f"  Original status: {original_run.status.value}")
+    print(f"  Original gate: {original_run.final_gate.get('decision', 'UNKNOWN') if original_run.final_gate else 'N/A'}")
+    original_hash = original_run.artifact_manifest.artifact_hash if original_run.artifact_manifest else 'N/A'
+    print(f"  Original artifact hash: {original_hash[:16]}...")
+
+    # Load original config
+    config_file = f"data/backtest_runs/{args.run_id}/config.json"
+    try:
+        with open(config_file) as f:
+            config_data = _json.load(f)
+    except FileNotFoundError:
+        print(f"  Config file not found for {args.run_id}.")
+        return 1
+
+    print(f"  Config hash: {config_data.get('config_hash', 'N/A')[:16]}...")
+    print(f"\n  Re-running from frozen config...")
+
+    # Load dataset
+    ds_reg = DatasetRegistry()
+    ds_id = original_run.dataset_id
+    try:
+        df, ds_manifest = ds_reg.load_dataset(ds_id)
+    except FileNotFoundError:
+        print(f"  Dataset {ds_id} not found. Cannot replay.")
+        return 1
+
+    print(f"  Dataset: {ds_id} ({len(df)} bars)")
+
+    # Load strategy
+    try:
+        with open("data/strategies/strategies.json") as _f:
+            _strats = _json.load(_f)
+        _strat_list = _strats if isinstance(_strats, list) else _strats.get("strategies", [])
+        if _strat_list:
+            _s = _strat_list[0]
+            strategy_logic = load_strategy_from_config(_s)
+            strategy_id = _s.get("id", "unknown")
+        else:
+            raise ValueError("No strategies")
+    except Exception:
+        def strategy_logic(df_inner):
+            return df_inner.with_columns(
+                pl.col("price").rolling_mean(20).alias("fast_ma"),
+                pl.col("price").rolling_mean(50).alias("slow_ma"),
+            ).with_columns(
+                pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
+                .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
+                .otherwise(0.0).alias("signal")
+            )
+        strategy_id = "momentum-20"
+
+    # Rebuild config from frozen values
+    from are.research.experiment_config import StrategyIdentity, ExecutionModel, ParameterGrid, ExperimentConfig
+    strategy = StrategyIdentity(**config_data["strategy"]) if isinstance(config_data.get("strategy"), dict) else StrategyIdentity(
+        strategy_id=strategy_id, strategy_name=strategy_id, strategy_version="1.0.0",
+        strategy_family="MOMENTUM", source_hash="", parameter_schema={},
+        signal_contract="discrete_ternary", lookback_bars=20, warmup_bars=50,
+        execution_assumption="next_bar_open",
+    )
+    execution_model = ExecutionModel(**config_data["execution_model"]) if isinstance(config_data.get("execution_model"), dict) else build_execution_model()
+    parameter_grid = ParameterGrid(**config_data["parameter_grid"]) if isinstance(config_data.get("parameter_grid"), dict) else build_parameter_grid("lookback", list(range(10, 60, 5)))
+
+    replay_config = ExperimentConfig(
+        experiment_id=config_data.get("experiment_id", "replay"),
+        created_at=config_data.get("created_at", 0),
+        strategy=strategy, execution_model=execution_model, parameter_grid=parameter_grid,
+        wfo_train_window_bars=config_data.get("wfo_train_window_bars", 500),
+        wfo_test_window_bars=config_data.get("wfo_test_window_bars", 100),
+        wfo_step_bars=config_data.get("wfo_step_bars", 100),
+        wfo_purge_bars=config_data.get("wfo_purge_bars", 10),
+        wfo_warmup_bars=config_data.get("wfo_warmup_bars", 50),
+        wfo_n_folds=config_data.get("wfo_n_folds", 5),
+        wfo_selection_metric=config_data.get("wfo_selection_metric", "sharpe_ratio"),
+        wfo_tie_breaker=config_data.get("wfo_tie_breaker", "(sharpe, -max_dd, -turnover)"),
+        dsr_enabled=config_data.get("dsr_enabled", True),
+        mc_enabled=config_data.get("mc_enabled", True),
+        mc_simulations=config_data.get("mc_simulations", 1000),
+        crisis_enabled=config_data.get("crisis_enabled", True),
+        config_hash=config_data.get("config_hash", ""),
+    )
+
+    # Run replay
+    def progress(stage, result):
+        icon = "OK" if result.status.value == "PASSED" else "FAIL" if result.status.value == "FAILED" else "--"
+        print(f"  [{icon}] {stage}: {result.status.value}")
+
+    replay_run = orch.run_experiment(
+        config=replay_config, dataset_manifest=ds_manifest, df=df,
+        strategy_logic=strategy_logic, callback=progress,
+    )
+
+    # Compare
+    replay_hash = replay_run.artifact_manifest.artifact_hash if replay_run.artifact_manifest else 'N/A'
+    print(f"\n  Replay status: {replay_run.status.value}")
+    print(f"  Replay artifact hash: {replay_hash[:16]}...")
+
+    if original_hash == replay_hash:
+        print(f"  MATCH: Artifact hashes identical. Replay is deterministic.")
+        return 0
+    else:
+        print(f"  MISMATCH: Artifact hashes differ. Replay is NOT deterministic.")
+        print(f"    Original: {original_hash[:16]}...")
+        print(f"    Replay:   {replay_hash[:16]}...")
+        return 1
 
 
 def main(argv: Optional[List[str]] = None) -> int:

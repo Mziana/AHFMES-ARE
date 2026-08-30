@@ -468,21 +468,55 @@ class BacktestOrchestrator:
         )
 
     def _stage_statistics(self, run: BacktestRun) -> StageResult:
-        """Compile statistics summary."""
+        """Compile statistics summary with DSR/PSR/MC."""
         t0 = time.time()
         oos = run.oos_result or {}
         wfo = run.wfo_result or {}
 
-        run.statistics_result = {
+        stats = {
             "sharpe": oos.get("pooled_sharpe", 0.0),
             "return_pct": oos.get("pooled_return", 0.0) * 100,
             "max_dd_pct": oos.get("pooled_max_dd", 0.0) * 100,
             "wfe": wfo.get("mean_wfe", 0.0),
             "fold_count": oos.get("fold_count", 0),
         }
+
+        # DSR/PSR from WFO evidence
+        try:
+            from are.validation import calculate_deflated_sharpe_ratio, calculate_probabilistic_sharpe_ratio
+            oos_sharpe = oos.get("pooled_sharpe", 0.0)
+            n_obs = len(run.wfo_result.get("pooled_oos_returns", [])) if isinstance(run.wfo_result.get("pooled_oos_returns"), list) else 0
+            if n_obs > 10:
+                psr = calculate_probabilistic_sharpe_ratio(oos_sharpe, 0.0, 1.0, n_obs)
+                dsr = calculate_deflated_sharpe_ratio(oos_sharpe, 10, n_obs)
+                stats["psr"] = psr
+                stats["dsr_p_value"] = dsr.get("p_value", 1.0) if isinstance(dsr, dict) else 1.0
+            else:
+                stats["psr"] = 0.0
+                stats["dsr_p_value"] = 1.0
+        except Exception:
+            stats["psr"] = 0.0
+            stats["dsr_p_value"] = 1.0
+
+        # Monte Carlo ruin probability
+        try:
+            from are.validation import monte_carlo_simulation
+            oos_returns = run.wfo_result.get("pooled_oos_returns", []) if isinstance(run.wfo_result.get("pooled_oos_returns"), list) else []
+            if len(oos_returns) > 10:
+                mc = monte_carlo_simulation(oos_returns, n_simulations=1000, initial_capital=100000)
+                stats["mc_ruin_probability"] = mc.get("ruin_probability", 1.0) if isinstance(mc, dict) else 1.0
+                stats["mc_mean_equity"] = mc.get("mean_final_equity", 0.0) if isinstance(mc, dict) else 0.0
+            else:
+                stats["mc_ruin_probability"] = 1.0
+                stats["mc_mean_equity"] = 0.0
+        except Exception:
+            stats["mc_ruin_probability"] = 1.0
+            stats["mc_mean_equity"] = 0.0
+
+        run.statistics_result = stats
         return StageResult(
             stage="statistics", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(), data=run.statistics_result,
+            started_at=t0, completed_at=time.time(), data=stats,
         )
 
     def _stage_crisis(self, run: BacktestRun, config: ExperimentConfig,
@@ -592,6 +626,14 @@ class BacktestOrchestrator:
         best_baseline_sharpe = max((v.get("sharpe", -999) for v in baseline.values() if isinstance(v, dict) and "error" not in v), default=0.0)
         checks.append({"check": "beats_baselines", "pass": oos_sharpe > best_baseline_sharpe, "value": f"{oos_sharpe:.4f} > {best_baseline_sharpe:.4f}"})
 
+        # DSR p-value < 0.05 (deflated Sharpe)
+        dsr_p = stats.get("dsr_p_value", 1.0)
+        checks.append({"check": "dsr_significant", "pass": dsr_p < 0.05, "value": f"p={dsr_p:.4f}"})
+
+        # Monte Carlo ruin probability < 10%
+        mc_ruin = stats.get("mc_ruin_probability", 1.0)
+        checks.append({"check": "mc_ruin_low", "pass": mc_ruin < 0.10, "value": f"{mc_ruin:.2%}"})
+
         failed = [c for c in checks if not c["pass"]]
         passed = [c for c in checks if c["pass"]]
 
@@ -620,19 +662,85 @@ class BacktestOrchestrator:
 
     def _stage_artifact(self, run: BacktestRun, config: ExperimentConfig,
                         manifest: DatasetManifest) -> StageResult:
-        """Save artifact manifest."""
+        """Save artifact with full directory structure."""
         t0 = time.time()
         run_dir = os.path.join(self.RUNS_DIR, run.run_id)
-        os.makedirs(run_dir, exist_ok=True)
+        files_manifest = {}
 
-        # Save run as JSON
+        # Create subdirectories
+        for subdir in ["dataset", "baseline", "wfo", "oos", "statistics", "crisis", "final_gate"]:
+            os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
+
+        # -- dataset/
+        ds_data = manifest.to_dict()
+        ds_file = os.path.join(run_dir, "dataset", "manifest.json")
+        with open(ds_file, "w") as f:
+            json.dump(ds_data, f, indent=2)
+        files_manifest["dataset/manifest.json"] = compute_sha256(json.dumps(ds_data, sort_keys=True).encode())
+
+        if run.quality_report:
+            qr_file = os.path.join(run_dir, "dataset", "quality_report.json")
+            with open(qr_file, "w") as f:
+                json.dump(run.quality_report, f, indent=2)
+            files_manifest["dataset/quality_report.json"] = compute_sha256(json.dumps(run.quality_report, sort_keys=True).encode())
+
+        # -- baseline/
+        if run.baseline_result:
+            bl_file = os.path.join(run_dir, "baseline", "summary.json")
+            with open(bl_file, "w") as f:
+                json.dump(run.baseline_result, f, indent=2)
+            files_manifest["baseline/summary.json"] = compute_sha256(json.dumps(run.baseline_result, sort_keys=True).encode())
+
+        # -- wfo/
+        if run.wfo_result:
+            wfo_file = os.path.join(run_dir, "wfo", "evidence.json")
+            with open(wfo_file, "w") as f:
+                json.dump(run.wfo_result, f, indent=2)
+            files_manifest["wfo/evidence.json"] = compute_sha256(json.dumps(run.wfo_result, sort_keys=True).encode())
+
+        # -- oos/
+        if run.oos_result:
+            oos_file = os.path.join(run_dir, "oos", "summary.json")
+            with open(oos_file, "w") as f:
+                json.dump(run.oos_result, f, indent=2)
+            files_manifest["oos/summary.json"] = compute_sha256(json.dumps(run.oos_result, sort_keys=True).encode())
+
+        # -- statistics/
+        if run.statistics_result:
+            stat_file = os.path.join(run_dir, "statistics", "summary.json")
+            with open(stat_file, "w") as f:
+                json.dump(run.statistics_result, f, indent=2)
+            files_manifest["statistics/summary.json"] = compute_sha256(json.dumps(run.statistics_result, sort_keys=True).encode())
+
+        # -- crisis/
+        if run.crisis_result:
+            crisis_file = os.path.join(run_dir, "crisis", "summary.json")
+            with open(crisis_file, "w") as f:
+                json.dump(run.crisis_result, f, indent=2)
+            files_manifest["crisis/summary.json"] = compute_sha256(json.dumps(run.crisis_result, sort_keys=True).encode())
+
+        # -- final_gate/
+        if run.final_gate:
+            gate_file = os.path.join(run_dir, "final_gate", "decision.json")
+            with open(gate_file, "w") as f:
+                json.dump(run.final_gate, f, indent=2)
+            files_manifest["final_gate/decision.json"] = compute_sha256(json.dumps(run.final_gate, sort_keys=True).encode())
+
+        # -- config.json (top-level)
+        config_file = os.path.join(run_dir, "config.json")
+        with open(config_file, "w") as f:
+            json.dump(config.to_dict(), f, indent=2, default=str)
+        files_manifest["config.json"] = compute_sha256(json.dumps(config.to_dict(), sort_keys=True, default=str).encode())
+
+        # -- run.json (top-level)
         run_file = os.path.join(run_dir, "run.json")
         with open(run_file, "w") as f:
             json.dump(run.to_dict(), f, indent=2, default=str)
+        files_manifest["run.json"] = compute_sha256(json.dumps(run.to_dict(), sort_keys=True, default=str).encode())
 
-        # Compute artifact hash
-        with open(run_file) as f:
-            artifact_hash = compute_sha256(f.read().encode())
+        # Compute overall artifact hash from all file hashes
+        all_hashes = json.dumps(files_manifest, sort_keys=True)
+        artifact_hash = compute_sha256(all_hashes.encode())
 
         artifact = ArtifactManifest(
             run_id=run.run_id,
@@ -642,11 +750,10 @@ class BacktestOrchestrator:
             config_hash=config.config_hash,
             execution_model_hash=run.execution_model_hash,
             wfo_provenance_hash=run.provenance_hash,
-            files={"run.json": artifact_hash},
+            files=files_manifest,
             created_at=time.time(),
         )
 
-        # Save manifest
         manifest_file = os.path.join(run_dir, "manifest.json")
         with open(manifest_file, "w") as f:
             json.dump(artifact.to_dict(), f, indent=2)
@@ -656,7 +763,7 @@ class BacktestOrchestrator:
         return StageResult(
             stage="artifact", status=RunStage.PASSED,
             started_at=t0, completed_at=time.time(),
-            data={"artifact_hash": artifact_hash[:16], "run_dir": run_dir},
+            data={"artifact_hash": artifact_hash[:16], "run_dir": run_dir, "files": len(files_manifest)},
         )
 
     def _save_run(self, run: BacktestRun):
@@ -676,6 +783,10 @@ class BacktestOrchestrator:
         # Reconstruct BacktestRun
         data["status"] = RunStatus(data["status"])
         data["stages"] = {k: StageResult(**v) for k, v in data.get("stages", {}).items()}
+        # Reconstruct ArtifactManifest if present
+        am = data.get("artifact_manifest")
+        if isinstance(am, dict):
+            data["artifact_manifest"] = ArtifactManifest(**am)
         return BacktestRun(**data)
 
     def list_runs(self) -> List[Dict[str, Any]]:
