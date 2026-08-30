@@ -801,64 +801,82 @@ class BacktestOrchestrator:
             )
 
     def _stage_gate(self, run: BacktestRun, config: ExperimentConfig) -> StageResult:
-        """Final gate decision."""
+        """Final gate decision using institutional-grade metrics."""
         t0 = time.time()
         oos = run.oos_result or {}
         stats = run.statistics_result or {}
         crisis = run.crisis_result or {}
         stability = run.stability_result or {}
+        baseline = run.baseline_result or {}
 
-        checks = []
+        # Use independent metrics validator for gate
+        from are.research.metrics import compute_gate_metrics
 
-        # OOS Sharpe > 0
         oos_sharpe = oos.get("pooled_sharpe", 0.0)
-        checks.append({"check": "oos_sharpe_positive", "pass": oos_sharpe > 0, "value": oos_sharpe})
+        is_sharpe = stats.get("wfe", 0.0) * oos_sharpe if stats.get("wfe", 0) > 0 else 0.0
 
-        # WFE > 0 (OOS > 0 relative to IS)
-        wfe = stats.get("wfe", 0.0)
-        checks.append({"check": "wfe_positive", "pass": wfe > 0, "value": wfe})
+        # Get best baseline Sharpe
+        best_baseline_sharpe = max(
+            (v.get("sharpe", -999) for v in baseline.values()
+             if isinstance(v, dict) and "error" not in v),
+            default=0.0
+        )
 
-        # Max DD < 50%
-        max_dd = oos.get("pooled_max_dd", 1.0)
-        checks.append({"check": "max_dd_acceptable", "pass": max_dd < 0.50, "value": max_dd})
+        # Core gate metrics from independent validator
+        metrics_gate = compute_gate_metrics(
+            oos_sharpe=oos_sharpe,
+            is_sharpe=is_sharpe,
+            oos_return=oos.get("pooled_return", 0.0),
+            max_dd=oos.get("pooled_max_dd", 1.0),
+            total_trades=stats.get("total_trades", 0) if "total_trades" in stats else 0,
+            n_parameters=config.parameter_grid.grid_size,
+            win_rate=stats.get("win_rate", 50.0),
+            profit_factor=stats.get("profit_factor", 1.0),
+        )
+
+        # Additional checks beyond core metrics
+        extra_checks = []
 
         # Crisis survival
-        checks.append({"check": "crisis_survival", "pass": crisis.get("survived", False), "value": crisis.get("survived", False)})
+        extra_checks.append({"check": "crisis_survival", "pass": crisis.get("survived", False), "value": crisis.get("survived", False)})
 
         # Parameter stability
-        checks.append({"check": "param_stability", "pass": stability.get("verdict") in ("ROBUST", "MARGINAL"), "value": stability.get("verdict", "UNKNOWN")})
+        extra_checks.append({"check": "param_stability", "pass": stability.get("verdict") in ("ROBUST", "MARGINAL"), "value": stability.get("verdict", "UNKNOWN")})
 
         # Baseline beat
-        baseline = run.baseline_result or {}
-        best_baseline_sharpe = max((v.get("sharpe", -999) for v in baseline.values() if isinstance(v, dict) and "error" not in v), default=0.0)
-        checks.append({"check": "beats_baselines", "pass": oos_sharpe > best_baseline_sharpe, "value": f"{oos_sharpe:.4f} > {best_baseline_sharpe:.4f}"})
+        extra_checks.append({"check": "beats_baselines", "pass": oos_sharpe > best_baseline_sharpe, "value": f"{oos_sharpe:.4f} > {best_baseline_sharpe:.4f}"})
 
-        # DSR p-value < 0.05 (deflated Sharpe)
+        # DSR p-value < 0.05
         dsr_p = stats.get("dsr_p_value", 1.0)
-        checks.append({"check": "dsr_significant", "pass": dsr_p < 0.05, "value": f"p={dsr_p:.4f}"})
+        extra_checks.append({"check": "dsr_significant", "pass": dsr_p < 0.05, "value": f"p={dsr_p:.4f}"})
 
-        # Monte Carlo ruin probability < 10%
+        # Monte Carlo ruin < 10%
         mc_ruin = stats.get("mc_ruin_probability", 1.0)
-        checks.append({"check": "mc_ruin_low", "pass": mc_ruin < 0.10, "value": f"{mc_ruin:.2%}"})
+        extra_checks.append({"check": "mc_ruin_low", "pass": mc_ruin < 0.10, "value": f"{mc_ruin:.2%}"})
 
-        failed = [c for c in checks if not c["pass"]]
-        passed = [c for c in checks if c["pass"]]
+        # Combine all checks
+        all_checks = metrics_gate["checks"] + extra_checks
+        failed = [c for c in all_checks if not c["pass"]]
+        passed = [c for c in all_checks if c["pass"]]
 
-        if len(failed) == 0:
+        # Decision: use metrics_gate decision but consider extras
+        base_decision = metrics_gate["decision"]
+        if base_decision == "PASS" and len(failed) == 0:
             decision = GateDecision.PASS
-        elif len(failed) <= 2 and len(passed) >= 3:
+        elif base_decision in ("PASS", "BORDERLINE") and len(failed) <= 3:
             decision = GateDecision.BORDERLINE
-        elif len(failed) <= len(checks) // 2:
+        elif len(failed) <= len(all_checks) // 2:
             decision = GateDecision.FAIL
         else:
             decision = GateDecision.INVALID
 
         gate = {
             "decision": decision.value,
-            "checks": checks,
+            "checks": all_checks,
             "passed": len(passed),
             "failed": len(failed),
-            "total": len(checks),
+            "total": len(all_checks),
+            "metrics_gate": metrics_gate["decision"],
         }
         run.final_gate = gate
 
