@@ -1,0 +1,14 @@
+{
+  "total_trials": 100,
+  "sessions": [
+    {
+      "symbol": "XAUUSD",
+      "trials": 100,
+      "best_sharpe": 1.5,
+      "timestamp": 1788094766.230139
+    }
+  ],
+  "symbol_trials": {
+    "XAUUSD": 100
+  }
+}

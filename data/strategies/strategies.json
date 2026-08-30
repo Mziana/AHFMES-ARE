@@ -27,15 +27,15 @@
       "dsrLookback": 20
     },
     "metrics": {
-      "winRate": 60.9,
-      "profitFactor": 3.02,
-      "maxDrawdown": 4,
-      "totalTrades": 92,
-      "netPnl": 111094.36,
-      "sharpe": 1.19,
-      "wins": 56,
-      "losses": 36,
-      "finalEquity": 211094.36
+      "winRate": 58.5,
+      "profitFactor": 2.83,
+      "maxDrawdown": 6.8,
+      "totalTrades": 53,
+      "netPnl": 48108.37,
+      "sharpe": 0.64,
+      "wins": 31,
+      "losses": 22,
+      "finalEquity": 148108.37
     },
     "backtestHistory": [
       {
@@ -51,6 +51,36 @@
           "netPnl": 111094.36,
           "finalEquity": 211094.36,
           "sharpe": 1.19
+        }
+      },
+      {
+        "id": "bkt-1788097610072",
+        "date": "2026-08-30T13:46:50.072Z",
+        "results": {
+          "totalTrades": 51,
+          "wins": 32,
+          "losses": 19,
+          "winRate": 62.7,
+          "profitFactor": 3.25,
+          "maxDrawdown": 4.9,
+          "netPnl": 55694.83,
+          "finalEquity": 155694.83,
+          "sharpe": 1.44
+        }
+      },
+      {
+        "id": "bkt-1788097615009",
+        "date": "2026-08-30T13:46:55.009Z",
+        "results": {
+          "totalTrades": 53,
+          "wins": 31,
+          "losses": 22,
+          "winRate": 58.5,
+          "profitFactor": 2.83,
+          "maxDrawdown": 6.8,
+          "netPnl": 48108.37,
+          "finalEquity": 148108.37,
+          "sharpe": 0.64
         }
       }
     ],
