@@ -384,9 +384,9 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
         elif clean_path == "/api/backtest/run":
             try:
-                from are.backtest import IsolatedBacktestEngine
+                from are.backtest_enhanced import EnhancedBacktestEngine
                 import polars as pl, random, time as _bt_t
-                engine = IsolatedBacktestEngine()
+                engine = EnhancedBacktestEngine()
                 symbol = payload.get("symbol", "XAUUSD")
                 capital = float(payload.get("capital", 100000))
                 n_bars = int(payload.get("bars", 5000))

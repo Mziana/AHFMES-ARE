@@ -173,56 +173,89 @@ class ResearchCoordinator:
             stress_factor=hypothesis_spec.get("stress_factor", 1.1),
         )
 
-        # 9. Compute Statistical Gates from Backtest Results
-        # Run actual backtest to get real returns for DSR/PSR
+        # 9. Compute Statistical Gates from Backtest Results (FAIL-CLOSED defaults)
+        # If any computation fails, gates BLOCK promotion (not allow it)
         candidate_returns: list = []
-        dsr_p_value: float = 0.0
-        psr_value: float = 0.0
-        crisis_survival: bool = True
+        dsr_p_value: float = 1.0       # FAIL-CLOSED: p=1.0 means >= 0.05 => BLOCKED
+        psr_value: float = 0.0         # FAIL-CLOSED: PSR=0.0 means < 0.95 => BLOCKED
+        crisis_survival: bool = False  # FAIL-CLOSED: False means BLOCKED
         try:
-            from are.backtest import IsolatedBacktestEngine, calculate_sharpe_ratio
-            bt_engine = IsolatedBacktestEngine()
+            from are.backtest_enhanced import EnhancedBacktestEngine
+            from are.backtest import calculate_sharpe_ratio
+            bt_engine = EnhancedBacktestEngine()
             import polars as pl, random, time as _bt_time
-            # Generate synthetic data for statistical evaluation
-            rng = random.Random(hash(cand_id) % 100000)
-            n = 2000
-            prices = [100.0]
-            for _ in range(n - 1):
-                prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-            df = pl.DataFrame({
-                "timestamp": [_bt_time.time() - (n - i) * 3600 for i in range(n)],
-                "price": prices,
-                "volume": [rng.randint(100, 10000) for _ in range(n)],
-            })
-            df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
-                pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
-            )
-            def strat(d): return d.with_columns(pl.when(pl.col("signal")==1).then(1).when(pl.col("signal")==-1).then(-1).otherwise(0).alias("position"))
+            # Use holdout data from the same hypothesis evaluation
+            # Statistical gates need >= 100 data points for meaningful results
+            holdout_data = holdout_dataset if holdout_dataset and len(holdout_dataset) >= 100 else None
+            if holdout_data is None:
+                # Fallback: generate deterministic data from hypothesis hash
+                rng = random.Random(hash(cand_id) % 100000)
+                n = 2000
+                prices = [100.0]
+                for _ in range(n - 1):
+                    prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+                highs = [p * (1 + abs(rng.gauss(0, 0.003))) for p in prices]
+                lows = [p * (1 - abs(rng.gauss(0, 0.003))) for p in prices]
+                df = pl.DataFrame({
+                    "timestamp": [_bt_time.time() - (n - i) * 3600 for i in range(n)],
+                    "price": prices, "high": highs, "low": lows,
+                    "volume": [rng.randint(100, 10000) for _ in range(n)],
+                })
+            else:
+                df = pl.DataFrame(holdout_data) if isinstance(holdout_data[0], dict) else pl.from_dicts(holdout_data)
+
+            def strat(d):
+                return d.with_columns(
+                    pl.col("price").pct_change(20).alias("_mom")
+                ).with_columns(
+                    pl.when(pl.col("_mom") > 0.02).then(1.0)
+                    .when(pl.col("_mom") < -0.02).then(-1.0)
+                    .otherwise(0.0).alias("signal")
+                )
+
             bt_result = bt_engine.run_backtest(strategy_logic=strat, historical_data=df)
-            # Extract trade returns from equity curve
             eq = bt_result.equity_curve
             if eq.height > 1 and "equity" in eq.columns:
                 equities = eq["equity"].to_list()
-                candidate_returns = [(equities[i] - equities[i-1]) / equities[i-1] for i in range(1, len(equities)) if equities[i-1] > 0]
-            # Compute DSR p-value
+                candidate_returns = [(equities[i] - equities[i-1]) / equities[i-1]
+                                     for i in range(1, len(equities)) if equities[i-1] > 0]
+
             if candidate_returns and len(candidate_returns) > 10:
-                import math
-                mean_r = sum(candidate_returns) / len(candidate_returns)
-                var_r = sum((r - mean_r) ** 2 for r in candidate_returns) / len(candidate_returns)
-                std_r = math.sqrt(var_r) if var_r > 0 else 0.001
-                observed_sharpe = mean_r / std_r * math.sqrt(252 * 24)
-                # DSR approximation: p-value from deflated sharpe
-                # DSR: p-value from deflated sharpe ratio approximation
                 import math as _m
-                from are.backtest import calculate_sharpe_ratio
-                sharpe_se = 1.0 / _m.sqrt(max(len(candidate_returns), 1))
-                # PSR: probability that Sharpe > 0
-                psr_value = min(1.0, max(0.0, 0.5 + 0.5 * (observed_sharpe / max(sharpe_se, 0.001))))
-                # DSR p-value approximation (higher p = more overfitting risk)
-                z = observed_sharpe / max(sharpe_se, 0.001)
-                dsr_p_value = max(0.0, min(1.0, 1.0 - 0.5 * (1.0 + _m.erf(z / _m.sqrt(2)))))
-        except Exception:
-            pass  # If backtest fails, use defaults (fail-open for now)
+                observed_sharpe = calculate_sharpe_ratio(candidate_returns, 3600.0)
+                # Use validation.py DSR/PSR if available
+                try:
+                    from are.validation import calculate_deflated_sharpe_ratio, calculate_probabilistic_sharpe_ratio
+                    _, dsr_p_value = calculate_deflated_sharpe_ratio(
+                        observed_sharpe=observed_sharpe, num_trials=max(len(candidate_returns), 30),
+                        num_observations=len(candidate_returns))
+                    psr_value = calculate_probabilistic_sharpe_ratio(
+                        observed_sharpe=observed_sharpe, benchmark_sharpe=0.0,
+                        num_observations=len(candidate_returns))
+                except Exception:
+                    # Fallback DSR/PSR approximation
+                    sharpe_se = 1.0 / _m.sqrt(max(len(candidate_returns), 1))
+                    z = observed_sharpe / max(sharpe_se, 0.001)
+                    psr_value = min(1.0, max(0.0, 0.5 + 0.5 * (observed_sharpe / max(sharpe_se, 0.001))))
+                    dsr_p_value = max(0.0, min(1.0, 1.0 - 0.5 * (1.0 + _m.erf(z / _m.sqrt(2)))))
+
+            # Crisis survival test
+            try:
+                crisis_result = bt_engine.run_crisis_replay(strategy_logic=strat, initial_capital=100000)
+                crisis_survival = crisis_result.get("survival_bool", False)
+            except Exception:
+                crisis_survival = False  # FAIL-CLOSED
+
+        except Exception as e:
+            # FAIL-CLOSED: statistical gate computation failed => BLOCK promotion
+            dsr_p_value = 1.0
+            psr_value = 0.0
+            crisis_survival = False
+            try:
+                import logging as _log
+                _log.warning(f"STATISTICAL_GATE_FAILED cand={cand_id}: {e}")
+            except Exception:
+                pass
 
         # 10. Governor Promotion Decision
         disposition = self.governor.evaluate_promotion(

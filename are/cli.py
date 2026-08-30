@@ -282,8 +282,8 @@ def handle_dashboard(args: argparse.Namespace) -> int:
 def handle_backtest(args: argparse.Namespace) -> int:
     """Run backtest or WFO analysis."""
     import json as _json
-    from are.backtest import IsolatedBacktestEngine
-    engine = IsolatedBacktestEngine()
+    from are.backtest_enhanced import EnhancedBacktestEngine
+    engine = EnhancedBacktestEngine()
 
     if args.bt_command == "run":
         # Load strategy from strategies.json
@@ -395,11 +395,52 @@ def handle_backtest(args: argparse.Namespace) -> int:
         df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
             pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
         )
-        def strat(df): return df.with_columns(pl.when(pl.col("signal")==1).then(1).when(pl.col("signal")==-1).then(-1).otherwise(0).alias("position"))
-        wfo_result = engine.run_wfo(strategy_logic=strat, historical_data=df, n_folds=args.folds)
-        print(f"\nWFO COMPLETE — {args.folds} folds")
-        print(f"  Pooled OOS Sharpe: {wfo_result.pooled_oos_sharpe:.3f}")
-        print(f"  Mean WFE: {wfo_result.mean_wfe:.3f}")
+        def strategy_factory(params):
+            lb = params.get("lookback", 20)
+            th = params.get("threshold", 0.02)
+            def _strat(d):
+                return d.with_columns(
+                    pl.col("price").pct_change(lb).alias("_mom")
+                ).with_columns(
+                    pl.when(pl.col("_mom") > th).then(1.0)
+                    .when(pl.col("_mom") < -th).then(-1.0)
+                    .otherwise(0.0).alias("signal")
+                )
+            return _strat
+
+        param_grid = [{"lookback": lb, "threshold": th}
+                      for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
+
+        n = max(2000, args.folds * 400)
+        rng = random.Random(42)
+        prices = [100.0]
+        for _ in range(n - 1):
+            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+        highs = [p * (1 + abs(rng.gauss(0, 0.003))) for p in prices]
+        lows = [p * (1 - abs(rng.gauss(0, 0.003))) for p in prices]
+        df = pl.DataFrame({
+            "timestamp": [_time.time() - (n - i) * 3600 for i in range(n)],
+            "price": prices, "high": highs, "low": lows,
+            "volume": [rng.randint(100, 10000) for _ in range(n)],
+        })
+
+        wfo_result = engine.run_walk_forward_optimization(
+            strategy_factory=strategy_factory,
+            param_grid=param_grid,
+            historical_data=df,
+            train_window_bars=max(200, n // (args.folds * 2)),
+            test_window_bars=max(50, n // (args.folds * 4)),
+            step_bars=max(50, n // (args.folds * 4)),
+            purge_bars=5,
+            label_horizon_bars=1,
+            initial_capital=100000.0,
+            timeframe_seconds=3600.0,
+        )
+        print(f"\nWFO COMPLETE -- {args.folds} folds, {len(param_grid)} param combos")
+        print(f"  Pooled OOS Sharpe : {wfo_result.pooled_oos_sharpe:.3f}")
+        print(f"  Mean WFE          : {wfo_result.mean_wfe:.3f}")
+        print(f"  Fold count        : {wfo_result.fold_count}")
+        print(f"  Effective trials  : {wfo_result.effective_trial_count}")
         return 0
 
     elif args.bt_command == "list":

@@ -44,14 +44,18 @@ def calculate_cvar(returns, confidence=0.05):
     idx = max(0, int(len(sorted_r) * confidence) - 1)
     return float(sorted_r[idx])
 
-class EnhancedBacktestEngine:
-    """Enhanced backtest with OHLC, SL/TP, instrument-aware spread, advanced metrics."""
+from are.backtest import IsolatedBacktestEngine
+
+class EnhancedBacktestEngine(IsolatedBacktestEngine):
+    """Enhanced backtest with OHLC, SL/TP, instrument-aware spread, advanced metrics.
+    Inherits run_walk_forward_optimization() and run_crisis_replay() from parent."""
 
     def run_backtest(self, strategy_logic=None, historical_data=None, initial_capital=100000.0,
                      timeframe_seconds=3600.0, symbol='XAUUSD', sl_pct=None, tp_pct=None,
-                     benchmark_data=None):
+                     benchmark_data=None, spread_pct=None, slippage_pct=None, commission_pct=None):
         spec = INSTRUMENT_SPREADS.get(symbol, INSTRUMENT_SPREADS['XAUUSD'])
-        spread_pct = spec['spread_pct']
+        if spread_pct is None:
+            spread_pct = spec['spread_pct']
 
         if historical_data is None:
             n=5000; rng=__import__('random').Random(42); prices=[100.0]
@@ -204,8 +208,8 @@ class CPCVEngine:
                 if start<end: test_dfs.append(df.slice(start,end-start))
             if not train_dfs or not test_dfs: continue
             train_df=pl.concat(train_dfs); test_df=pl.concat(test_dfs)
-            from are.backtest import IsolatedBacktestEngine
-            engine=IsolatedBacktestEngine()
+            from are.backtest_enhanced import EnhancedBacktestEngine
+            engine=EnhancedBacktestEngine()
             train_r=engine.run_backtest(strategy_logic=strategy_logic,historical_data=train_df,
                                         initial_capital=100000,timeframe_seconds=3600.0)
             test_r=engine.run_backtest(strategy_logic=strategy_logic,historical_data=test_df,
