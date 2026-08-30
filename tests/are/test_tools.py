@@ -63,7 +63,26 @@ ROUTING_TABLE_CONTENT = """| Pattern nama file | Folder tujuan |
 """
 
 def _run(cmd, **kwargs):
-    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    # DELEGASI_051 P0-3bis: Python 3.14 on Windows has a transient race between
+    # pytest-timeout's per-test timer thread and subprocess.Popen's CreateProcess
+    # handle duplication, which intermittently raises
+    # OSError [WinError 50] "The request is not supported" / [WinError 6]
+    # "The handle is invalid". Reproduced: ~50% of full-suite runs fail here
+    # WITH --timeout active, 0/4 fail with -p no:timeout. Retry once on those
+    # transient errors only — never on genuine non-zero tool exits.
+    import time as _time
+    last_exc = None
+    for attempt in range(2):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, **kwargs)
+        except OSError as e:
+            win_err = getattr(e, "winerror", None)
+            if win_err in (50, 6) and attempt == 0:
+                last_exc = e
+                _time.sleep(0.05)
+                continue
+            raise
+    raise last_exc  # pragma: no cover - defensive
 
 def _blob_sha1(data: bytes) -> str:
     return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
