@@ -59,19 +59,24 @@ echo   AHFMES-ARE // FULL STACK MODE
 echo  ════════════════════════════════════════════════════════════
 echo.
 
-:: [1] Start Python Engine
-echo  [1/3] Starting Python ARE Engine (port %PYTHON_PORT%)...
+:: [1] Start MT5 Server
+echo  [1/4] Starting MT5 Server (port 18888)...
+start "MT5-Server" /min cmd /c "cd /d "%ROOT%" && python -m are.mt5_server --port 18888"
+timeout /t 2 >nul
+
+:: [2] Start Python Engine
+echo  [2/4] Starting Python ARE Engine (port %PYTHON_PORT%)...
 set PYTHONPATH=%ROOT%
 start "ARE-Engine" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
 timeout /t 2 >nul
 
-:: [2] Start Next.js UI
-echo  [2/3] Starting Next.js UI (port %NEXTJS_PORT%)...
+:: [3] Start Next.js UI
+echo  [3/4] Starting Next.js UI (port %NEXTJS_PORT%)...
 start "ARE-UI" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
 timeout /t 3 >nul
 
-:: [3] Open Browser
-echo  [3/3] Opening Mission Control Dashboard...
+:: [4] Open Browser
+echo  [4/4] Opening Mission Control Dashboard...
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
 
 echo.
@@ -80,6 +85,7 @@ echo   AHFMES-ARE IS LIVE!
 echo  ────────────────────────────────────────────────────────────
 echo   Web UI Dashboard : http://127.0.0.1:%NEXTJS_PORT%
 echo   Python Engine API: http://127.0.0.1:%PYTHON_PORT%
+echo   MT5 Server       : http://127.0.0.1:18888
 echo  ────────────────────────────────────────────────────────────
 echo   Tip: This window can be closed (services run in background).
 echo         To stop: run ARELauncher.bat and choose [5] Stop All
