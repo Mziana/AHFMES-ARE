@@ -360,7 +360,8 @@ def handle_backtest(args: argparse.Namespace) -> int:
         print(f"  Capital:     ${initial_capital:,.2f}")
         print(f"  Trades:      {metrics.get('total_trades', 0)}")
         print(f"  Win Rate:    {metrics.get('win_rate', 0):.1f}%")
-        print(f"  Net PnL:     ${metrics.get('net_pnl', 0):,.2f}")
+        net_pnl = metrics.get('final_equity', initial_capital) - initial_capital
+        print(f"  Net PnL:     ${net_pnl:,.2f} ({metrics.get('total_return_pct', 0):.1f}%)")
         print(f"  Sharpe:      {metrics.get('sharpe_ratio', 0):.3f}")
         print(f"  Max DD:      {metrics.get('max_drawdown_pct', 0):.2f}%")
         print(f"  PF:          {metrics.get('profit_factor', 0):.2f}")
