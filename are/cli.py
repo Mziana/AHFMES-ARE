@@ -309,14 +309,9 @@ def handle_backtest(args: argparse.Namespace) -> int:
             strats = raw if isinstance(raw, list) else raw.get("strategies", [])
             for s in strats:
                 if s.get("id") == args.strategy or s.get("name", "").lower().replace(" ", "-") == args.strategy:
-                    params = s.get("params", {})
-                    strategy_logic = lambda df, p=params: df.with_columns(
-                        pl.col("price").pct_change(p.get("emaFast", 20)).alias("_momentum")
-                    ).with_columns(
-                        pl.when(pl.col("_momentum") > 0.02).then(1.0)
-                        .when(pl.col("_momentum") < -0.02).then(-1.0)
-                        .otherwise(0.0).alias("signal")
-                    ).drop("_momentum")
+                    from are.strategy_engine import load_strategy_from_config
+                    strategy_logic = load_strategy_from_config(s)
+                    print(f"  Loaded strategy: {s.get('name', s.get('id'))} (family={s.get('family', 'auto')})")
                     break
 
         # Load real OHLC data from MT5 export or parquet
@@ -404,18 +399,20 @@ def handle_backtest(args: argparse.Namespace) -> int:
                 print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
                 return 1
 
+        from are.strategy_engine import load_strategy_from_config
         def strategy_factory(params):
-            lb = params.get("lookback", 20)
-            th = params.get("threshold", 0.02)
-            def _strat(d):
-                return d.with_columns(
-                    pl.col("price").pct_change(lb).alias("_mom")
-                ).with_columns(
-                    pl.when(pl.col("_mom") > th).then(1.0)
-                    .when(pl.col("_mom") < -th).then(-1.0)
-                    .otherwise(0.0).alias("signal")
-                )
-            return _strat
+            # Build strategy config from WFO params
+            strat_cfg = {
+                'id': 'wfo_candidate',
+                'family': 'MOMENTUM',
+                'parameters': {
+                    'emaFast': params.get('lookback', 20),
+                    'emaSlow': params.get('lookback', 20) * 2,
+                    'adxThreshold': int(params.get('threshold', 0.02) * 1000),
+                },
+                'entryLogic': f'momentum lookback={params.get("lookback", 20)}',
+            }
+            return load_strategy_from_config(strat_cfg)
 
         param_grid = [{"lookback": lb, "threshold": th}
                       for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
