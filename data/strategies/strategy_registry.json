@@ -1,0 +1,21 @@
+{
+  "dsr-momentum-001": {
+    "strategy_id": "dsr-momentum-001",
+    "strategy_name": "Strategy dsr-momentum-001",
+    "strategy_version": "1.0.0",
+    "strategy_family": "MOMENTUM",
+    "source_hash": "fe76dc8c4524fe0ddba98e0bb1032b1dde47e4f2d1218ea3cf134e7feb936e45",
+    "parameter_schema": {
+      "lookback": {
+        "type": "int",
+        "min": 5,
+        "max": 200,
+        "default": 20
+      }
+    },
+    "signal_contract": "discrete_ternary",
+    "lookback_bars": 50,
+    "warmup_bars": 50,
+    "execution_assumption": "next_bar_open"
+  }
+}

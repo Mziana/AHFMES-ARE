@@ -1,5 +1,5 @@
 """
-AHFMES P001 — Unified CLI Command Center (ACC-503)
+AHFMES P001 -- Unified CLI Command Center (ACC-503)
 
 Stdlib only (argparse, sys, json, os, time).
 """
@@ -31,7 +31,7 @@ from are.validation import ValidationService
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="are",
-        description="AHFMES-ARE Autonomous Recursive Engine — CLI Command Center",
+        description="AHFMES-ARE Autonomous Recursive Engine -- CLI Command Center",
     )
     parser.add_argument("--db-path", default="ahfmes_are.db", help="Path to SQLite EventStore database")
 
@@ -94,6 +94,22 @@ def build_parser() -> argparse.ArgumentParser:
     data_export.add_argument("--start", default="2020-01-01", help="Start date")
     data_export.add_argument("--end", default="2026-12-31", help="End date")
     data_subs.add_parser("list", help="List available OHLC data files")
+
+    # Research / Backtest OS commands
+    res_parser = subparsers.add_parser("research", help="Research Plane: full lifecycle backtest")
+    res_subs = res_parser.add_subparsers(dest="res_command")
+    res_run = res_subs.add_parser("run", help="Run a full research backtest experiment")
+    res_run.add_argument("--symbol", default="XAUUSD", help="Symbol")
+    res_run.add_argument("--start", default="2025-01-01", help="Start date")
+    res_run.add_argument("--end", default="2026-08-01", help="End date")
+    res_run.add_argument("--lookback", type=int, default=20, help="Strategy lookback period")
+    res_run.add_argument("--capital", type=float, default=100000, help="Initial capital")
+    res_run.add_argument("--folds", type=int, default=5, help="WFO folds")
+    res_subs.add_parser("list", help="List all research runs")
+    res_inspect = res_subs.add_parser("inspect", help="Inspect a research run")
+    res_inspect.add_argument("run_id", help="Run ID to inspect")
+    res_subs.add_parser("datasets", help="List frozen datasets")
+    res_subs.add_parser("strategies", help="List registered strategies")
 
     return parser
 
@@ -250,7 +266,7 @@ def handle_champion(args: argparse.Namespace) -> int:
 
 
 def handle_safety_kill(args: argparse.Namespace) -> int:
-    """Persistent kill switch — writes to disk so running engine sees it."""
+    """Persistent kill switch -- writes to disk so running engine sees it."""
     from are.execution_state import ExecutionStateMachine
     exec_state = ExecutionStateMachine()
     exec_state.set_kill_switch(True)
@@ -349,7 +365,7 @@ def handle_backtest(args: argparse.Namespace) -> int:
         )
         metrics = result.metrics
         print(f"\n{'='*60}")
-        print(f"BACKTEST RESULTS — {args.symbol} {args.timeframe}")
+        print(f"BACKTEST RESULTS -- {args.symbol} {args.timeframe}")
         print(f"{'='*60}")
         print(f"  Period:      {args.start} to {args.end}")
         print(f"  Capital:     ${initial_capital:,.2f}")
@@ -475,6 +491,202 @@ def handle_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_research(args: argparse.Namespace) -> int:
+    """Research Plane CLI: full lifecycle backtest via orchestrator."""
+    if not args.res_command:
+        print("Usage: are research {run|list|inspect|datasets|strategies}")
+        return 0
+
+    if args.res_command == "run":
+        return _research_run(args)
+    elif args.res_command == "list":
+        return _research_list()
+    elif args.res_command == "inspect":
+        return _research_inspect(args)
+    elif args.res_command == "datasets":
+        return _research_datasets()
+    elif args.res_command == "strategies":
+        return _research_strategies()
+
+    return 0
+
+
+def _research_run(args: argparse.Namespace) -> int:
+    """Execute a full research backtest experiment."""
+    from are.research import (
+        BacktestOrchestrator, DatasetRegistry, StrategyRegistry,
+        build_execution_model, build_parameter_grid, build_experiment_config,
+    )
+    from are.data_loader import load_ohlc_data
+    from are.strategy_engine import load_strategy_from_config
+    import polars as pl
+
+    print("=" * 60)
+    print("  RESEARCH BACKTEST -- Full Lifecycle")
+    print("=" * 60)
+
+    # Step 1: Load data
+    print(f"\n[1/6] Loading data: {args.symbol} {args.start} to {args.end}...")
+    try:
+        df = load_ohlc_data(args.symbol, args.start, args.end)
+        print(f"  Loaded {len(df)} bars")
+    except Exception as e:
+        print(f"  Data load failed: {e}")
+        print("  Exporting from MT5...")
+        from are.data_loader import export_mt5_ohlc
+        try:
+            filepath = export_mt5_ohlc(args.symbol, "H1", args.start, args.end)
+            df = pl.read_parquet(filepath)
+            print(f"  Exported and loaded {len(df)} bars")
+        except Exception as e2:
+            print(f"  FATAL: Cannot load data: {e2}")
+            return 1
+
+    # Step 2: Register dataset
+    print("\n[2/6] Registering dataset...")
+    ds_reg = DatasetRegistry()
+    ds_manifest = ds_reg.register_dataset(
+        symbol=args.symbol, df=df, timeframe_seconds=3600.0,
+    )
+    print(f"  Dataset: {ds_manifest.dataset_id}")
+    print(f"  Raw hash: {ds_manifest.raw_hash[:16]}...")
+    print(f"  Purified hash: {ds_manifest.purified_hash[:16]}...")
+    print(f"  Quality: {ds_manifest.quality_report}")
+
+    # Step 3: Load strategy
+    print("\n[3/6] Loading strategy...")
+    strat_reg = StrategyRegistry()
+    try:
+        import json as _json
+        with open("data/strategies/strategies.json") as _f:
+            _strats = _json.load(_f)
+        _strat_list = _strats if isinstance(_strats, list) else _strats.get("strategies", [])
+        if _strat_list:
+            _s = _strat_list[0]
+            strategy_logic = load_strategy_from_config(_s)
+            strategy_id = _s.get("id", "unknown")
+        else:
+            raise ValueError("No strategies in registry")
+    except Exception:
+        # Fallback to default momentum
+        def strategy_logic(df_inner):
+            return df_inner.with_columns(
+                pl.col("price").rolling_mean(args.lookback).alias("fast_ma"),
+                pl.col("price").rolling_mean(max(args.lookback * 2, args.lookback + 10)).alias("slow_ma"),
+            ).with_columns(
+                pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
+                .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
+                .otherwise(0.0).alias("signal")
+            )
+        strategy_id = f"momentum-{args.lookback}"
+
+    identity = strat_reg.register_strategy(
+        strategy_id=strategy_id,
+        strategy_name=f"Strategy {strategy_id}",
+        strategy_family="MOMENTUM",
+        strategy_func=strategy_logic,
+        parameter_schema={"lookback": {"type": "int", "min": 5, "max": 200, "default": args.lookback}},
+    )
+    print(f"  Strategy: {identity.strategy_id}")
+    print(f"  Source hash: {identity.source_hash[:16]}...")
+
+    # Step 4: Build config
+    print("\n[4/6] Building experiment config...")
+    em = build_execution_model(initial_capital=args.capital)
+    pg = build_parameter_grid("lookback", list(range(10, 60, 5)))
+    config = build_experiment_config(
+        strategy=identity, execution_model=em, parameter_grid=pg,
+        wfo_n_folds=args.folds,
+    )
+    print(f"  Config: {config.experiment_id}")
+    print(f"  Config hash: {config.config_hash[:16]}...")
+
+    # Step 5: Run orchestrator
+    print("\n[5/6] Running backtest lifecycle...")
+    def progress(stage, result):
+        icon = "[OK]" if result.status.value == "PASSED" else "[FAIL]" if result.status.value == "FAILED" else "-"
+        print(f"  {icon} {stage}: {result.status.value}")
+        if result.error:
+            print(f"    Error: {result.error}")
+
+    orch = BacktestOrchestrator()
+    run = orch.run_experiment(
+        config=config, dataset_manifest=ds_manifest, df=df,
+        strategy_logic=strategy_logic, callback=progress,
+    )
+
+    # Step 6: Report
+    print(f"\n[6/6] Results")
+    print("=" * 60)
+    print(f"  Run ID:      {run.run_id}")
+    print(f"  Status:      {run.status.value}")
+    print(f"  Duration:    {run.completed_at - run.started_at:.1f}s")
+    if run.final_gate:
+        gate = run.final_gate
+        print(f"  Final Gate:  {gate['decision']} ({gate['passed']}/{gate['total']} checks)")
+    if run.oos_result:
+        print(f"  OOS Sharpe:  {run.oos_result.get('pooled_sharpe', 0):.4f}")
+        print(f"  OOS Return:  {run.oos_result.get('pooled_return', 0) * 100:.2f}%")
+        print(f"  OOS Max DD:  {run.oos_result.get('pooled_max_dd', 0) * 100:.2f}%")
+    if run.provenance_hash:
+        print(f"  Provenance:  {run.provenance_hash[:16]}...")
+    if run.artifact_manifest:
+        print(f"  Artifact:    {run.artifact_manifest.artifact_hash[:16]}...")
+    print("=" * 60)
+    return 0 if run.status.value == "COMPLETED" else 1
+
+
+def _research_list() -> int:
+    from are.research import BacktestOrchestrator
+    orch = BacktestOrchestrator()
+    runs = orch.list_runs()
+    if not runs:
+        print("  No research runs found.")
+        return 0
+    print(f"{'Run ID':<30} {'Strategy':<20} {'Status':<12} {'Gate':<10}")
+    print("-" * 72)
+    for r in runs:
+        print(f"{r['run_id']:<30} {r['strategy_id']:<20} {r['status']:<12} {r['gate']:<10}")
+    return 0
+
+
+def _research_inspect(args: argparse.Namespace) -> int:
+    from are.research import BacktestOrchestrator
+    orch = BacktestOrchestrator()
+    try:
+        run = orch.load_run(args.run_id)
+        import json
+        print(json.dumps(run.to_dict(), indent=2, default=str))
+        return 0
+    except FileNotFoundError:
+        print(f"  Run {args.run_id} not found.")
+        return 1
+
+
+def _research_datasets() -> int:
+    from are.research import DatasetRegistry
+    reg = DatasetRegistry()
+    datasets = reg.list_datasets()
+    if not datasets:
+        print("  No frozen datasets.")
+        return 0
+    for ds in datasets:
+        print(f"  {ds.dataset_id}: {ds.symbol} {ds.raw_rows} rows, raw={ds.raw_hash[:12]}... pur={ds.purified_hash[:12]}...")
+    return 0
+
+
+def _research_strategies() -> int:
+    from are.research import StrategyRegistry
+    reg = StrategyRegistry()
+    strategies = reg.list_strategies()
+    if not strategies:
+        print("  No registered strategies.")
+        return 0
+    for s in strategies:
+        print(f"  {s.strategy_id}: {s.strategy_name} v{s.strategy_version} family={s.strategy_family} src={s.source_hash[:12]}...")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -501,6 +713,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_backtest(args)
     elif args.command == "data":
         return handle_data(args)
+    elif args.command == "research":
+        return handle_research(args)
 
     return 0
 

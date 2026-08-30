@@ -1,5 +1,5 @@
 """
-AHFMES ARE — Enhanced Backtest Engine (P2/P3)
+AHFMES ARE -- Enhanced Backtest Engine (P2/P3)
 - OHLC support + SL/TP intrabar execution
 - Instrument-aware spread
 - Advanced metrics: Sortino, Calmar, CVaR, exposure, benchmark
@@ -103,7 +103,7 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             )
 
         if 'signal' not in df.columns:
-            # P1-2: Fail-closed — strategy MUST produce signal column
+            # P1-2: Fail-closed -- strategy MUST produce signal column
             raise ValueError("Strategy did not produce 'signal' column. Every strategy must output signal: -1/0/+1.")
 
         # SL/TP intrabar execution using high/low

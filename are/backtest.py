@@ -225,7 +225,7 @@ class IsolatedBacktestEngine:
         """
         Executes a vectorized backtest computation over historical market data.
         """
-        # Input validation — fail-closed on nonsensical parameters (RES-RED-22)
+        # Input validation -- fail-closed on nonsensical parameters (RES-RED-22)
         for param_name, param_val in [
             ("spread_pct", spread_pct),
             ("slippage_pct", slippage_pct),
@@ -295,7 +295,7 @@ class IsolatedBacktestEngine:
 
         if "signal" not in df.columns:
             # FAIL-CLOSED: Strategy MUST produce a 'signal' column.
-            # Always-long fallback masks broken strategies — reject instead.
+            # Always-long fallback masks broken strategies -- reject instead.
             raise ValueError(
                 "Strategy did not produce 'signal' column.\n"
                 "Every strategy_logic function must add a 'signal' column with values: -1.0, 0.0, or 1.0.\n"
@@ -426,7 +426,7 @@ class IsolatedBacktestEngine:
         equity_list = result.equity_curve.to_dicts()
         trade_list = result.trade_log.to_dicts()
 
-        # DETERMINISTIC scientific payload — same inputs = same hash
+        # DETERMINISTIC scientific payload -- same inputs = same hash
         scientific_payload = {
             "equity_curve": equity_list,
             "trade_log": trade_list,
@@ -954,22 +954,22 @@ class IsolatedBacktestEngine:
             with open(wfo_file, "w") as wf:
                 json.dump(wfo_payload, wf, indent=2, default=str)
         except Exception:
-            pass  # Non-critical — don't fail WFO if save fails
+            pass  # Non-critical -- don't fail WFO if save fails
 
         return evidence
 
 
 # =============================================================================
-# BASELINE SUITE — Information Value Assessment (P1-1)
+# BASELINE SUITE -- Information Value Assessment (P1-1)
 # =============================================================================
 
 def baseline_buy_and_hold(df: pl.DataFrame) -> pl.DataFrame:
-    """Always long from bar 0 — the simplest possible benchmark."""
+    """Always long from bar 0 -- the simplest possible benchmark."""
     return df.with_columns(pl.lit(1.0).alias("signal"))
 
 
 def baseline_always_flat(df: pl.DataFrame) -> pl.DataFrame:
-    """Never trade — tests whether any alpha exists above zero."""
+    """Never trade -- tests whether any alpha exists above zero."""
     return df.with_columns(pl.lit(0.0).alias("signal"))
 
 
@@ -990,7 +990,7 @@ def baseline_naive_short(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def baseline_random_permutation(df: pl.DataFrame, seed: int = 42) -> pl.DataFrame:
-    """Random signal — tests if strategy beats noise."""
+    """Random signal -- tests if strategy beats noise."""
     import random as _rng
     rng = _rng.Random(seed)
     n = len(df)
