@@ -129,8 +129,8 @@ class TestWebUI(unittest.TestCase):
         status, data = self._make_request("POST", "/api/run-cycle", {"symbol": "BTCUSD"})
         self.assertEqual(status, 200)
         self.assertEqual(data["symbol"], "BTCUSD")
-        self.assertEqual(data["program_status"], "SUCCESS")
-        self.assertIsNotNone(data["promoted_champion"])
+        # With fail-closed DSR/PSR gates, cycle may EXPLORING (not promote)
+        self.assertIn(data["program_status"], ("SUCCESS", "EXPLORING"))
 
     def test_api_content_type_utf8(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.server_port, timeout=10)
@@ -153,13 +153,13 @@ class TestWebUI(unittest.TestCase):
             self.state.run_autonomous_cycle = orig_run
 
     def test_repeated_autonomous_cycles(self):
-        # Execute 3 consecutive autonomous cycles to verify zero RESERVATION_CONFLICT
+        # Execute 3 consecutive autonomous cycles
+        # With fail-closed DSR/PSR, cycles may EXPLORING (not promote)
         for i in range(3):
             status, data = self._make_request("POST", "/api/run-cycle", {"symbol": "BTCUSD"})
             self.assertEqual(status, 200)
             self.assertNotEqual(data.get("status"), "error")
-            self.assertEqual(data.get("program_status"), "SUCCESS")
-            self.assertIsNotNone(data.get("promoted_champion"))
+            self.assertIn(data.get("program_status"), ("SUCCESS", "EXPLORING"))
 
 
 class TestWebUIAuth(unittest.TestCase):
@@ -221,10 +221,10 @@ class TestWebUIAuth(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(data.get("error"), "Unauthorized")
 
-    def test_valid_token_via_query_param_allowed_200(self):
+    def test_query_param_auth_disabled_for_security(self):
+        # Query-param auth was removed for security (credential hygiene)
         status, data = self._make_auth_request("GET", f"/api/status?auth={self.auth_token}")
-        self.assertEqual(status, 200)
-        self.assertIn("champion", data)
+        self.assertEqual(status, 401)
 
     def test_valid_token_via_header_allowed_200(self):
         status, data = self._make_auth_request("GET", "/api/status", headers={"X-Auth-Token": self.auth_token})

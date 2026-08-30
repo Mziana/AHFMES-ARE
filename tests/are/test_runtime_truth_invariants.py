@@ -126,6 +126,11 @@ class TestRuntimeTruthInvariants(unittest.TestCase):
         """
         RES-RED-04: emergency_flat() closes all positions and verifies zero residual positions remain.
         """
+        # Reset execution state (may be dirty from previous tests)
+        self.gateway._exec_state._kill_switch_active = False
+        self.gateway._exec_state._order_timestamps = []
+        self.gateway._mock_gateway._positions = {}
+
         for i in range(3):
             req = MT5OrderRequest(symbol="BTCUSD", action="BUY", volume=0.05, price=50000.0 + i)
             self.gateway.execute_order(req, {})

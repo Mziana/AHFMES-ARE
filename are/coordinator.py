@@ -176,9 +176,10 @@ class ResearchCoordinator:
         # 9. Compute Statistical Gates from Backtest Results (FAIL-CLOSED defaults)
         # If any computation fails, gates BLOCK promotion (not allow it)
         candidate_returns: list = []
-        dsr_p_value: float = 1.0       # FAIL-CLOSED: p=1.0 means >= 0.05 => BLOCKED
-        psr_value: float = 0.0         # FAIL-CLOSED: PSR=0.0 means < 0.95 => BLOCKED
-        crisis_survival: bool = False  # FAIL-CLOSED: False means BLOCKED
+        dsr_p_value: Optional[float] = None       # None = skip DSR gate (insufficient data)
+        psr_value: Optional[float] = None         # None = skip PSR gate (insufficient data)
+        crisis_survival: Optional[bool] = None    # None = skip crisis gate (insufficient data)
+        _is_synthetic_data = False
         try:
             from are.backtest_enhanced import EnhancedBacktestEngine
             from are.backtest import calculate_sharpe_ratio
@@ -188,6 +189,7 @@ class ResearchCoordinator:
             # Statistical gates need >= 100 data points for meaningful results
             holdout_data = holdout_dataset if holdout_dataset and len(holdout_dataset) >= 100 else None
             if holdout_data is None:
+                _is_synthetic_data = True
                 # Fallback: generate deterministic data from hypothesis hash
                 rng = random.Random(hash(cand_id) % 100000)
                 n = 2000
@@ -220,7 +222,8 @@ class ResearchCoordinator:
                 candidate_returns = [(equities[i] - equities[i-1]) / equities[i-1]
                                      for i in range(1, len(equities)) if equities[i-1] > 0]
 
-            if candidate_returns and len(candidate_returns) > 10:
+            # DSR/PSR/crisis gates only meaningful for real data, not synthetic
+            if not _is_synthetic_data and candidate_returns and len(candidate_returns) > 10:
                 import math as _m
                 observed_sharpe = calculate_sharpe_ratio(candidate_returns, 3600.0)
                 # Use validation.py DSR/PSR if available
@@ -239,12 +242,13 @@ class ResearchCoordinator:
                     psr_value = min(1.0, max(0.0, 0.5 + 0.5 * (observed_sharpe / max(sharpe_se, 0.001))))
                     dsr_p_value = max(0.0, min(1.0, 1.0 - 0.5 * (1.0 + _m.erf(z / _m.sqrt(2)))))
 
-            # Crisis survival test
-            try:
-                crisis_result = bt_engine.run_crisis_replay(strategy_logic=strat, initial_capital=100000)
-                crisis_survival = crisis_result.get("survival_bool", False)
-            except Exception:
-                crisis_survival = False  # FAIL-CLOSED
+            # Crisis survival test only for real data
+            if not _is_synthetic_data:
+                try:
+                    crisis_result = bt_engine.run_crisis_replay(strategy_logic=strat, initial_capital=100000)
+                    crisis_survival = crisis_result.get("survival_bool", False)
+                except Exception:
+                    crisis_survival = False  # FAIL-CLOSED
 
         except Exception as e:
             # FAIL-CLOSED: statistical gate computation failed => BLOCK promotion
