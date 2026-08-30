@@ -1,28 +1,26 @@
 @echo off
-title AHFMES-ARE Launcher v2.0
+title AHFMES-ARE Launcher v2.1
 color 0A
-setlocal EnableDelayedExpansion
-
-:: ============================================================
-::   AHFMES-ARE UNIFIED LAUNCHER
-::   Replaces: START.bat, run_ui.bat, START_MISSION_CONTROL.bat,
-::             AHFMES_Dashboard.vbs, START_TUNNEL.bat, START_UI.bat
-:: ============================================================
 
 set "ROOT=%~dp0"
+if not exist "%ROOT%are\__init__.py" (
+    echo  [ERROR] Cannot find are module. Make sure you are running from AHFMES-ARE folder.
+    echo  Current ROOT: %ROOT%
+    pause
+    exit /b 1
+)
 set "PYTHON_PORT=8080"
 set "NEXTJS_PORT=4028"
 
-:: Detect project root (parent of this script)
 cd /d "%ROOT%"
 
 :MENU
 cls
 echo.
-echo  +============================================================+
-echo  |          AHFMES-ARE  -  UNIFIED LAUNCHER  v2.0            |
-echo  |       Autonomous Research Engine Control Center            |
-echo  +============================================================+
+echo  ============================================================
+echo           AHFMES-ARE  -  UNIFIED LAUNCHER  v2.1
+echo        Autonomous Research Engine Control Center
+echo  ============================================================
 echo.
 echo   [1]  Full Stack      (Python Engine + Next.js UI + Browser)
 echo   [2]  Engine Only     (Python ARE Engine on port %PYTHON_PORT%)
@@ -43,6 +41,7 @@ if "%choice%"=="4" goto BACKGROUND
 if "%choice%"=="5" goto STOP_ALL
 if "%choice%"=="6" goto HEALTH_CHECK
 if "%choice%"=="0" goto EXIT
+
 echo.
 echo  [!] Invalid option. Press any key to try again...
 pause >nul
@@ -66,13 +65,12 @@ timeout /t 2 >nul
 
 :: [2] Start Python Engine
 echo  [2/4] Starting Python ARE Engine (port %PYTHON_PORT%)...
-set PYTHONPATH=%ROOT%
 start "ARE-Engine" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
 timeout /t 2 >nul
 
 :: [3] Clear .next cache + Start Next.js UI
 echo  [3/4] Starting Next.js UI (port %NEXTJS_PORT%)...
-if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" >nul 2>&1
+if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" 2>nul
 start "ARE-UI" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
 timeout /t 3 >nul
 
@@ -83,11 +81,11 @@ start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PO
 echo.
 echo  ============================================================
 echo   AHFMES-ARE IS LIVE!
-echo  -----------------------------------------------------------
+echo  -------------------------------------------------------------
 echo   Web UI Dashboard : http://127.0.0.1:%NEXTJS_PORT%
 echo   Python Engine API: http://127.0.0.1:%PYTHON_PORT%
 echo   MT5 Server       : http://127.0.0.1:18888
-echo  -----------------------------------------------------------
+echo  -------------------------------------------------------------
 echo   Tip: This window can be closed (services run in background).
 echo         To stop: run ARELauncher.bat and choose [5] Stop All
 echo  ============================================================
@@ -105,13 +103,14 @@ echo  ============================================================
 echo   AHFMES-ARE // ENGINE ONLY MODE
 echo  ============================================================
 echo.
-echo  Starting Python ARE Engine on port %PYTHON_PORT%...
-echo  Press Ctrl+C to stop.
-echo.
 
-set PYTHONPATH=%ROOT%
-cd /d "%ROOT%"
-python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%
+echo  Starting Python ARE Engine (port %PYTHON_PORT%)...
+start "ARE-Engine" cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
+
+echo.
+echo   Engine running at http://127.0.0.1:%PYTHON_PORT%
+echo.
+pause
 goto MENU
 
 :: ============================================================
@@ -124,17 +123,21 @@ echo  ============================================================
 echo   AHFMES-ARE // UI ONLY MODE
 echo  ============================================================
 echo.
-echo  Starting Next.js Dashboard on port %NEXTJS_PORT%...
-echo  Note: Engine must be running separately for full functionality.
-echo  Press Ctrl+C to stop.
-echo.
 
-cd /d "%ROOT%UI"
-npm run dev
+if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" 2>nul
+echo  Starting Next.js UI (port %NEXTJS_PORT%)...
+start "ARE-UI" cmd /c "cd /d "%ROOT%UI" && npm run serve"
+timeout /t 2 >nul
+start "" cmd /c "timeout /t 3 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
+
+echo.
+echo   UI running at http://127.0.0.1:%NEXTJS_PORT%
+echo.
+pause
 goto MENU
 
 :: ============================================================
-::  MODE 4: BACKGROUND (Silent)
+::  MODE 4: BACKGROUND MODE
 :: ============================================================
 :BACKGROUND
 cls
@@ -144,27 +147,31 @@ echo   AHFMES-ARE // BACKGROUND MODE
 echo  ============================================================
 echo.
 
-echo  [1/3] Starting Python Engine (hidden)...
-set PYTHONPATH=%ROOT%
-start "" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
-timeout /t 2 >nul
+echo  [1/4] Starting MT5 Server...
+start "MT5-Server" /min cmd /c "cd /d "%ROOT%" && python -m are.mt5_server --port 18888"
+timeout /t 1 >nul
 
-echo  [2/3] Starting Next.js UI (hidden)...
-start "" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
+echo  [2/4] Starting Engine...
+start "ARE-Engine" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
+timeout /t 1 >nul
+
+echo  [3/4] Starting UI...
+if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" 2>nul
+start "ARE-UI" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
 timeout /t 3 >nul
 
-echo  [3/3] Opening browser...
-start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
+echo  [4/4] Opening browser...
+start "" cmd /c "timeout /t 3 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
 
 echo.
-echo   * All services started in background.
-echo   * Dashboard: http://127.0.0.1:%NEXTJS_PORT%
+echo   All services started in background.
+echo   Browser will open automatically.
 echo.
-timeout /t 2 >nul
+pause
 goto MENU
 
 :: ============================================================
-::  STOP ALL
+::  MODE 5: STOP ALL
 :: ============================================================
 :STOP_ALL
 cls
@@ -174,21 +181,25 @@ echo   AHFMES-ARE // STOPPING ALL SERVICES
 echo  ============================================================
 echo.
 
-echo  Stopping Python ARE Engine...
-taskkill /FI "WINDOWTITLE eq ARE-Engine" /F >nul 2>&1
-taskkill /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq *are.web_ui*" /F >nul 2>&1
+echo  Stopping MT5 Server...
+taskkill /f /fi "WINDOWTITLE eq MT5-Server*" >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq ARE-Engine*" >nul 2>&1
 
-echo  Stopping Next.js UI...
-taskkill /FI "WINDOWTITLE eq ARE-UI" /F >nul 2>&1
+echo  Stopping Next.js...
+taskkill /f /fi "WINDOWTITLE eq ARE-UI*" >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%NEXTJS_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+
+echo  Stopping Python Engine...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%PYTHON_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
 echo.
-echo   * All ARE services stopped.
+echo   All services stopped.
 echo.
 pause
 goto MENU
 
 :: ============================================================
-::  HEALTH CHECK
+::  MODE 6: HEALTH CHECK
 :: ============================================================
 :HEALTH_CHECK
 cls
@@ -198,25 +209,16 @@ echo   AHFMES-ARE // HEALTH CHECK
 echo  ============================================================
 echo.
 
-:: Check Python Engine
-echo  Checking Python Engine (port %PYTHON_PORT%)...
-curl -s http://127.0.0.1:%PYTHON_PORT%/api/status >nul 2>&1
-if %errorlevel% equ 0 (
-    echo   [OK] Python Engine is ONLINE
-) else (
-    echo   [!!] Python Engine is OFFLINE
-)
+echo  Checking MT5 Server (port 18888)...
+curl -s http://127.0.0.1:18888/health >nul 2>&1 && echo   [OK] MT5 Server running || echo   [!!] MT5 Server NOT running
 
-:: Check Next.js UI
-echo  Checking Next.js UI (port %NEXTJS_PORT%)...
-curl -s http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
-if %errorlevel% equ 0 (
-    echo   [OK] Next.js UI is ONLINE
-) else (
-    echo   [!!] Next.js UI is OFFLINE
-)
+echo  Checking Engine (port %PYTHON_PORT%)...
+curl -s http://127.0.0.1:%PYTHON_PORT%/api/status >nul 2>&1 && echo   [OK] Engine running || echo   [!!] Engine NOT running
 
-:: Check DB file
+echo  Checking UI (port %NEXTJS_PORT%)...
+curl -s http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1 && echo   [OK] UI running || echo   [!!] UI NOT running
+
+echo.
 echo  Checking database...
 if exist "%ROOT%are_interactive.db" (
     echo   [OK] Database file exists
