@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from are.operational import OperationalSignal
 from are.safety import CapitalSafetyKernel, SafetyDecision, SafetyLimits
+from are.execution_state import ExecutionStateMachine, OrderState
 
 
 class ARETransientError(Exception):
@@ -116,13 +117,13 @@ class MT5ExecutionGateway:
         self,
         safety_kernel: CapitalSafetyKernel,
         use_mock: bool = True,
+        state_file: Optional[str] = None,
     ):
         self.safety_kernel = safety_kernel
         self.use_mock = use_mock
         self._mock_gateway = MT5MockGateway() if use_mock else None
         self._mt5_lib: Optional[Any] = None
-        self._order_timestamps: deque[float] = deque()
-        self._peak_equity: float = 0.0
+        self._exec_state = ExecutionStateMachine(state_file)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="MT5GatewayWorker")
 
         if not use_mock:
@@ -135,48 +136,37 @@ class MT5ExecutionGateway:
                 raise RuntimeError("LIVE_MT5_REQUIRED_BUT_UNAVAILABLE: MetaTrader5 package is not installed or unavailable.")
 
     def get_recent_order_count(self, window_seconds: float = 60.0) -> int:
-        """Counts orders filled within the sliding window (ACC-404 / RES-RED-01)."""
-        now = time.time()
-        cutoff = now - window_seconds
-        while self._order_timestamps and self._order_timestamps[0] < cutoff:
-            self._order_timestamps.popleft()
-        return len(self._order_timestamps)
+        """Counts orders filled within the sliding window (persistent, survives restart)."""
+        return self._exec_state.get_order_count(window_seconds)
 
     def record_order_timestamp(self, ts: Optional[float] = None) -> None:
-        """Records the timestamp of a successfully dispatched/filled order."""
-        self._order_timestamps.append(ts if ts is not None else time.time())
+        """Records the timestamp of a successfully dispatched/filled order (persistent)."""
+        self._exec_state.record_order()
 
     def get_account_info(self, default_equity: float = 10000.0) -> Dict[str, float]:
-        """Polls live account balance, equity, and computes peak-equity drawdown (RES-RED-13)."""
+        """Polls live account balance, equity, and computes peak-equity drawdown (persistent, survives restart)."""
         if self._mt5_lib is not None:
             acc = self._mt5_lib.account_info()
             if acc is not None:
                 bal = float(getattr(acc, "balance", default_equity))
                 eq = float(getattr(acc, "equity", default_equity))
-
-                # Track peak equity (only increases, never decreases)
-                self._peak_equity = max(self._peak_equity, eq)
-
-                # Peak-equity drawdown (standard quantitative definition)
-                dd = max(0.0, (self._peak_equity - eq) / self._peak_equity) if self._peak_equity > 0 else 0.0
-
+                dd = self._exec_state.update_peak_equity(eq)
                 return {
                     "balance": bal,
                     "equity": eq,
-                    "peak_equity": self._peak_equity,
-                    "drawdown": dd,
+                    "peak_equity": self._exec_state.peak_equity,
+                    "drawdown": dd / 100.0,
                 }
             else:
                 raise AREFatalError("Failed to fetch account info from MT5.")
 
-        # Mock/default path — also track peak
-        self._peak_equity = max(self._peak_equity, default_equity)
-        dd = max(0.0, (self._peak_equity - default_equity) / self._peak_equity) if self._peak_equity > 0 else 0.0
+        # Mock/default path — also track peak (persistent)
+        dd = self._exec_state.update_peak_equity(default_equity)
         return {
             "balance": default_equity,
             "equity": default_equity,
-            "peak_equity": self._peak_equity,
-            "drawdown": dd,
+            "peak_equity": self._exec_state.peak_equity,
+            "drawdown": dd / 100.0,
         }
 
     def calculate_lot_size(
@@ -206,7 +196,20 @@ class MT5ExecutionGateway:
         """
         drawdown = current_risk_state.get("drawdown", 0.0)
         volatility = current_risk_state.get("volatility", 1.0)
+        # ─── P0-02: Persistent Kill Switch (first check, before anything else) ───
+        if self._exec_state.kill_switch_active:
+            return False, None, "CSK_VETO: PERSISTENT_KILL_SWITCH_ACTIVE (P0-02)"
+
         order_count = current_risk_state.get("order_count", self.get_recent_order_count(60.0))
+
+        # ─── P0-01: Create order lifecycle entry ───
+        order_id = f"ord-{int(time.time()*1000)}-{request.symbol}"
+        lifecycle = self._exec_state.create_order(
+            order_id=order_id,
+            symbol=request.symbol,
+            action=request.action,
+            volume=request.volume,
+        )
 
         intended_action = {
             "action": request.action,
@@ -215,7 +218,7 @@ class MT5ExecutionGateway:
             "price": request.price,
         }
 
-        # 1. Capital Safety Kernel Firewall Evaluation
+        # 1. Capital Safety Kernel Firewall Evaluation (MANDATORY — P0-02)
         decision = self.safety_kernel.evaluate_action(
             intended_action=intended_action,
             current_drawdown=drawdown,
@@ -224,6 +227,7 @@ class MT5ExecutionGateway:
         )
 
         if not decision.allowed:
+            self._exec_state.mark_failed(order_id, f"CSK_VETO: {decision.reason}")
             return False, None, f"CSK_VETO: {decision.reason} (Action: {decision.action})"
 
         # 2. Adjust volume to clamped size if clamped
@@ -239,9 +243,15 @@ class MT5ExecutionGateway:
             magic=request.magic,
         )
 
-        # 3. Deliver to Terminal / Mock Gateway
+        # 3. Dispatch → Acknowledged → Filled lifecycle
+        self._exec_state.dispatch_order(order_id)
+
         if self._mock_gateway is not None:
             res = self._mock_gateway.send_order(adjusted_request)
+            self._exec_state.acknowledge_order(order_id, res.retcode, res.comment)
+            self._exec_state.fill_order(order_id, res.volume, res.price, res.order_id)
+            self._exec_state.reconcile_order(order_id, self._mock_gateway.get_open_positions())
+            self._exec_state.finalize_order(order_id)
             self.record_order_timestamp()
             return True, res, "FILLED_MOCK"
 
@@ -260,12 +270,35 @@ class MT5ExecutionGateway:
                 "type_time": self._mt5_lib.ORDER_TIME_GTC,
                 "type_filling": self._mt5_lib.ORDER_FILLING_IOC,
             }
-            res_mt5 = self._mt5_lib.order_send(req_dict)
+
+            try:
+                res_mt5 = self._mt5_lib.order_send(req_dict)
+            except Exception as e:
+                self._exec_state.mark_ambiguous(order_id, f"EXCEPTION: {e}")
+                raise AREAmbiguousExecutionError(f"Order dispatched but exception: {e}. State ambiguous.")
+
             if res_mt5 is None:
+                self._exec_state.mark_ambiguous(order_id, "MT5 returned None")
                 raise AREAmbiguousExecutionError("Order dispatched but MT5 returned None. State ambiguous.")
+
+            self._exec_state.acknowledge_order(order_id, res_mt5.retcode, getattr(res_mt5, 'comment', ''))
+
             if res_mt5.retcode != self._mt5_lib.TRADE_RETCODE_DONE:
                 ret = res_mt5.retcode if res_mt5 else -1
+                self._exec_state.mark_failed(order_id, f"MT5_ERROR_{ret}")
                 return False, None, f"MT5_ERROR_{ret}"
+
+            # Partial fill check
+            filled_vol = getattr(res_mt5, 'volume', adjusted_request.volume)
+            self._exec_state.fill_order(order_id, filled_vol, res_mt5.price, res_mt5.deal)
+
+            # Reconcile against actual positions
+            try:
+                positions = self.get_open_positions()
+                self._exec_state.reconcile_order(order_id, positions)
+                self._exec_state.finalize_order(order_id)
+            except Exception:
+                pass  # Best-effort reconciliation
 
             self.record_order_timestamp()
             return True, MT5OrderResult(
@@ -279,6 +312,7 @@ class MT5ExecutionGateway:
                 timestamp=time.time(),
             ), "FILLED_LIVE"
 
+        self._exec_state.mark_failed(order_id, "NO_GATEWAY_AVAILABLE")
         return False, None, "NO_GATEWAY_AVAILABLE"
 
     async def execute_order_async(

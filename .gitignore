@@ -13,4 +13,4 @@ are_interactive.db*
 tmp/*
 skills/
 .agent-memory/
-.opencode/
+.opencode/data/test_engine.db

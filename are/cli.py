@@ -61,6 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     # 5. safety-kill
     subparsers.add_parser("safety-kill", help="Activate emergency kill-switch immediately")
 
+    # 5b. safety-release
+    subparsers.add_parser("safety-release", help="Release persistent kill-switch")
+
     # 6. dashboard
     subparsers.add_parser("dashboard", help="Render rich terminal dashboard")
 
@@ -219,6 +222,11 @@ def handle_champion(args: argparse.Namespace) -> int:
 
 
 def handle_safety_kill(args: argparse.Namespace) -> int:
+    """Persistent kill switch — writes to disk so running engine sees it."""
+    from are.execution_state import ExecutionStateMachine
+    exec_state = ExecutionStateMachine()
+    exec_state.set_kill_switch(True)
+    # Also verify via CSK
     limits = SafetyLimits(kill_switch_active=True)
     kernel = CapitalSafetyKernel(limits)
     decision = kernel.evaluate_action(
@@ -227,7 +235,21 @@ def handle_safety_kill(args: argparse.Namespace) -> int:
         current_volatility=1.0,
         recent_order_count=0,
     )
-    print(f"[CLI] Emergency Kill Switch Activated! Safety Decision: allowed={decision.allowed}, reason={decision.reason}")
+    print(f"[CLI] PERSISTENT KILL SWITCH ACTIVATED")
+    print(f"  State file: {exec_state.state_file}")
+    print(f"  CSK Decision: allowed={decision.allowed}, reason={decision.reason}")
+    print(f"  All running ARE engines will block orders until kill switch is released.")
+    return 0
+
+
+def handle_safety_release(args: argparse.Namespace) -> int:
+    """Release persistent kill switch."""
+    from are.execution_state import ExecutionStateMachine
+    exec_state = ExecutionStateMachine()
+    exec_state.set_kill_switch(False)
+    print(f"[CLI] KILL SWITCH RELEASED")
+    print(f"  State file: {exec_state.state_file}")
+    print(f"  All running ARE engines will resume normal operation.")
     return 0
 
 
@@ -260,6 +282,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_champion(args)
     elif args.command == "safety-kill":
         return handle_safety_kill(args)
+    elif args.command == "safety-release":
+        return handle_safety_release(args)
     elif args.command == "dashboard":
         return handle_dashboard(args)
 

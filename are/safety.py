@@ -28,6 +28,19 @@ class SafetyLimits:
     max_order_rate_per_min: int = 10
     kill_switch_active: bool = False
 
+    def __post_init__(self):
+        """P1: Validate immutable safety configuration at construction time."""
+        if not isinstance(self.max_position_size, (int, float)) or self.max_position_size <= 0:
+            raise ValueError(f"SafetyLimits.max_position_size must be positive float, got {self.max_position_size}")
+        if not isinstance(self.max_drawdown_pct, (int, float)) or not (0.0 < self.max_drawdown_pct <= 1.0):
+            raise ValueError(f"SafetyLimits.max_drawdown_pct must be in (0, 1], got {self.max_drawdown_pct}")
+        if not isinstance(self.volatility_cutoff, (int, float)) or self.volatility_cutoff <= 0:
+            raise ValueError(f"SafetyLimits.volatility_cutoff must be positive, got {self.volatility_cutoff}")
+        if not isinstance(self.max_order_rate_per_min, int) or self.max_order_rate_per_min <= 0:
+            raise ValueError(f"SafetyLimits.max_order_rate_per_min must be positive int, got {self.max_order_rate_per_min}")
+        if not isinstance(self.kill_switch_active, bool):
+            raise ValueError(f"SafetyLimits.kill_switch_active must be bool, got {type(self.kill_switch_active)}")
+
 
 # Backward compatibility and alternative naming alias
 RiskLimits = SafetyLimits
@@ -117,6 +130,14 @@ class CapitalSafetyKernel:
         try:
             dd = float(current_drawdown)
             vol = float(current_volatility)
+            # P1: Strict numeric validation — reject non-numeric types
+            if not isinstance(recent_order_count, (int, float)):
+                return SafetyDecision(
+                    allowed=False,
+                    action="ABSTAIN",
+                    clamped_size=0.0,
+                    reason="recent_order_count must be numeric, not " + type(recent_order_count).__name__,
+                )
             orders = int(recent_order_count)
             if not math.isfinite(dd) or dd < 0.0 or not math.isfinite(vol) or vol < 0.0 or orders < 0:
                 return SafetyDecision(

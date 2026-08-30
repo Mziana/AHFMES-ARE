@@ -112,6 +112,13 @@ class ARETradingEngine:
         self.champion_registry = champion_registry
         self.safety_kernel = safety_kernel or CapitalSafetyKernel()
 
+        # P0-02: Check persistent kill switch on startup
+        from are.execution_state import ExecutionStateMachine
+        self._exec_state = ExecutionStateMachine()
+        if self._exec_state.kill_switch_active:
+            from are.safety import SafetyLimits
+            self.safety_kernel = CapitalSafetyKernel(SafetyLimits(kill_switch_active=True))
+
         # AHFMES Core
         self.schema = HabitatSchema()
         self.state_assessor = HabitatStateAssessor(schema=self.schema)

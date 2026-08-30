@@ -195,8 +195,19 @@ class OperationalRunner:
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                # Fail-closed: log and continue or stop gracefully
-                break
+                # P1: Never silent-stop — record incident, classify, continue
+                import traceback
+                incident = f"RUNNER_INCIDENT: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+                try:
+                    if hasattr(self, 'event_store') and self.event_store is not None:
+                        from are.storage import StreamRef
+                        self.event_store.append(StreamRef(stream_id="runner_incidents"), {"incident": incident, "timestamp": time.time()})
+                except Exception:
+                    pass
+                print(f"[ARE RUNNER] {incident}")
+                # Continue loop instead of silent death
+                if self.config.tick_interval_sec > 0:
+                    time.sleep(self.config.tick_interval_sec)
 
         self._running = False
         return ticks_processed
