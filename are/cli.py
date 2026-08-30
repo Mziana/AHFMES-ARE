@@ -80,7 +80,20 @@ def build_parser() -> argparse.ArgumentParser:
     wfo_parser = bt_subs.add_parser("wfo", help="Run Walk-Forward Optimization")
     wfo_parser.add_argument("--symbol", default="XAUUSD", help="Trading symbol")
     wfo_parser.add_argument("--folds", type=int, default=5, help="Number of WFO folds")
+    wfo_parser.add_argument("--start", default="2020-01-01", help="Start date")
+    wfo_parser.add_argument("--end", default="2026-12-31", help="End date")
+    wfo_parser.add_argument("--timeframe", default="H1", help="Timeframe")
     bt_subs.add_parser("list", help="List all backtest results")
+
+    # 8. data
+    data_parser = subparsers.add_parser("data", help="OHLC data management")
+    data_subs = data_parser.add_subparsers(dest="data_command")
+    data_export = data_subs.add_parser("export", help="Export OHLC data from MT5 to parquet")
+    data_export.add_argument("--symbol", default="XAUUSD", help="Symbol to export")
+    data_export.add_argument("--timeframe", default="H1", help="Timeframe")
+    data_export.add_argument("--start", default="2020-01-01", help="Start date")
+    data_export.add_argument("--end", default="2026-12-31", help="End date")
+    data_subs.add_parser("list", help="List available OHLC data files")
 
     return parser
 
@@ -306,29 +319,20 @@ def handle_backtest(args: argparse.Namespace) -> int:
                     )
                     break
 
-        # Generate synthetic price data for demo if no real data
+        # Load real OHLC data from MT5 export or parquet
         import polars as pl
-        import math, random, time as _time
-        n_bars = 5000
-        seed_val = int(_time.time()) % 10000
-        rng = random.Random(seed_val)
-        prices = [100.0]
-        for i in range(n_bars - 1):
-            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-        dates = [_time.time() - (n_bars - i) * 3600 for i in range(n_bars)]
-        df = pl.DataFrame({
-            "timestamp": dates,
-            "price": prices,
-            "volume": [rng.randint(100, 10000) for _ in range(n_bars)],
-        })
-        # Add signal column (simple momentum)
-        df = df.with_columns(
-            pl.col("price").pct_change(20).alias("momentum")
-        ).with_columns(
-            pl.when(pl.col("momentum") > 0.02).then(1)
-            .when(pl.col("momentum") < -0.02).then(-1)
-            .otherwise(0).alias("signal")
-        )
+        from are.data_loader import load_ohlc_data, export_mt5_ohlc
+        try:
+            df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+        except FileNotFoundError:
+            print(f"  No parquet data for {args.symbol}. Exporting from MT5...")
+            try:
+                export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
+                df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+            except Exception as e:
+                print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
+                print(f"  Export MT5 data first: python -m are.cli data export --symbol {args.symbol}")
+                return 1
 
         def default_strategy(df: pl.DataFrame) -> pl.DataFrame:
             # Generate signal from price data (engine purifies non-price cols)
@@ -363,6 +367,7 @@ def handle_backtest(args: argparse.Namespace) -> int:
         print(f"{'='*60}\n")
 
         # Save result to data/backtests/
+        import time as _time
         bt_dir = os.path.join("data", "backtests")
         os.makedirs(bt_dir, exist_ok=True)
         bt_id = f"bkt-{int(_time.time()*1000)}"
@@ -385,16 +390,19 @@ def handle_backtest(args: argparse.Namespace) -> int:
     elif args.bt_command == "wfo":
         import polars as pl
         import math, random, time as _time
-        n_bars = 10000
-        rng = random.Random(42)
-        prices = [100.0]
-        for _ in range(n_bars - 1):
-            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-        dates = [_time.time() - (n_bars - i) * 3600 for i in range(n_bars)]
-        df = pl.DataFrame({"timestamp": dates, "price": prices, "volume": [rng.randint(100, 10000) for _ in range(n_bars)]})
-        df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
-            pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
-        )
+        # Load real OHLC data from MT5 export or parquet
+        from are.data_loader import load_ohlc_data, export_mt5_ohlc
+        try:
+            df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+        except FileNotFoundError:
+            print(f"  No parquet data for {args.symbol}. Exporting from MT5...")
+            try:
+                export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
+                df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+            except Exception as e:
+                print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
+                return 1
+
         def strategy_factory(params):
             lb = params.get("lookback", 20)
             th = params.get("threshold", 0.02)
@@ -411,26 +419,13 @@ def handle_backtest(args: argparse.Namespace) -> int:
         param_grid = [{"lookback": lb, "threshold": th}
                       for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
 
-        n = max(2000, args.folds * 400)
-        rng = random.Random(42)
-        prices = [100.0]
-        for _ in range(n - 1):
-            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-        highs = [p * (1 + abs(rng.gauss(0, 0.003))) for p in prices]
-        lows = [p * (1 - abs(rng.gauss(0, 0.003))) for p in prices]
-        df = pl.DataFrame({
-            "timestamp": [_time.time() - (n - i) * 3600 for i in range(n)],
-            "price": prices, "high": highs, "low": lows,
-            "volume": [rng.randint(100, 10000) for _ in range(n)],
-        })
-
         wfo_result = engine.run_walk_forward_optimization(
             strategy_factory=strategy_factory,
             param_grid=param_grid,
             historical_data=df,
-            train_window_bars=max(200, n // (args.folds * 2)),
-            test_window_bars=max(50, n // (args.folds * 4)),
-            step_bars=max(50, n // (args.folds * 4)),
+            train_window_bars=max(200, df.height // (args.folds * 2)),
+            test_window_bars=max(50, df.height // (args.folds * 4)),
+            step_bars=max(50, df.height // (args.folds * 4)),
             purge_bars=5,
             label_horizon_bars=1,
             initial_capital=100000.0,
@@ -462,6 +457,26 @@ def handle_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_data(args: argparse.Namespace) -> int:
+    from are.data_loader import export_mt5_ohlc, load_ohlc_data, list_available_data
+
+    if args.data_command == "export":
+        try:
+            filepath = export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
+            print(f"  Exported to: {filepath}")
+            return 0
+        except Exception as e:
+            print(f"  Export failed: {e}")
+            return 1
+
+    elif args.data_command == "list":
+        list_available_data()
+        return 0
+
+    print("Usage: are data {export|list}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -486,6 +501,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_dashboard(args)
     elif args.command == "backtest":
         return handle_backtest(args)
+    elif args.command == "data":
+        return handle_data(args)
 
     return 0
 
