@@ -70,8 +70,9 @@ set PYTHONPATH=%ROOT%
 start "ARE-Engine" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
 timeout /t 2 >nul
 
-:: [3] Start Next.js UI
+:: [3] Clear .next cache + Start Next.js UI
 echo  [3/4] Starting Next.js UI (port %NEXTJS_PORT%)...
+if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" >nul 2>&1
 start "ARE-UI" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
 timeout /t 3 >nul
 

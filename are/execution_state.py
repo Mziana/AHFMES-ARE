@@ -94,6 +94,7 @@ class ExecutionStateMachine:
         self._peak_equity: float = 0.0
         self._order_timestamps: List[float] = []
         self._kill_switch_active: bool = False
+        self._persisted_positions: List[Dict] = []  # P0-3: Persist open positions
         self._load_state()
 
     def _load_state(self):
@@ -105,13 +106,26 @@ class ExecutionStateMachine:
                 self._peak_equity = data.get("peak_equity", 0.0)
                 self._order_timestamps = data.get("order_timestamps", [])
                 self._kill_switch_active = data.get("kill_switch_active", False)
+                self._persisted_positions = data.get("persisted_positions", [])
                 # Load any unfinished orders for reconciliation
                 for od in data.get("active_orders", []):
                     ol = OrderLifecycle.from_dict(od)
                     if ol.state not in (OrderState.FINALIZED, OrderState.FAILED):
                         self._active_orders[ol.order_id] = ol
-            except (json.JSONDecodeError, KeyError):
-                pass  # Corrupt state file, start fresh
+            except (json.JSONDecodeError, KeyError) as e:
+                # P0-2: Corrupt state must BLOCK startup, not reset silently
+                # Save corrupted file for forensic analysis
+                import shutil
+                corrupt_backup = self.state_file + f".corrupt.{int(time.time())}"
+                shutil.copy2(self.state_file, corrupt_backup)
+                # Set UNKNOWN state — operator must investigate
+                self._kill_switch_active = True  # Default to safe state
+                self._peak_equity = 0.0
+                self._order_timestamps = []
+                self._save_state()  # Save the safe-default state
+                print(f"[EXEC_STATE] WARNING: Corrupt state file detected. Backed up to {corrupt_backup}")
+                print(f"[EXEC_STATE] Kill switch defaulted to ACTIVE for safety. Investigate and reset.")
+                print(f"[EXEC_STATE] Error: {e}")
 
     def _save_state(self):
         """Persist state to disk atomically."""
@@ -121,6 +135,7 @@ class ExecutionStateMachine:
             "order_timestamps": self._order_timestamps[-100:],  # Keep last 100
             "kill_switch_active": self._kill_switch_active,
             "active_orders": [o.to_dict() for o in self._active_orders.values()],
+            "persisted_positions": getattr(self, '_persisted_positions', []),
             "last_updated": time.time(),
         }
         tmp_file = self.state_file + ".tmp"
@@ -155,6 +170,22 @@ class ExecutionStateMachine:
             dd_pct = max(0.0, (self._peak_equity - current_equity) / self._peak_equity * 100.0)
         self._save_state()
         return dd_pct
+
+    # ─── Position Persistence (P0-3) ─────────────────────────────────────
+
+    def persist_positions(self, positions: List[Dict]):
+        """Persist open positions to disk for crash recovery."""
+        self._persisted_positions = positions
+        self._save_state()
+
+    def get_persisted_positions(self) -> List[Dict]:
+        """Get positions from last persist (survives restart)."""
+        return getattr(self, '_persisted_positions', [])
+
+    def clear_persisted_positions(self):
+        """Clear persisted positions after successful reconciliation."""
+        self._persisted_positions = []
+        self._save_state()
 
     # ─── Order Rate Limiter (Persistent) ─────────────────────────────────
 
@@ -240,8 +271,12 @@ class ExecutionStateMachine:
                         order.filled_volume = pos.get("volume", order.filled_volume)
                     break
 
-            if matched or order.state == OrderState.FILLED:
-                order.state = OrderState.RECONCILED
+            if matched:
+                order.state = OrderState.RECONCILED  # Only reconcile when broker position VERIFIED
+            elif order.state == OrderState.FILLED and not matched:
+                # FILLED but position not found in broker — this is DANGEROUS
+                order.state = OrderState.AMBIGUOUS  # P0-3: Never assume FILLED = RECONCILED
+                order.error_message = f"Order FILLED but position NOT found in broker after {order.reconciliation_attempts} attempts"
             elif order.state == OrderState.PARTIAL and not matched:
                 # Partial fill not confirmed — stay in PARTIAL for retry
                 pass

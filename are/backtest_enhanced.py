@@ -58,15 +58,11 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             spread_pct = spec['spread_pct']
 
         if historical_data is None:
-            n=5000; rng=__import__('random').Random(42); prices=[100.0]
-            for _ in range(n-1): prices.append(prices[-1]*(1+rng.gauss(0,0.01)))
-            highs=[p*(1+abs(rng.gauss(0,0.003))) for p in prices]
-            lows=[p*(1-abs(rng.gauss(0,0.003))) for p in prices]
-            historical_data=pl.DataFrame({
-                'timestamp':[1700000000+i*int(timeframe_seconds) for i in range(n)],
-                'price':prices,'high':highs,'low':lows,
-                'volume':[rng.randint(100,10000) for _ in range(n)]
-            })
+            # P1-2: Synthetic data must be EXPLICIT opt-in, never silent fallback
+            raise ValueError(
+                "No historical data provided. Backtest requires real OHLC data.\n"
+                "Use data_loader.load_ohlc_data() or pass explicit synthetic=True for testing."
+            )
 
         purifier = DataPurifier()
         df = purifier.purify_tick_data(historical_data)
@@ -90,7 +86,8 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             )
 
         if 'signal' not in df.columns:
-            df=df.with_columns(pl.lit(1.0).alias('signal'))
+            # P1-2: Fail-closed — strategy MUST produce signal column
+            raise ValueError("Strategy did not produce 'signal' column. Every strategy must output signal: -1/0/+1.")
 
         # SL/TP intrabar execution using high/low
         if sl_pct or tp_pct:
@@ -182,12 +179,7 @@ class CPCVEngine:
     def run_cpcv(self, strategy_logic=None, historical_data=None, n_test_groups=6,
                  purge_bars=10, n_combinations=0):
         if historical_data is None:
-            n=3000; rng=__import__('random').Random(99); prices=[100.0]
-            for _ in range(n-1): prices.append(prices[-1]*(1+rng.gauss(0,0.01)))
-            historical_data=pl.DataFrame({
-                'timestamp':[1700000000+i*3600 for i in range(n)],
-                'price':prices,'volume':[rng.randint(100,10000) for _ in range(n)]
-            })
+            raise ValueError("CPCV requires real historical data. No synthetic fallback.")
         purifier=DataPurifier(); df=purifier.purify_tick_data(historical_data)
         total_bars=len(df); group_size=total_bars//n_test_groups
         from itertools import combinations

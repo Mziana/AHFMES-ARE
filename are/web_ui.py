@@ -49,6 +49,10 @@ class AREServerState:
         )
         self.safety_kernel = CapitalSafetyKernel(self.safety_limits)
 
+        # P0-4: Canonical execution state (synced with SafetyKernel)
+        from are.execution_state import ExecutionStateMachine
+        self._exec_state = ExecutionStateMachine()
+
         self.atlas = ConditionAtlas()
         self.habitat = HabitatAdapter(self.atlas, self.event_store)
         self.brain = OperationalBrain(
@@ -95,11 +99,16 @@ class AREServerState:
                     "activated_at": champ.activated_at if champ else 0.0,
                 },
                 "safety": {
+                    # P0-4: Canonical truth — cross-check SafetyKernel vs ExecutionState
                     "kill_switch_active": self.safety_kernel.limits.kill_switch_active,
                     "max_drawdown_pct": self.safety_kernel.limits.max_drawdown_pct,
                     "volatility_cutoff": self.safety_kernel.limits.volatility_cutoff,
                     "max_order_rate_per_min": self.safety_kernel.limits.max_order_rate_per_min,
                     "max_position_size": self.safety_kernel.limits.max_position_size,
+                },
+                "execution_state": {
+                    "kill_switch_active": self._exec_state.kill_switch_active if hasattr(self, '_exec_state') else None,
+                    "peak_equity": self._exec_state.peak_equity if hasattr(self, '_exec_state') else 0.0,
                 },
                 "stream_stats": {
                     "total_ticks": total_ticks,
@@ -113,6 +122,7 @@ class AREServerState:
 
     def set_kill_switch(self, active: bool) -> bool:
         with self.lock:
+            # P0-1: Sync BOTH SafetyKernel AND ExecutionState
             self.safety_kernel.limits = SafetyLimits(
                 max_position_size=self.safety_kernel.limits.max_position_size,
                 max_drawdown_pct=self.safety_kernel.limits.max_drawdown_pct,
@@ -120,6 +130,13 @@ class AREServerState:
                 max_order_rate_per_min=self.safety_kernel.limits.max_order_rate_per_min,
                 kill_switch_active=active,
             )
+            # Also persist to execution_state.json (survives restart)
+            try:
+                from are.execution_state import ExecutionStateMachine
+                exec_state = ExecutionStateMachine()
+                exec_state.set_kill_switch(active)
+            except Exception as e:
+                print(f"[WARN] Failed to persist kill switch to execution state: {e}")
             return self.safety_kernel.limits.kill_switch_active
 
     def process_tick_event(
@@ -227,14 +244,8 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         def _check(candidate: str) -> bool:
             return bool(candidate) and _hmac.compare_digest(candidate, expected)
 
-        # 1. Query parameter (?auth=... or ?token=...)
-        try:
-            parsed = urllib.parse.urlparse(self.path)
-            qs = urllib.parse.parse_qs(parsed.query)
-            token_q = (qs.get("auth", [None])[0] or qs.get("token", [None])[0] or "").strip()
-            if _check(token_q): return True
-        except Exception:
-            pass
+        # 1. P1-3: Query token REMOVED (security hygiene — URL logged everywhere)
+        # Only Authorization header is accepted now
 
         # 2. HTTP Headers (X-Auth-Token or Authorization: Bearer)
         if _check(self.headers.get("X-Auth-Token", "").strip()): return True
@@ -258,7 +269,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:4028")  # P1-3: localhost only
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
         self.end_headers()
@@ -267,7 +278,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:4028")  # P1-3: localhost only
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Token")
         self.end_headers()
@@ -497,6 +508,17 @@ def run_server(
     """Starts the Web UI HTTP Server."""
     global _GLOBAL_SERVER_STATE
     _GLOBAL_SERVER_STATE = AREServerState(db_path, auth_token=auth_token)
+
+    # P0-1: Sync kill switch from persistent ExecutionState on startup
+    if _GLOBAL_SERVER_STATE._exec_state.kill_switch_active:
+        _GLOBAL_SERVER_STATE.safety_kernel.limits = SafetyLimits(
+            max_position_size=_GLOBAL_SERVER_STATE.safety_kernel.limits.max_position_size,
+            max_drawdown_pct=_GLOBAL_SERVER_STATE.safety_kernel.limits.max_drawdown_pct,
+            volatility_cutoff=_GLOBAL_SERVER_STATE.safety_kernel.limits.volatility_cutoff,
+            max_order_rate_per_min=_GLOBAL_SERVER_STATE.safety_kernel.limits.max_order_rate_per_min,
+            kill_switch_active=True,
+        )
+        print(f"[ARE-WEB] WARNING: Kill switch synced from persistent state (ACTIVE)")
 
     server_address = (host, port)
     httpd = http.server.HTTPServer(server_address, AREAPIHandler)
