@@ -19,10 +19,10 @@ cd /d "%ROOT%"
 :MENU
 cls
 echo.
-echo  ╔══════════════════════════════════════════════════════════════╗
-echo  ║          AHFMES-ARE  ·  UNIFIED LAUNCHER  v2.0             ║
-echo  ║       Autonomous Research Engine Control Center             ║
-echo  ╚══════════════════════════════════════════════════════════════╝
+echo  +============================================================+
+echo  |          AHFMES-ARE  -  UNIFIED LAUNCHER  v2.0            |
+echo  |       Autonomous Research Engine Control Center            |
+echo  +============================================================+
 echo.
 echo   [1]  Full Stack      (Python Engine + Next.js UI + Browser)
 echo   [2]  Engine Only     (Python ARE Engine on port %PYTHON_PORT%)
@@ -33,7 +33,7 @@ echo   [6]  Health Check    (Verify engine + UI are running)
 echo.
 echo   [0]  Exit
 echo.
-echo  ─────────────────────────────────────────────────────────────
+echo  -------------------------------------------------------------
 set /p choice="  Select mode: "
 
 if "%choice%"=="1" goto FULL_STACK
@@ -54,9 +54,9 @@ goto MENU
 :FULL_STACK
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // FULL STACK MODE
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 
 :: [1] Start MT5 Server
@@ -80,16 +80,16 @@ echo  [4/4] Opening Mission Control Dashboard...
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
 
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE IS LIVE!
-echo  ────────────────────────────────────────────────────────────
+echo  -----------------------------------------------------------
 echo   Web UI Dashboard : http://127.0.0.1:%NEXTJS_PORT%
 echo   Python Engine API: http://127.0.0.1:%PYTHON_PORT%
 echo   MT5 Server       : http://127.0.0.1:18888
-echo  ────────────────────────────────────────────────────────────
+echo  -----------------------------------------------------------
 echo   Tip: This window can be closed (services run in background).
 echo         To stop: run ARELauncher.bat and choose [5] Stop All
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 pause
 goto MENU
@@ -100,9 +100,9 @@ goto MENU
 :ENGINE_ONLY
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // ENGINE ONLY MODE
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 echo  Starting Python ARE Engine on port %PYTHON_PORT%...
 echo  Press Ctrl+C to stop.
@@ -119,9 +119,9 @@ goto MENU
 :UI_ONLY
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // UI ONLY MODE
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 echo  Starting Next.js Dashboard on port %NEXTJS_PORT%...
 echo  Note: Engine must be running separately for full functionality.
@@ -138,9 +138,9 @@ goto MENU
 :BACKGROUND
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // BACKGROUND MODE
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 
 echo  [1/3] Starting Python Engine (hidden)...
@@ -156,8 +156,8 @@ echo  [3/3] Opening browser...
 start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
 
 echo.
-echo   ✓ All services started in background.
-echo   ✓ Dashboard: http://127.0.0.1:%NEXTJS_PORT%
+echo   * All services started in background.
+echo   * Dashboard: http://127.0.0.1:%NEXTJS_PORT%
 echo.
 timeout /t 2 >nul
 goto MENU
@@ -168,9 +168,9 @@ goto MENU
 :STOP_ALL
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // STOPPING ALL SERVICES
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 
 echo  Stopping Python ARE Engine...
@@ -181,7 +181,7 @@ echo  Stopping Next.js UI...
 taskkill /FI "WINDOWTITLE eq ARE-UI" /F >nul 2>&1
 
 echo.
-echo   ✓ All ARE services stopped.
+echo   * All ARE services stopped.
 echo.
 pause
 goto MENU
@@ -192,9 +192,9 @@ goto MENU
 :HEALTH_CHECK
 cls
 echo.
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo   AHFMES-ARE // HEALTH CHECK
-echo  ════════════════════════════════════════════════════════════
+echo  ============================================================
 echo.
 
 :: Check Python Engine
