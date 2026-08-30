@@ -64,8 +64,25 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
                 "Use data_loader.load_ohlc_data() or pass explicit synthetic=True for testing."
             )
 
+        # P0-4: Compute raw dataset hash BEFORE purification
+        import struct as _struct
+        from are.hasher import compute_sha256 as _csha
+        _ts = historical_data['timestamp'].to_list() if 'timestamp' in historical_data.columns else []
+        _pr = historical_data['price'].to_list() if 'price' in historical_data.columns else []
+        _vol = historical_data['volume'].to_list() if 'volume' in historical_data.columns else [0.0] * len(_ts)
+        _raw_bytes = b'V1' + b''.join(_struct.pack('>d', float(x)) for x in _ts) + b''.join(_struct.pack('>d', float(x)) for x in _pr) + b''.join(_struct.pack('>d', float(x)) for x in _vol)
+        raw_dataset_hash = _csha(_raw_bytes)
+
         purifier = DataPurifier()
-        df = purifier.purify_tick_data(historical_data)
+        df = purifier.purify_tick_data(historical_data, symbol=symbol, timeframe_seconds=timeframe_seconds or 3600.0)
+        purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
+
+        # P0-4: Compute purified dataset hash AFTER purification
+        _pts = df['timestamp'].to_list() if 'timestamp' in df.columns else []
+        _ppr = df['price'].to_list() if 'price' in df.columns else []
+        _pvol = df['volume'].to_list() if 'volume' in df.columns else [0.0] * len(_pts)
+        _purified_bytes = b'V1' + b''.join(_struct.pack('>d', float(x)) for x in _pts) + b''.join(_struct.pack('>d', float(x)) for x in _ppr) + b''.join(_struct.pack('>d', float(x)) for x in _pvol)
+        purified_dataset_hash = _csha(_purified_bytes)
 
         if 'high' not in df.columns:
             df=df.with_columns(
@@ -168,6 +185,13 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             'total_trades':len(trade_df),'total_bars':len(df),'symbol':symbol,
             'spread_pct':spread_pct,'benchmark_return_pct':round(bh_return*100,2),
             'alpha_pct':round((total_return-bh_return)*100,2),
+            # P0-4: Dataset identity hashes
+            'raw_dataset_hash':raw_dataset_hash,
+            'purified_dataset_hash':purified_dataset_hash,
+            'purification_report':purification_report,
+            # Execution semantics
+            'signal_timing':'next_bar_open','entry_price':'close',
+            'slippage_model':'fixed_pct','spread_model':'historical',
         }
         equity_curve=df.select(['timestamp','price','signal','equity','drawdown','strategy_return'])
         return BacktestResult(equity_curve=equity_curve,trade_log=trade_df,metrics=metrics)

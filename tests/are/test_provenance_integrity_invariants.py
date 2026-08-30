@@ -31,7 +31,7 @@ class TestProvenanceIntegrityInvariants(unittest.TestCase):
         RES-RED-15: Komputasi identik WAJIB menghasilkan proof_hash identik
         meskipun disimpan pada waktu berbeda (content-addressed proof).
         """
-        result = self.engine.run_backtest()
+        result = self.engine.run_backtest(synthetic=True)
 
         # Save twice at different times
         hash_1 = self.engine.save_artifact(result, self.ledger)
@@ -44,8 +44,8 @@ class TestProvenanceIntegrityInvariants(unittest.TestCase):
         """
         RES-RED-15: Komputasi berbeda WAJIB menghasilkan proof_hash berbeda.
         """
-        result_a = self.engine.run_backtest(initial_capital=10000.0)
-        result_b = self.engine.run_backtest(initial_capital=20000.0)
+        result_a = self.engine.run_backtest(initial_capital=10000.0, synthetic=True)
+        result_b = self.engine.run_backtest(initial_capital=20000.0, synthetic=True)
 
         hash_a = self.engine.save_artifact(result_a, self.ledger)
         hash_b = self.engine.save_artifact(result_b, self.ledger)

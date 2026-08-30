@@ -102,7 +102,64 @@ class WFOEvidence:
     worst_wfe: float
     
     provenance_hash: str
+
+
+@dataclass(frozen=True)
+class BacktestResearchContract:
+    """
+    Frozen research contract that locks all semantic decisions before a backtest run.
+    Every backtest must be associated with a contract to ensure reproducibility.
+    """
+    # Dataset Identity
+    instrument: str
+    venue: str
+    timezone: str
+    timeframe_seconds: float
+    data_source: str  # e.g. 'mt5_parquet', 'csv', 'synthetic_test'
+    data_start_ts: float
+    data_end_ts: float
+    raw_dataset_hash: str
+    purified_dataset_hash: str
+    purification_report: Dict[str, Any]  # from DataQualityReport.to_dict()
     
+    # Execution Semantics
+    signal_timing: str  # 'next_bar_open' | 'next_tick' | 'same_bar_close'
+    entry_price_type: str  # 'bid' | 'ask' | 'mid'
+    exit_price_type: str  # 'bid' | 'ask' | 'mid'
+    position_model: str  # 'continuous' | 'discrete'
+    order_type: str  # 'market' | 'limit'
+    fill_guarantee: str  # 'guaranteed' | 'partial_possible'
+    slippage_model: str  # 'fixed_pct' | 'volatility_dependent'
+    spread_model: str  # 'historical' | 'synthetic_fixed'
+    commission_model: str  # 'fixed_pct' | 'proportional'
+    
+    # Strategy Identity
+    strategy_id: str
+    strategy_version: str
+    strategy_family: str
+    parameter_space_hash: str
+    parameter_constraints: Dict[str, Any]
+    signal_domain: str  # 'discrete_ternary' | 'continuous'
+    lookback_bars: int
+    warmup_bars: int
+    
+    # WFO Configuration
+    wfo_train_window_bars: int
+    wfo_test_window_bars: int
+    wfo_step_bars: int
+    wfo_purge_bars: int
+    wfo_warmup_bars: int
+    wfo_n_folds: int
+    wfo_selection_metric: str
+    wfo_tie_breaker: str
+    
+    # Reproducibility
+    engine_version: str
+    configuration_hash: str
+    random_seed: Optional[int]
+    contract_hash: str  # hash of all above fields
+
+
 def build_wfo_provenance_payload(evidence: WFOEvidence) -> Dict[str, Any]:
     return {
         "folds": [
@@ -163,6 +220,7 @@ class IsolatedBacktestEngine:
         spread_pct: float = 0.0001,      # 1 bps default spread cost (0.01%)
         slippage_pct: float = 0.00005,   # 0.5 bps default execution slippage (0.005%)
         commission_pct: float = 0.00005, # 0.5 bps default broker fee (0.005%)
+        synthetic: bool = False,          # Explicit opt-in for synthetic test data
     ) -> BacktestResult:
         """
         Executes a vectorized backtest computation over historical market data.
@@ -186,17 +244,37 @@ class IsolatedBacktestEngine:
             raise ValueError(f"INVALID_TIMEFRAME: timeframe_seconds = {timeframe_seconds} (must be finite)")
 
         if historical_data is None:
-            # Generate deterministic synthetic data for default evaluations
+            if not synthetic:
+                # FAIL-CLOSED: No synthetic fallback in research mode.
+                raise ValueError(
+                    "No historical data provided. Backtest requires real OHLC data.\n"
+                    "Use data_loader.load_ohlc_data() or pass a DataFrame explicitly.\n"
+                    "For testing only: pass synthetic=True to generate test data."
+                )
+            # Explicit synthetic opt-in for testing only
             timestamps = [1700000000 + i * 60 for i in range(1000)]
             prices = [65000.0 + (math.sin(i * 0.05) * 200.0) + (i * 0.1) for i in range(1000)]
-            historical_data = pl.DataFrame({
-                "timestamp": timestamps,
-                "price": prices,
-            })
+            historical_data = pl.DataFrame({"timestamp": timestamps, "price": prices})
+
+        # Compute raw dataset hash BEFORE purification (P0-4)
+        import struct as _struct
+        _ts = historical_data["timestamp"].to_list() if "timestamp" in historical_data.columns else []
+        _pr = historical_data["price"].to_list() if "price" in historical_data.columns else []
+        _vol = historical_data["volume"].to_list() if "volume" in historical_data.columns else [0.0] * len(_ts)
+        _raw_bytes = b"V1" + b"".join(_struct.pack(">d", float(x)) for x in _ts) + b"".join(_struct.pack(">d", float(x)) for x in _pr) + b"".join(_struct.pack(">d", float(x)) for x in _vol)
+        raw_dataset_hash = compute_sha256(_raw_bytes)
 
         # Purify raw tick / bar data via DataPurifier (Anti-GIGO, DELEGASI_029b)
         purifier = DataPurifier()
         purified_data = purifier.purify_tick_data(historical_data)
+        purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
+
+        # Compute purified dataset hash AFTER purification
+        _pts = purified_data["timestamp"].to_list() if "timestamp" in purified_data.columns else []
+        _ppr = purified_data["price"].to_list() if "price" in purified_data.columns else []
+        _pvol = purified_data["volume"].to_list() if "volume" in purified_data.columns else [0.0] * len(_pts)
+        _purified_bytes = b"V1" + b"".join(_struct.pack(">d", float(x)) for x in _pts) + b"".join(_struct.pack(">d", float(x)) for x in _ppr) + b"".join(_struct.pack(">d", float(x)) for x in _pvol)
+        purified_dataset_hash = compute_sha256(_purified_bytes)
 
         # 1. Apply Strategy Logic / Moving Average Crossover
         if strategy_logic is not None:
@@ -216,7 +294,13 @@ class IsolatedBacktestEngine:
             )
 
         if "signal" not in df.columns:
-            df = df.with_columns(pl.lit(1.0).alias("signal"))
+            # FAIL-CLOSED: Strategy MUST produce a 'signal' column.
+            # Always-long fallback masks broken strategies — reject instead.
+            raise ValueError(
+                "Strategy did not produce 'signal' column.\n"
+                "Every strategy_logic function must add a 'signal' column with values: -1.0, 0.0, or 1.0.\n"
+                "Received columns: " + ", ".join(df.columns)
+            )
 
         # Neutralize / block trade execution on toxic spreads or closed market periods (DELEGASI_029b)
         if "is_toxic_spread" in df.columns or "is_market_closed" in df.columns:
@@ -317,6 +401,16 @@ class IsolatedBacktestEngine:
             "total_trades": len(trade_df),
             "timeframe_seconds": timeframe_seconds,
             "annualization_factor": round(annual_factor, 4),
+            # P0-4: Dataset identity hashes
+            "raw_dataset_hash": raw_dataset_hash,
+            "purified_dataset_hash": purified_dataset_hash,
+            # P0-1: Purification audit trail
+            "purification_report": purification_report,
+            # P0-4: Execution semantics
+            "signal_timing": "next_bar_open",
+            "entry_price": "close",
+            "position_model": "continuous",
+            "fill_guarantee": "guaranteed",
         }
 
         equity_curve = df.select(["timestamp", "price", "signal", "equity", "drawdown", "strategy_return"])
@@ -830,5 +924,255 @@ class IsolatedBacktestEngine:
         import dataclasses
         evidence = dataclasses.replace(evidence, provenance_hash=provenance_hash)
 
+        # P1-3: Auto-save WFOEvidence to disk for reproducibility
+        try:
+            wfo_dir = "data/backtests"
+            os.makedirs(wfo_dir, exist_ok=True)
+            wfo_file = os.path.join(wfo_dir, f"wfo-{run_id}.json")
+            wfo_payload = {
+                "run_id": evidence.run_id,
+                "dataset_hash": evidence.dataset_hash,
+                "provenance_hash": evidence.provenance_hash,
+                "fold_count": evidence.fold_count,
+                "parameter_family_size": evidence.parameter_family_size,
+                "pooled_oos_sharpe": evidence.pooled_oos_sharpe,
+                "pooled_oos_return": evidence.pooled_oos_return,
+                "pooled_oos_max_drawdown": evidence.pooled_oos_max_drawdown,
+                "mean_wfe": evidence.mean_wfe,
+                "purge_bars": evidence.purge_bars,
+                "warmup_bars": evidence.warmup_bars,
+                "fold_details": [
+                    {
+                        "fold_id": f.fold_id,
+                        "winner_params": f.winner_params,
+                        "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0),
+                        "wfe": f.wfe,
+                    } for f in evidence.folds
+                ],
+                "timestamp": time.time(),
+            }
+            with open(wfo_file, "w") as wf:
+                json.dump(wfo_payload, wf, indent=2, default=str)
+        except Exception:
+            pass  # Non-critical — don't fail WFO if save fails
+
         return evidence
+
+
+# =============================================================================
+# BASELINE SUITE — Information Value Assessment (P1-1)
+# =============================================================================
+
+def baseline_buy_and_hold(df: pl.DataFrame) -> pl.DataFrame:
+    """Always long from bar 0 — the simplest possible benchmark."""
+    return df.with_columns(pl.lit(1.0).alias("signal"))
+
+
+def baseline_always_flat(df: pl.DataFrame) -> pl.DataFrame:
+    """Never trade — tests whether any alpha exists above zero."""
+    return df.with_columns(pl.lit(0.0).alias("signal"))
+
+
+def baseline_naive_long(df: pl.DataFrame) -> pl.DataFrame:
+    """Long if previous return was positive (momentum 1-bar)."""
+    return df.with_columns(
+        pl.when(pl.col("price").pct_change().shift(1) > 0).then(1.0)
+        .otherwise(0.0).alias("signal")
+    )
+
+
+def baseline_naive_short(df: pl.DataFrame) -> pl.DataFrame:
+    """Short if previous return was negative (mean-reversion 1-bar)."""
+    return df.with_columns(
+        pl.when(pl.col("price").pct_change().shift(1) < 0).then(-1.0)
+        .otherwise(0.0).alias("signal")
+    )
+
+
+def baseline_random_permutation(df: pl.DataFrame, seed: int = 42) -> pl.DataFrame:
+    """Random signal — tests if strategy beats noise."""
+    import random as _rng
+    rng = _rng.Random(seed)
+    n = len(df)
+    signals = [rng.choice([-1.0, 0.0, 1.0]) for _ in range(n)]
+    return df.with_columns(pl.Series("signal", signals))
+
+
+BASELINE_STRATEGIES = {
+    "buy_and_hold": baseline_buy_and_hold,
+    "always_flat": baseline_always_flat,
+    "naive_long": baseline_naive_long,
+    "naive_short": baseline_naive_short,
+    "random_permutation": baseline_random_permutation,
+}
+
+
+def run_baseline_comparison(
+    engine: "IsolatedBacktestEngine",
+    historical_data: pl.DataFrame,
+    strategy_logic: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
+    strategy_name: str = "strategy",
+    initial_capital: float = 10000.0,
+    timeframe_seconds: float = 3600.0,
+    spread_pct: float = 0.0001,
+    slippage_pct: float = 0.00005,
+    commission_pct: float = 0.00005,
+) -> Dict[str, Any]:
+    """
+    Runs strategy against all baselines. Returns comparison dict.
+    Strategy has alpha if it beats all baselines on Sharpe AND return.
+    """
+    results = {}
+    
+    # Run baselines
+    for name, bl_logic in BASELINE_STRATEGIES.items():
+        try:
+            r = engine.run_backtest(
+                strategy_logic=bl_logic,
+                historical_data=historical_data,
+                initial_capital=initial_capital,
+                timeframe_seconds=timeframe_seconds,
+                spread_pct=spread_pct,
+                slippage_pct=slippage_pct,
+                commission_pct=commission_pct,
+            )
+            results[name] = {
+                "sharpe": r.metrics.get("sharpe_ratio", 0.0),
+                "return_pct": r.metrics.get("total_return_pct", 0.0),
+                "max_dd_pct": r.metrics.get("max_drawdown_pct", 0.0),
+                "trades": r.metrics.get("total_trades", 0),
+            }
+        except Exception as e:
+            results[name] = {"error": str(e)}
+    
+    # Run actual strategy
+    if strategy_logic is not None:
+        try:
+            r = engine.run_backtest(
+                strategy_logic=strategy_logic,
+                historical_data=historical_data,
+                initial_capital=initial_capital,
+                timeframe_seconds=timeframe_seconds,
+                spread_pct=spread_pct,
+                slippage_pct=slippage_pct,
+                commission_pct=commission_pct,
+            )
+            results[strategy_name] = {
+                "sharpe": r.metrics.get("sharpe_ratio", 0.0),
+                "return_pct": r.metrics.get("total_return_pct", 0.0),
+                "max_dd_pct": r.metrics.get("max_drawdown_pct", 0.0),
+                "trades": r.metrics.get("total_trades", 0),
+            }
+        except Exception as e:
+            results[strategy_name] = {"error": str(e)}
+    
+    # Assessment
+    if strategy_name in results and "error" not in results[strategy_name]:
+        strat = results[strategy_name]
+        beats_all_sharpe = all(
+            v.get("sharpe", -999) < strat["sharpe"]
+            for k, v in results.items()
+            if k != strategy_name and "error" not in v
+        )
+        beats_all_return = all(
+            v.get("return_pct", -999) < strat["return_pct"]
+            for k, v in results.items()
+            if k != strategy_name and "error" not in v
+        )
+        results["_assessment"] = {
+            "has_alpha": beats_all_sharpe and beats_all_return,
+            "beats_all_sharpe": beats_all_sharpe,
+            "beats_all_return": beats_all_return,
+            "strategy_sharpe": strat["sharpe"],
+            "best_baseline_sharpe": max(
+                (v.get("sharpe", -999) for k, v in results.items()
+                 if k != strategy_name and "error" not in v),
+                default=0.0
+            ),
+        }
+    
+    return results
+
+
+# =============================================================================
+# PARAMETER STABILITY ANALYSIS (P1-2)
+# =============================================================================
+
+def parameter_stability_analysis(
+    engine: "IsolatedBacktestEngine",
+    historical_data: pl.DataFrame,
+    base_strategy: Callable[[pl.DataFrame], pl.DataFrame],
+    param_name: str,
+    param_values: List[float],
+    param_mutator: Callable[[pl.DataFrame, float], pl.DataFrame],
+    initial_capital: float = 10000.0,
+    timeframe_seconds: float = 3600.0,
+) -> Dict[str, Any]:
+    """
+    Tests parameter stability: does performance degrade gracefully near the winner?
+    
+    param_mutator: function(df, param_value) -> df_with_signal
+    Returns performance surface + stability assessment.
+    """
+    surface = []
+    for val in param_values:
+        try:
+            r = engine.run_backtest(
+                strategy_logic=lambda df, v=val: param_mutator(df, v),
+                historical_data=historical_data,
+                initial_capital=initial_capital,
+                timeframe_seconds=timeframe_seconds,
+            )
+            surface.append({
+                "param_value": val,
+                "sharpe": r.metrics.get("sharpe_ratio", 0.0),
+                "return_pct": r.metrics.get("total_return_pct", 0.0),
+                "max_dd_pct": r.metrics.get("max_drawdown_pct", 0.0),
+                "trades": r.metrics.get("total_trades", 0),
+            })
+        except Exception as e:
+            surface.append({"param_value": val, "error": str(e)})
+    
+    valid = [s for s in surface if "error" not in s]
+    if len(valid) < 3:
+        return {"surface": surface, "stability": "INSUFFICIENT_DATA", "verdict": "NEED_MORE_POINTS"}
+    
+    sharpes = [s["sharpe"] for s in valid]
+    best_idx = sharpes.index(max(sharpes))
+    best_val = valid[best_idx]["param_value"]
+    best_sharpe = max(sharpes)
+    
+    # Check neighborhood stability: ±1, ±2 indices from best
+    neighbors_sharpes = []
+    for offset in [-2, -1, 1, 2]:
+        idx = best_idx + offset
+        if 0 <= idx < len(valid):
+            neighbors_sharpes.append(valid[idx]["sharpe"])
+    
+    if neighbors_sharpes:
+        mean_neighbor = sum(neighbors_sharpes) / len(neighbors_sharpes)
+        stability_ratio = mean_neighbor / best_sharpe if best_sharpe > 0 else 0.0
+    else:
+        stability_ratio = 0.0
+    
+    # Assessment
+    if stability_ratio >= 0.7:
+        stability = "ROBUST"
+        verdict = "PARAMETER_IS_STABLE"
+    elif stability_ratio >= 0.4:
+        stability = "MARGINAL"
+        verdict = "PARAMETER_SENSITIVE_BUT_USEABLE"
+    else:
+        stability = "FRAGILE"
+        verdict = "PARAMETER_PEAK_IS_SUSPICIOUS"
+    
+    return {
+        "param_name": param_name,
+        "surface": surface,
+        "best_param": best_val,
+        "best_sharpe": round(best_sharpe, 4),
+        "stability_ratio": round(stability_ratio, 4),
+        "stability": stability,
+        "verdict": verdict,
+    }
 

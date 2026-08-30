@@ -127,8 +127,8 @@ class TestBacktestInvariants(unittest.TestCase):
         Invariant 3: Converting Polars DataFrame to JSON and saving to EvidenceLedger
         executes cleanly without TypeError and produces verifiable cryptographic proof.
         """
-        # Run small backtest
-        result = self.engine.run_backtest()
+        # Run small backtest (synthetic=True for testing only)
+        result = self.engine.run_backtest(synthetic=True)
 
         # Save artifact to Evidence Ledger
         proof_hash = self.engine.save_artifact(result=result, evidence_ledger=self.ledger)
