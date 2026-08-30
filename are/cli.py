@@ -67,6 +67,21 @@ def build_parser() -> argparse.ArgumentParser:
     # 6. dashboard
     subparsers.add_parser("dashboard", help="Render rich terminal dashboard")
 
+    # 7. backtest
+    bt_parser = subparsers.add_parser("backtest", help="Run backtest or WFO analysis")
+    bt_subs = bt_parser.add_subparsers(dest="bt_command")
+    run_parser = bt_subs.add_parser("run", help="Run a single backtest")
+    run_parser.add_argument("--strategy", default="dsr-momentum-001", help="Strategy ID from strategies.json")
+    run_parser.add_argument("--symbol", default="XAUUSD", help="Trading symbol")
+    run_parser.add_argument("--start", default="2025-01-01", help="Start date (YYYY-MM-DD)")
+    run_parser.add_argument("--end", default="2026-08-01", help="End date (YYYY-MM-DD)")
+    run_parser.add_argument("--capital", type=float, default=100000, help="Initial capital")
+    run_parser.add_argument("--timeframe", default="H1", help="Timeframe")
+    wfo_parser = bt_subs.add_parser("wfo", help="Run Walk-Forward Optimization")
+    wfo_parser.add_argument("--symbol", default="XAUUSD", help="Trading symbol")
+    wfo_parser.add_argument("--folds", type=int, default=5, help="Number of WFO folds")
+    bt_subs.add_parser("list", help="List all backtest results")
+
     return parser
 
 
@@ -264,6 +279,148 @@ def handle_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_backtest(args: argparse.Namespace) -> int:
+    """Run backtest or WFO analysis."""
+    import json as _json
+    from are.backtest import IsolatedBacktestEngine
+    engine = IsolatedBacktestEngine()
+
+    if args.bt_command == "run":
+        # Load strategy from strategies.json
+        strat_path = os.path.join("data", "strategies", "strategies.json")
+        strategy_logic = None
+        initial_capital = args.capital
+        if os.path.exists(strat_path):
+            with open(strat_path) as f:
+                raw = _json.load(f)
+            strats = raw if isinstance(raw, list) else raw.get("strategies", [])
+            for s in strats:
+                if s.get("id") == args.strategy or s.get("name", "").lower().replace(" ", "-") == args.strategy:
+                    params = s.get("params", {})
+                    strategy_logic = lambda df, p=params: df.with_columns(
+                        pl.col("price").pct_change(p.get("emaFast", 20)).alias("_momentum")
+                    ).with_columns(
+                        pl.when(pl.col("_momentum") > 0.02).then(1)
+                        .when(pl.col("_momentum") < -0.02).then(-1)
+                        .otherwise(0).alias("position")
+                    )
+                    break
+
+        # Generate synthetic price data for demo if no real data
+        import polars as pl
+        import math, random, time as _time
+        n_bars = 5000
+        seed_val = int(_time.time()) % 10000
+        rng = random.Random(seed_val)
+        prices = [100.0]
+        for i in range(n_bars - 1):
+            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+        dates = [_time.time() - (n_bars - i) * 3600 for i in range(n_bars)]
+        df = pl.DataFrame({
+            "timestamp": dates,
+            "price": prices,
+            "volume": [rng.randint(100, 10000) for _ in range(n_bars)],
+        })
+        # Add signal column (simple momentum)
+        df = df.with_columns(
+            pl.col("price").pct_change(20).alias("momentum")
+        ).with_columns(
+            pl.when(pl.col("momentum") > 0.02).then(1)
+            .when(pl.col("momentum") < -0.02).then(-1)
+            .otherwise(0).alias("signal")
+        )
+
+        def default_strategy(df: pl.DataFrame) -> pl.DataFrame:
+            # Generate signal from price data (engine purifies non-price cols)
+            df = df.with_columns(
+                pl.col("price").pct_change(20).alias("_momentum")
+            ).with_columns(
+                pl.when(pl.col("_momentum") > 0.02).then(1)
+                .when(pl.col("_momentum") < -0.02).then(-1)
+                .otherwise(0).alias("position")
+            )
+            return df
+
+        bt_func = strategy_logic if strategy_logic else default_strategy
+        result = engine.run_backtest(
+            strategy_logic=bt_func,
+            historical_data=df,
+            initial_capital=initial_capital,
+            timeframe_seconds=3600.0,
+        )
+        metrics = result.metrics
+        print(f"\n{'='*60}")
+        print(f"BACKTEST RESULTS — {args.symbol} {args.timeframe}")
+        print(f"{'='*60}")
+        print(f"  Period:      {args.start} to {args.end}")
+        print(f"  Capital:     ${initial_capital:,.2f}")
+        print(f"  Trades:      {metrics.get('total_trades', 0)}")
+        print(f"  Win Rate:    {metrics.get('win_rate', 0):.1f}%")
+        print(f"  Net PnL:     ${metrics.get('net_pnl', 0):,.2f}")
+        print(f"  Sharpe:      {metrics.get('sharpe_ratio', 0):.3f}")
+        print(f"  Max DD:      {metrics.get('max_drawdown_pct', 0):.2f}%")
+        print(f"  PF:          {metrics.get('profit_factor', 0):.2f}")
+        print(f"{'='*60}\n")
+
+        # Save result to data/backtests/
+        bt_dir = os.path.join("data", "backtests")
+        os.makedirs(bt_dir, exist_ok=True)
+        bt_id = f"bkt-{int(_time.time()*1000)}"
+        bt_file = os.path.join(bt_dir, f"{bt_id}.json")
+        with open(bt_file, "w") as f:
+            _json.dump({
+                "id": bt_id,
+                "strategy_id": args.strategy,
+                "symbol": args.symbol,
+                "timeframe": args.timeframe,
+                "start": args.start,
+                "end": args.end,
+                "initial_capital": initial_capital,
+                "metrics": metrics,
+                "saved_at": _time.time(),
+            }, f, indent=2)
+        print(f"  Saved to: {bt_file}")
+        return 0
+
+    elif args.bt_command == "wfo":
+        import polars as pl
+        import math, random, time as _time
+        n_bars = 10000
+        rng = random.Random(42)
+        prices = [100.0]
+        for _ in range(n_bars - 1):
+            prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+        dates = [_time.time() - (n_bars - i) * 3600 for i in range(n_bars)]
+        df = pl.DataFrame({"timestamp": dates, "price": prices, "volume": [rng.randint(100, 10000) for _ in range(n_bars)]})
+        df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
+            pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
+        )
+        def strat(df): return df.with_columns(pl.when(pl.col("signal")==1).then(1).when(pl.col("signal")==-1).then(-1).otherwise(0).alias("position"))
+        wfo_result = engine.run_wfo(strategy_logic=strat, historical_data=df, n_folds=args.folds)
+        print(f"\nWFO COMPLETE — {args.folds} folds")
+        print(f"  Pooled OOS Sharpe: {wfo_result.pooled_oos_sharpe:.3f}")
+        print(f"  Mean WFE: {wfo_result.mean_wfe:.3f}")
+        return 0
+
+    elif args.bt_command == "list":
+        bt_dir = os.path.join("data", "backtests")
+        if not os.path.exists(bt_dir):
+            print("No backtests found."); return 0
+        files = sorted([f for f in os.listdir(bt_dir) if f.endswith(".json")])
+        print(f"\n{'ID':<25} {'Strategy':<25} {'Trades':<8} {'WR':<8} {'Sharpe':<8}")
+        print("-" * 80)
+        for fn in files:
+            with open(os.path.join(bt_dir, fn)) as f:
+                bt = _json.load(f)
+            m = bt.get("metrics", {})
+            print(f"{bt.get('id','?'):<25} {bt.get('strategy_id','?'):<25} {m.get('total_trades',0):<8} {m.get('win_rate',0):.1f}%  {m.get('sharpe_ratio',0):.3f}")
+        print()
+        return 0
+
+    print("Usage: are backtest {run|wfo|list}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -286,6 +443,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_safety_release(args)
     elif args.command == "dashboard":
         return handle_dashboard(args)
+    elif args.command == "backtest":
+        return handle_backtest(args)
 
     return 0
 

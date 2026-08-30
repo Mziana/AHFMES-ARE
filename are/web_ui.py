@@ -213,7 +213,8 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
     """HTTP Request Handler routing REST API endpoints and static assets."""
 
     def _is_authorized(self) -> bool:
-        """Verifies access token from query param, HTTP header, or cookie (ACC-721)."""
+        """Verifies access token using constant-time comparison (ACC-721)."""
+        import hmac as _hmac
         global _GLOBAL_SERVER_STATE
         state = _GLOBAL_SERVER_STATE
         if state is None or not state.auth_token:
@@ -223,26 +224,23 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         if not expected:
             return True
 
+        def _check(candidate: str) -> bool:
+            return bool(candidate) and _hmac.compare_digest(candidate, expected)
+
         # 1. Query parameter (?auth=... or ?token=...)
         try:
             parsed = urllib.parse.urlparse(self.path)
             qs = urllib.parse.parse_qs(parsed.query)
             token_q = (qs.get("auth", [None])[0] or qs.get("token", [None])[0] or "").strip()
-            if token_q and token_q == expected:
-                return True
+            if _check(token_q): return True
         except Exception:
             pass
 
         # 2. HTTP Headers (X-Auth-Token or Authorization: Bearer)
-        x_auth = self.headers.get("X-Auth-Token", "").strip()
-        if x_auth == expected:
-            return True
-
+        if _check(self.headers.get("X-Auth-Token", "").strip()): return True
         auth_hdr = self.headers.get("Authorization", "").strip()
         if auth_hdr.lower().startswith("bearer "):
-            token_bearer = auth_hdr[7:].strip()
-            if token_bearer == expected:
-                return True
+            if _check(auth_hdr[7:].strip()): return True
 
         # 3. HTTP Cookie (are_auth=...)
         cookie_hdr = self.headers.get("Cookie", "")
@@ -250,8 +248,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             for cookie in cookie_hdr.split(";"):
                 parts = cookie.strip().split("=", 1)
                 if len(parts) == 2 and parts[0].strip() == "are_auth":
-                    if parts[1].strip() == expected:
-                        return True
+                    if _check(parts[1].strip()): return True
 
         return False
 
@@ -315,6 +312,26 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._send_json(500, {"error": "Server state uninitialized"})
 
+        elif clean_path.startswith("/api/backtest/list"):
+            bt_dir = os.path.join("data", "backtests")
+            results = []
+            if os.path.exists(bt_dir):
+                for fn in sorted(os.listdir(bt_dir)):
+                    if fn.endswith(".json"):
+                        with open(os.path.join(bt_dir, fn)) as f:
+                            results.append(json.load(f))
+            self._send_json(200, {"results": results})
+
+        elif clean_path.startswith("/api/backtest/"):
+            bt_id = clean_path.split("/api/backtest/")[1]
+            bt_dir = os.path.join("data", "backtests")
+            bt_file = os.path.join(bt_dir, f"{bt_id}.json")
+            if os.path.exists(bt_file):
+                with open(bt_file) as f:
+                    self._send_json(200, json.load(f))
+            else:
+                self._send_json(404, {"error": f"Backtest '{bt_id}' not found"})
+
         else:
             self._send_json(404, {"error": f"Endpoint '{clean_path}' not found"})
 
@@ -364,6 +381,41 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
             msg = str(payload.get("message", "")).strip()
             reply = state.copilot.generate_response(msg)
             self._send_json(200, {"reply": reply})
+
+        elif clean_path == "/api/backtest/run":
+            try:
+                from are.backtest import IsolatedBacktestEngine
+                import polars as pl, random, time as _bt_t
+                engine = IsolatedBacktestEngine()
+                symbol = payload.get("symbol", "XAUUSD")
+                capital = float(payload.get("capital", 100000))
+                n_bars = int(payload.get("bars", 5000))
+                rng = random.Random(int(_bt_t.time()) % 10000)
+                prices = [100.0]
+                for _ in range(n_bars - 1):
+                    prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+                df = pl.DataFrame({
+                    "timestamp": [_bt_t.time() - (n_bars - i) * 3600 for i in range(n_bars)],
+                    "price": prices,
+                    "volume": [rng.randint(100, 10000) for _ in range(n_bars)],
+                })
+                df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
+                    pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
+                )
+                def strat(d): return d.with_columns(pl.when(pl.col("signal")==1).then(1).when(pl.col("signal")==-1).then(-1).otherwise(0).alias("position"))
+                result = engine.run_backtest(strategy_logic=strat, historical_data=df, initial_capital=capital)
+                bt_id = f"bkt-{int(_bt_t.time()*1000)}"
+                bt_dir = os.path.join("data", "backtests")
+                os.makedirs(bt_dir, exist_ok=True)
+                bt_data = {
+                    "id": bt_id, "symbol": symbol, "capital": capital,
+                    "metrics": result.metrics, "saved_at": _bt_t.time(),
+                }
+                with open(os.path.join(bt_dir, f"{bt_id}.json"), "w") as f:
+                    json.dump(bt_data, f, indent=2)
+                self._send_json(200, bt_data)
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
 
         else:
             self._send_json(404, {"error": f"Endpoint '{clean_path}' not found"})
