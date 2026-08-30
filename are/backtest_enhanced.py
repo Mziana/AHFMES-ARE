@@ -255,7 +255,7 @@ class CumulativeTrialTracker:
         try:
             if os.path.exists(self.TRACKER_FILE):
                 with open(self.TRACKER_FILE) as f: return json.load(f)
-        except: pass
+        except Exception: pass
         return {'total_trials':0,'sessions':[],'symbol_trials':{}}
 
     def _save(self):

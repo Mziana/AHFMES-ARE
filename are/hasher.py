@@ -1,4 +1,4 @@
-﻿"""
+"""
 AHFMES Cryptographic Hasher Utility
 """
 from __future__ import annotations

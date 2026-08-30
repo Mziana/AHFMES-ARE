@@ -69,7 +69,7 @@ def get_account_data():
                         'ask': round(t.ask, decimals),
                         'spread': round((t.ask - t.bid) * (100 if 'JPY' in sym else 10000), 1)
                     }
-            except:
+            except Exception:
                 pass
         
         positions = []

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -89,6 +90,7 @@ class ExecutionStateMachine:
 
     def __init__(self, state_file: Optional[str] = None):
         self.state_file = state_file or self.STATE_FILE
+        self._lock = threading.Lock()  # Thread-safe access from multiple threads
         self._active_orders: Dict[str, OrderLifecycle] = {}
         self._finalized_orders: List[OrderLifecycle] = []
         self._peak_equity: float = 0.0
@@ -151,8 +153,9 @@ class ExecutionStateMachine:
 
     def set_kill_switch(self, active: bool) -> bool:
         """Set kill switch and persist to disk."""
-        self._kill_switch_active = active
-        self._save_state()
+        with self._lock:
+            self._kill_switch_active = active
+            self._save_state()
         return self._kill_switch_active
 
     # ─── Peak Equity (Persistent) ────────────────────────────────────────
@@ -163,20 +166,22 @@ class ExecutionStateMachine:
 
     def update_peak_equity(self, current_equity: float) -> float:
         """Update peak equity and persist. Returns current drawdown %."""
-        if current_equity > self._peak_equity:
-            self._peak_equity = current_equity
-        dd_pct = 0.0
-        if self._peak_equity > 0:
-            dd_pct = max(0.0, (self._peak_equity - current_equity) / self._peak_equity * 100.0)
-        self._save_state()
+        with self._lock:
+            if current_equity > self._peak_equity:
+                self._peak_equity = current_equity
+            dd_pct = 0.0
+            if self._peak_equity > 0:
+                dd_pct = max(0.0, (self._peak_equity - current_equity) / self._peak_equity * 100.0)
+            self._save_state()
         return dd_pct
 
     # ─── Position Persistence (P0-3) ─────────────────────────────────────
 
     def persist_positions(self, positions: List[Dict]):
         """Persist open positions to disk for crash recovery."""
-        self._persisted_positions = positions
-        self._save_state()
+        with self._lock:
+            self._persisted_positions = positions
+            self._save_state()
 
     def get_persisted_positions(self) -> List[Dict]:
         """Get positions from last persist (survives restart)."""
@@ -184,18 +189,20 @@ class ExecutionStateMachine:
 
     def clear_persisted_positions(self):
         """Clear persisted positions after successful reconciliation."""
-        self._persisted_positions = []
-        self._save_state()
+        with self._lock:
+            self._persisted_positions = []
+            self._save_state()
 
     # ─── Order Rate Limiter (Persistent) ─────────────────────────────────
 
     def record_order(self):
         """Record an order timestamp and persist."""
-        self._order_timestamps.append(time.time())
-        # Prune old timestamps (keep last 5 minutes)
-        cutoff = time.time() - 300
-        self._order_timestamps = [t for t in self._order_timestamps if t > cutoff]
-        self._save_state()
+        with self._lock:
+            self._order_timestamps.append(time.time())
+            # Prune old timestamps (keep last 5 minutes)
+            cutoff = time.time() - 300
+            self._order_timestamps = [t for t in self._order_timestamps if t > cutoff]
+            self._save_state()
 
     def get_order_count(self, window_seconds: float = 60.0) -> int:
         """Get order count in window (from persistent state)."""
@@ -206,118 +213,126 @@ class ExecutionStateMachine:
 
     def create_order(self, order_id: str, symbol: str, action: str, volume: float) -> OrderLifecycle:
         """INTENDED → create lifecycle entry."""
-        order = OrderLifecycle(
-            order_id=order_id,
-            symbol=symbol,
-            action=action,
-            intended_volume=volume,
-            state=OrderState.INTENDED,
-        )
-        self._active_orders[order_id] = order
-        self._save_state()
+        with self._lock:
+            order = OrderLifecycle(
+                order_id=order_id,
+                symbol=symbol,
+                action=action,
+                intended_volume=volume,
+                state=OrderState.INTENDED,
+            )
+            self._active_orders[order_id] = order
+            self._save_state()
         return order
 
     def dispatch_order(self, order_id: str) -> OrderLifecycle:
         """INTENDED → DISPATCHED."""
-        order = self._active_orders.get(order_id)
-        if order and order.state == OrderState.INTENDED:
-            order.state = OrderState.DISPATCHED
-            order.updated_at = time.time()
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order and order.state == OrderState.INTENDED:
+                order.state = OrderState.DISPATCHED
+                order.updated_at = time.time()
+                self._save_state()
         return order
 
     def acknowledge_order(self, order_id: str, retcode: int, comment: str = "") -> OrderLifecycle:
         """DISPATCHED → ACKNOWLEDGED (broker responded)."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.state = OrderState.ACKNOWLEDGED
-            order.broker_retcode = retcode
-            order.broker_comment = comment
-            order.updated_at = time.time()
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.state = OrderState.ACKNOWLEDGED
+                order.broker_retcode = retcode
+                order.broker_comment = comment
+                order.updated_at = time.time()
+                self._save_state()
         return order
 
     def fill_order(self, order_id: str, filled_volume: float, fill_price: float,
                    position_ticket: Optional[int] = None) -> OrderLifecycle:
         """ACKNOWLEDGED → FILLED or PARTIAL."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.filled_volume = filled_volume
-            order.fill_price = fill_price
-            order.position_ticket = position_ticket
-            if filled_volume >= order.intended_volume * 0.99:
-                order.state = OrderState.FILLED
-            elif filled_volume > 0:
-                order.state = OrderState.PARTIAL
-            else:
-                order.state = OrderState.REJECTED
-            order.updated_at = time.time()
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.filled_volume = filled_volume
+                order.fill_price = fill_price
+                order.position_ticket = position_ticket
+                if filled_volume >= order.intended_volume * 0.99:
+                    order.state = OrderState.FILLED
+                elif filled_volume > 0:
+                    order.state = OrderState.PARTIAL
+                else:
+                    order.state = OrderState.REJECTED
+                order.updated_at = time.time()
+                self._save_state()
         return order
 
     def reconcile_order(self, order_id: str, actual_positions: List[Dict[str, Any]]) -> OrderLifecycle:
         """FILLED/PARTIAL → RECONCILED (verified against broker positions)."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.reconciliation_attempts += 1
-            # Find matching position
-            matched = False
-            for pos in actual_positions:
-                if (pos.get("symbol") == order.symbol and
-                    pos.get("type", "").upper() == order.action.upper()):
-                    matched = True
-                    order.position_ticket = pos.get("ticket")
-                    if order.state == OrderState.PARTIAL:
-                        order.filled_volume = pos.get("volume", order.filled_volume)
-                    break
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.reconciliation_attempts += 1
+                # Find matching position
+                matched = False
+                for pos in actual_positions:
+                    if (pos.get("symbol") == order.symbol and
+                        pos.get("type", "").upper() == order.action.upper()):
+                        matched = True
+                        order.position_ticket = pos.get("ticket")
+                        if order.state == OrderState.PARTIAL:
+                            order.filled_volume = pos.get("volume", order.filled_volume)
+                        break
 
-            if matched:
-                order.state = OrderState.RECONCILED  # Only reconcile when broker position VERIFIED
-            elif order.state == OrderState.FILLED and not matched:
-                # FILLED but position not found in broker — this is DANGEROUS
-                order.state = OrderState.AMBIGUOUS  # P0-3: Never assume FILLED = RECONCILED
-                order.error_message = f"Order FILLED but position NOT found in broker after {order.reconciliation_attempts} attempts"
-            elif order.state == OrderState.PARTIAL and not matched:
-                # Partial fill not confirmed — stay in PARTIAL for retry
-                pass
-            elif order.state == OrderState.AMBIGUOUS:
-                # Cannot reconcile — mark for emergency policy
-                pass
+                if matched:
+                    order.state = OrderState.RECONCILED  # Only reconcile when broker position VERIFIED
+                elif order.state == OrderState.FILLED and not matched:
+                    # FILLED but position not found in broker — this is DANGEROUS
+                    order.state = OrderState.AMBIGUOUS  # P0-3: Never assume FILLED = RECONCILED
+                    order.error_message = f"Order FILLED but position NOT found in broker after {order.reconciliation_attempts} attempts"
+                elif order.state == OrderState.PARTIAL and not matched:
+                    # Partial fill not confirmed — stay in PARTIAL for retry
+                    pass
+                elif order.state == OrderState.AMBIGUOUS:
+                    # Cannot reconcile — mark for emergency policy
+                    pass
 
-            order.updated_at = time.time()
-            self._save_state()
+                order.updated_at = time.time()
+                self._save_state()
         return order
 
     def finalize_order(self, order_id: str) -> OrderLifecycle:
         """RECONCILED → FINALIZED (closed/confirmed)."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.state = OrderState.FINALIZED
-            order.updated_at = time.time()
-            self._finalized_orders.append(order)
-            del self._active_orders[order_id]
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.state = OrderState.FINALIZED
+                order.updated_at = time.time()
+                self._finalized_orders.append(order)
+                del self._active_orders[order_id]
+                self._save_state()
         return order
 
     def mark_ambiguous(self, order_id: str, error: str = "") -> OrderLifecycle:
         """Mark order as ambiguous (broker returned None or unknown state)."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.state = OrderState.AMBIGUOUS
-            order.error_message = error
-            order.updated_at = time.time()
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.state = OrderState.AMBIGUOUS
+                order.error_message = error
+                order.updated_at = time.time()
+                self._save_state()
         return order
 
     def mark_failed(self, order_id: str, error: str = "") -> OrderLifecycle:
         """Mark order as failed."""
-        order = self._active_orders.get(order_id)
-        if order:
-            order.state = OrderState.FAILED
-            order.error_message = error
-            order.updated_at = time.time()
-            self._active_orders.pop(order_id, None)
-            self._save_state()
+        with self._lock:
+            order = self._active_orders.get(order_id)
+            if order:
+                order.state = OrderState.FAILED
+                order.error_message = error
+                order.updated_at = time.time()
+                self._active_orders.pop(order_id, None)
+                self._save_state()
         return order
 
     def get_active_orders(self) -> List[OrderLifecycle]:

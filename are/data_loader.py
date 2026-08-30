@@ -114,7 +114,7 @@ def list_available_data():
             try:
                 df = pl.read_parquet(os.path.join(DATA_DIR, f))
                 bars = df.height
-            except:
+            except Exception:
                 bars = "?"
             print(f"{sym:<12} {tf:<6} {start_d:<12} {end_d:<12} {bars:<8} {f}")
         else:

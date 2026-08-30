@@ -335,6 +335,11 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
         elif clean_path.startswith("/api/backtest/") and clean_path.endswith("/equity-curve"):
             bt_id = clean_path.split("/api/backtest/")[1].split("/")[0]
+            # SECURITY: sanitize bt_id to prevent path traversal
+            import re as _re
+            if not _re.match(r'^[a-zA-Z0-9_\-]+$', bt_id):
+                self._send_json(400, {"error": "Invalid backtest ID"})
+                return
             bt_dir = os.path.join("data", "backtests")
             bt_file = os.path.join(bt_dir, f"{bt_id}.json")
             if os.path.exists(bt_file):
@@ -347,6 +352,10 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
         elif clean_path.startswith("/api/backtest/"):
             bt_id = clean_path.split("/api/backtest/")[1]
+            # SECURITY: sanitize bt_id to prevent path traversal
+            if not _re.match(r'^[a-zA-Z0-9_\-]+$', bt_id):
+                self._send_json(400, {"error": "Invalid backtest ID"})
+                return
             bt_dir = os.path.join("data", "backtests")
             bt_file = os.path.join(bt_dir, f"{bt_id}.json")
             if os.path.exists(bt_file):
