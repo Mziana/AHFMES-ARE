@@ -209,7 +209,8 @@ def handle_run_cycle(args: argparse.Namespace) -> int:
 
     store.close()
     ledger.close()
-    return 0 if res.status == "PROMOTED" else 1
+    # Both PROMOTED and REJECTED are valid cycle outcomes
+    return 0 if res.status in ("PROMOTED", "REJECTED") else 1
 
 
 def handle_run_daemon(args: argparse.Namespace) -> int:

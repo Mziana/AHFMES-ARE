@@ -23,6 +23,19 @@ from are.storage import EventStore
 
 class TestRuntimeTruthInvariants(unittest.TestCase):
     def setUp(self):
+        import json as _json
+        # Reset execution state to avoid stale kill_switch from previous runs
+        state_file = "data/execution_state.json"
+        if os.path.exists(state_file):
+            try:
+                with open(state_file) as _f:
+                    _state = _json.load(_f)
+                _state["kill_switch_active"] = False
+                _state["peak_equity"] = 0.0
+                with open(state_file, "w") as _f:
+                    _json.dump(_state, _f, indent=2)
+            except Exception:
+                pass
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tmp_dir.name, "truth_test.db")
         self.store = EventStore(self.db_path)
@@ -53,6 +66,9 @@ class TestRuntimeTruthInvariants(unittest.TestCase):
         - 5 open positions opened >60s ago -> get_recent_order_count(60.0) == 0 -> order allowed.
         - 10 orders dispatched within 5s -> get_recent_order_count(60.0) == 10 -> 11th order blocked (ACC-404).
         """
+        # Clear any order timestamps from previous tests
+        self.gateway._exec_state._order_timestamps = []
+
         # Inject 5 open positions directly into mock gateway without recording recent window timestamps
         for i in range(5):
             req = MT5OrderRequest(

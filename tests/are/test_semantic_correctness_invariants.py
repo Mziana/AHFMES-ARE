@@ -12,6 +12,19 @@ from are.safety import CapitalSafetyKernel
 
 class TestSemanticCorrectnessInvariants(unittest.TestCase):
     def setUp(self):
+        import json as _json
+        import os
+        # Reset execution state to avoid stale peak_equity from previous runs
+        state_file = "data/execution_state.json"
+        if os.path.exists(state_file):
+            try:
+                with open(state_file) as _f:
+                    _state = _json.load(_f)
+                _state["peak_equity"] = 0.0
+                with open(state_file, "w") as _f:
+                    _json.dump(_state, _f, indent=2)
+            except Exception:
+                pass
         self.safety_kernel = CapitalSafetyKernel()
 
     def test_get_open_positions_raises_on_none_api_response(self):

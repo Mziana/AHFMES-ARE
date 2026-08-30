@@ -187,6 +187,25 @@ class BacktestOrchestrator:
     """
 
     RUNS_DIR = "data/backtest_runs"
+    DEFAULT_STAGE_TIMEOUT = 300  # 5 minutes per stage
+
+    # Per-stage timeouts (seconds)
+    STAGE_TIMEOUTS = {
+        "data": 30,
+        "strategy": 30,
+        "leakage": 30,
+        "holdout_setup": 10,
+        "baseline": 60,
+        "wfo": 300,
+        "oos": 10,
+        "statistics": 30,
+        "crisis": 60,
+        "stability": 120,
+        "sensitivity": 120,
+        "final_gate": 10,
+        "artifact": 30,
+        "verify": 30,
+    }
 
     def __init__(self):
         os.makedirs(self.RUNS_DIR, exist_ok=True)
@@ -203,7 +222,19 @@ class BacktestOrchestrator:
         Execute a full backtest experiment through all stages.
         callback(stage_name, stage_result) is called after each stage.
         """
-        run_id = f"BT-{int(time.time())}-{os.urandom(3).hex()}"
+        # Content-addressed run ID: same inputs = same run_id (idempotent)
+        run_hash = compute_sha256(
+            (dataset_manifest.raw_hash + config.strategy.source_hash +
+             config.config_hash + config.execution_model.model_hash).encode()
+        )
+        run_id = f"BT-{run_hash[:16]}"
+
+        # Check if this exact run already exists (idempotent)
+        existing_dir = os.path.join(self.RUNS_DIR, run_id)
+        if os.path.exists(os.path.join(existing_dir, "run.json")):
+            # Return existing run -- don't re-run identical experiment
+            return self.load_run(run_id)
+
         run = BacktestRun(
             run_id=run_id,
             experiment_id=config.experiment_id,
@@ -223,6 +254,9 @@ class BacktestOrchestrator:
         run.random_seed = 42  # Default; explicit for reproducibility
         run.mc_simulations = config.mc_simulations
 
+        # Total budget: 10 minutes for entire experiment
+        deadline = run.started_at + 600
+
         # Build temporal contract for leakage check
         contract = LeakageFirewall.build_default_contract()
         run.temporal_contract_hash = contract.contract_hash
@@ -231,90 +265,102 @@ class BacktestOrchestrator:
         holdout_mgr = HoldoutManager()
         split_id = None
 
+        def _run_stage(name, stage_func, *args, **kwargs):
+            """Run a stage with timeout enforcement."""
+            timeout = self.STAGE_TIMEOUTS.get(name, self.DEFAULT_STAGE_TIMEOUT)
+            stage_deadline = time.time() + timeout
+            if time.time() > deadline:
+                raise TimeoutError(f"EXPERIMENT_TIMEOUT: Total budget exceeded")
+            result = stage_func(*args, **kwargs)
+            if time.time() > stage_deadline:
+                result.status = RunStage.FAILED
+                result.error = f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit"
+            return result
+
         try:
             # -- Stage 1: DATA --
-            run.stages["data"] = self._stage_data(run, df, dataset_manifest)
+            run.stages["data"] = _run_stage("data", self._stage_data, run, df, dataset_manifest)
             if callback:
                 callback("data", run.stages["data"])
             if run.stages["data"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 2: STRATEGY (includes leakage firewall) --
-            run.stages["strategy"] = self._stage_strategy(run, config, strategy_logic, df)
+            # -- Stage 2: STRATEGY --
+            run.stages["strategy"] = _run_stage("strategy", self._stage_strategy, run, config, strategy_logic, df)
             if callback:
                 callback("strategy", run.stages["strategy"])
             if run.stages["strategy"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 2b: LEAKAGE FIREWALL (warning only -- engine handles shift) --
-            run.stages["leakage"] = self._stage_leakage(run, config, strategy_logic, df, contract)
+            # -- Stage 2b: LEAKAGE FIREWALL --
+            run.stages["leakage"] = _run_stage("leakage", self._stage_leakage, run, config, strategy_logic, df, contract)
             if callback:
                 callback("leakage", run.stages["leakage"])
             run.leakage_check_passed = run.stages["leakage"].status in (RunStage.PASSED, RunStage.FAILED)
 
             # -- Stage 2c: HOLDOUT SPLIT + LOCK --
-            split_id, holdout_split = self._stage_holdout_setup(run, dataset_manifest, df, holdout_mgr)
+            split_id, holdout_split = _run_stage("holdout_setup", self._stage_holdout_setup, run, dataset_manifest, df, holdout_mgr)
             run.holdout_locked = True
             if callback:
                 callback("holdout_setup", StageResult(stage="holdout_setup", status=RunStage.PASSED))
 
             # -- Stage 3: BASELINE --
-            run.stages["baseline"] = self._stage_baseline(run, df, em)
+            run.stages["baseline"] = _run_stage("baseline", self._stage_baseline, run, df, em)
             if callback:
                 callback("baseline", run.stages["baseline"])
 
             # -- Stage 4: WFO (on TRAIN portion only) --
             train_df = holdout_mgr.get_train(split_id, df)
-            run.stages["wfo"] = self._stage_wfo(run, config, train_df, strategy_logic, em)
+            run.stages["wfo"] = _run_stage("wfo", self._stage_wfo, run, config, train_df, strategy_logic, em)
             if callback:
                 callback("wfo", run.stages["wfo"])
             if run.stages["wfo"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 5: OOS (on VALIDATION portion) --
-            run.stages["oos"] = self._stage_oos(run)
+            # -- Stage 5: OOS --
+            run.stages["oos"] = _run_stage("oos", self._stage_oos, run)
             if callback:
                 callback("oos", run.stages["oos"])
 
-            # -- Stage 6: STATISTICS (with DSR/PSR/MC + RNG seed) --
-            run.stages["statistics"] = self._stage_statistics(run)
+            # -- Stage 6: STATISTICS --
+            run.stages["statistics"] = _run_stage("statistics", self._stage_statistics, run)
             if callback:
                 callback("statistics", run.stages["statistics"])
 
             # -- Stage 7: CRISIS --
-            run.stages["crisis"] = self._stage_crisis(run, config, df, strategy_logic, em)
+            run.stages["crisis"] = _run_stage("crisis", self._stage_crisis, run, config, df, strategy_logic, em)
             if callback:
                 callback("crisis", run.stages["crisis"])
 
             # -- Stage 8: STABILITY --
-            run.stages["stability"] = self._stage_stability(run, config, df, strategy_logic)
+            run.stages["stability"] = _run_stage("stability", self._stage_stability, run, config, df, strategy_logic)
             if callback:
                 callback("stability", run.stages["stability"])
 
-            # -- Stage 8b: SENSITIVITY + COST STRESS --
-            run.stages["sensitivity"] = self._stage_sensitivity(run, config, df, strategy_logic)
+            # -- Stage 8b: SENSITIVITY --
+            run.stages["sensitivity"] = _run_stage("sensitivity", self._stage_sensitivity, run, config, df, strategy_logic)
             if callback:
                 callback("sensitivity", run.stages["sensitivity"])
 
             # -- Stage 9: FINAL GATE --
-            run.stages["final_gate"] = self._stage_gate(run, config)
+            run.stages["final_gate"] = _run_stage("final_gate", self._stage_gate, run, config)
             if callback:
                 callback("final_gate", run.stages["final_gate"])
 
-            # -- Stage 9b: HOLDOUT EVALUATION (unlocked after gate) --
+            # -- Stage 9b: HOLDOUT EVALUATION --
             run.holdout_evaluated = True
             holdout_mgr.evaluate_holdout(split_id) if split_id else None
 
             # -- Stage 10: ARTIFACT --
-            run.stages["artifact"] = self._stage_artifact(run, config, dataset_manifest)
+            run.stages["artifact"] = _run_stage("artifact", self._stage_artifact, run, config, dataset_manifest)
             if callback:
                 callback("artifact", run.stages["artifact"])
 
             # -- Stage 11: INDEPENDENT VERIFICATION --
-            run.stages["verify"] = self._stage_verify(run)
+            run.stages["verify"] = _run_stage("verify", self._stage_verify, run)
             if callback:
                 callback("verify", run.stages["verify"])
             run.verification_status = "VERIFIED" if run.stages["verify"].status == RunStage.PASSED else "REJECTED"
