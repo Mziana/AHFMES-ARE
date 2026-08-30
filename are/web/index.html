@@ -413,6 +413,51 @@
     </div>
 </div>
 
+<!-- ═══════════════ BACKTEST SECTION ═══════════════ -->
+<div id="backtest-section" style="display:none; padding: 1.5rem; border-top: 1px solid var(--card-border);">
+    <h2 style="color: #fff; margin-bottom: 1rem; font-size: 1.3rem;">🔬 Backtest & WFO</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <!-- Run Backtest -->
+        <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem;">
+            <h3 style="color: #e2e8f0; margin-bottom: 0.75rem; font-size: 1.1rem;">Run Backtest</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+                <div><label style="color:#94a3b8;font-size:0.8rem;">Symbol</label><input id="bt-symbol" value="XAUUSD" style="width:100%;padding:0.5rem;background:#0a0d14;border:1px solid var(--card-border);border-radius:6px;color:#fff;font-size:0.9rem;"></div>
+                <div><label style="color:#94a3b8;font-size:0.8rem;">Capital</label><input id="bt-capital" value="100000" style="width:100%;padding:0.5rem;background:#0a0d14;border:1px solid var(--card-border);border-radius:6px;color:#fff;font-size:0.9rem;"></div>
+            </div>
+            <button class="btn btn-cyan" onclick="runBacktest()" style="width:100%;justify-content:center;">▶ Run Backtest</button>
+            <div id="bt-result" style="margin-top:0.75rem;color:#94a3b8;font-size:0.85rem;white-space:pre-wrap;"></div>
+        </div>
+        <!-- Run WFO -->
+        <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem;">
+            <h3 style="color: #e2e8f0; margin-bottom: 0.75rem; font-size: 1.1rem;">Walk-Forward Optimization</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+                <div><label style="color:#94a3b8;font-size:0.8rem;">Symbol</label><input id="wfo-symbol" value="XAUUSD" style="width:100%;padding:0.5rem;background:#0a0d14;border:1px solid var(--card-border);border-radius:6px;color:#fff;font-size:0.9rem;"></div>
+                <div><label style="color:#94a3b8;font-size:0.8rem;">Folds</label><input id="wfo-folds" value="5" style="width:100%;padding:0.5rem;background:#0a0d14;border:1px solid var(--card-border);border-radius:6px;color:#fff;font-size:0.9rem;"></div>
+            </div>
+            <button class="btn btn-cyan" onclick="runWFO()" style="width:100%;justify-content:center;">🔬 Run WFO</button>
+            <div id="wfo-result" style="margin-top:0.75rem;color:#94a3b8;font-size:0.85rem;white-space:pre-wrap;"></div>
+        </div>
+    </div>
+    <!-- Equity Curve Chart -->
+    <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem;">
+        <h3 style="color: #e2e8f0; margin-bottom: 0.75rem; font-size: 1.1rem;">📈 Equity Curve</h3>
+        <canvas id="btEquityChart" height="200"></canvas>
+    </div>
+    <!-- Metrics Table -->
+    <div id="bt-metrics" style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem; display:none;">
+        <h3 style="color: #e2e8f0; margin-bottom: 0.75rem; font-size: 1.1rem;">📊 Performance Metrics</h3>
+        <div id="bt-metrics-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;"></div>
+    </div>
+    <!-- WFO Folds Table -->
+    <div id="wfo-folds" style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem; display:none;">
+        <h3 style="color: #e2e8f0; margin-bottom: 0.75rem; font-size: 1.1rem;">🔬 WFO Fold Results</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead><tr style="border-bottom:1px solid #334155;"><th style="text-align:left;padding:0.5rem;color:#94a3b8;">Fold</th><th style="text-align:right;padding:0.5rem;color:#94a3b8;">IS Sharpe</th><th style="text-align:right;padding:0.5rem;color:#94a3b8;">OOS Sharpe</th><th style="text-align:right;padding:0.5rem;color:#94a3b8;">WFE</th><th style="text-align:left;padding:0.5rem;color:#94a3b8;">Params</th></tr></thead>
+            <tbody id="wfo-folds-body"></tbody>
+        </table>
+    </div>
+</div>
+
 <script>
     let killSwitchActive = false;
     let chartInstance = null;
@@ -671,11 +716,83 @@
         container.scrollTop = container.scrollHeight;
     }
 
+    // ═══════════════ BACKTEST FUNCTIONS ═══════════════
+    let btEquityChartInstance = null;
+
+    async function runBacktest() {
+        const symbol = document.getElementById('bt-symbol').value;
+        const capital = document.getElementById('bt-capital').value;
+        const resultDiv = document.getElementById('bt-result');
+        resultDiv.textContent = 'Running backtest...';
+        try {
+            const r = await fetch('/api/backtest/run', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol, capital: parseFloat(capital)})
+            });
+            const data = await r.json();
+            if (data.error) { resultDiv.textContent = 'Error: ' + data.error; return; }
+            const m = data.metrics;
+            resultDiv.innerHTML = `<strong style="color:#00f2ff;">${data.symbol}</strong> | ` +
+                `Return: <span style="color:${m.total_return_pct>=0?'#00ff88':'#ff3b3b'}">${m.total_return_pct}%</span> | ` +
+                `Sharpe: ${m.sharpe_ratio} | Sortino: ${m.sortino_ratio} | ` +
+                `MaxDD: ${m.max_drawdown_pct}% | PF: ${m.profit_factor} | ` +
+                `WinRate: ${m.win_rate}% | Trades: ${m.total_trades}`;
+            document.getElementById('bt-metrics').style.display = 'block';
+            const grid = document.getElementById('bt-metrics-grid');
+            grid.innerHTML = [
+                ['Return', m.total_return_pct + '%', m.total_return_pct>=0?'#00ff88':'#ff3b3b'],
+                ['Sharpe', m.sharpe_ratio, '#00f2ff'],
+                ['Sortino', m.sortino_ratio, '#00f2ff'],
+                ['Calmar', m.calmar_ratio, '#00f2ff'],
+                ['Max DD', m.max_drawdown_pct + '%', '#ff3b3b'],
+                ['PF', m.profit_factor, m.profit_factor>=1?'#00ff88':'#ff3b3b'],
+                ['Win Rate', m.win_rate + '%', '#e2e8f0'],
+                ['CVaR 5%', m.cvar_5pct, '#f59e0b'],
+                ['Avg Win', m.avg_win, '#00ff88'],
+                ['Avg Loss', m.avg_loss, '#ff3b3b'],
+                ['Max Consec Loss', m.max_consecutive_losses, '#f59e0b'],
+                ['Exposure', m.exposure_pct + '%', '#e2e8f0'],
+            ].map(([k,v,c]) => `<div style="background:#0a0d14;border-radius:6px;padding:0.5rem;text-align:center;"><div style="color:#94a3b8;font-size:0.75rem;">${k}</div><div style="color:${c};font-weight:bold;font-size:1rem;">${v}</div></div>`).join('');
+        } catch(e) { resultDiv.textContent = 'Error: ' + e.message; }
+    }
+
+    async function runWFO() {
+        const symbol = document.getElementById('wfo-symbol').value;
+        const folds = document.getElementById('wfo-folds').value;
+        const resultDiv = document.getElementById('wfo-result');
+        resultDiv.textContent = 'Running WFO...';
+        try {
+            const r = await fetch('/api/backtest/wfo', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol, folds: parseInt(folds)})
+            });
+            const data = await r.json();
+            if (data.error) { resultDiv.textContent = 'Error: ' + data.error; return; }
+            resultDiv.innerHTML = `<strong style="color:#00f2ff;">Pooled OOS Sharpe: ${data.pooled_oos_sharpe.toFixed(3)}</strong> | ` +
+                `Mean WFE: ${data.mean_wfe.toFixed(3)} | Folds: ${data.fold_count} | Trials: ${data.effective_trials}`;
+            document.getElementById('wfo-folds').style.display = 'block';
+            const tbody = document.getElementById('wfo-folds-body');
+            tbody.innerHTML = (data.folds_data || []).map(f => {
+                const oosColor = f.oos_sharpe > 0 ? '#00ff88' : '#ff3b3b';
+                const wfeColor = f.wfe > 0 ? '#00ff88' : '#ff3b3b';
+                return `<tr style="border-bottom:1px solid #1e293b;">
+                    <td style="padding:0.5rem;color:#e2e8f0;">Fold ${f.fold_id}</td>
+                    <td style="padding:0.5rem;text-align:right;color:#00f2ff;">${f.is_sharpe.toFixed(3)}</td>
+                    <td style="padding:0.5rem;text-align:right;color:${oosColor};">${f.oos_sharpe.toFixed(3)}</td>
+                    <td style="padding:0.5rem;text-align:right;color:${wfeColor};">${f.wfe.toFixed(3)}</td>
+                    <td style="padding:0.5rem;color:#94a3b8;font-size:0.8rem;">${JSON.stringify(f.winner_params)}</td>
+                </tr>`;
+            }).join('');
+        } catch(e) { resultDiv.textContent = 'Error: ' + e.message; }
+    }
+
+    // Show backtest section on load
     window.onload = () => {
         getAuthToken();
         initChart();
         fetchStatus();
         setInterval(fetchStatus, 3000);
+        document.getElementById('backtest-section').style.display = 'block';
     };
 </script>
 </body>

@@ -322,6 +322,18 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                             results.append(json.load(f))
             self._send_json(200, {"results": results})
 
+        elif clean_path.startswith("/api/backtest/") and clean_path.endswith("/equity-curve"):
+            bt_id = clean_path.split("/api/backtest/")[1].split("/")[0]
+            bt_dir = os.path.join("data", "backtests")
+            bt_file = os.path.join(bt_dir, f"{bt_id}.json")
+            if os.path.exists(bt_file):
+                with open(bt_file) as f:
+                    bt_data = json.load(f)
+                equity_curve = bt_data.get("equity_curve", [])
+                self._send_json(200, {"id": bt_id, "equity_curve": equity_curve})
+            else:
+                self._send_json(404, {"error": f"Backtest '{bt_id}' not found"})
+
         elif clean_path.startswith("/api/backtest/"):
             bt_id = clean_path.split("/api/backtest/")[1]
             bt_dir = os.path.join("data", "backtests")
@@ -414,6 +426,61 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 with open(os.path.join(bt_dir, f"{bt_id}.json"), "w") as f:
                     json.dump(bt_data, f, indent=2)
                 self._send_json(200, bt_data)
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+
+        elif clean_path == "/api/backtest/wfo":
+            try:
+                from are.backtest_enhanced import EnhancedBacktestEngine
+                import polars as pl, random, time as _wfo_t
+                engine = EnhancedBacktestEngine()
+                symbol = payload.get("symbol", "XAUUSD")
+                n_folds = int(payload.get("folds", 5))
+                n = max(2000, n_folds * 400)
+                rng = random.Random(42)
+                prices = [100.0]
+                for _ in range(n - 1):
+                    prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
+                highs = [p * (1 + abs(rng.gauss(0, 0.003))) for p in prices]
+                lows = [p * (1 - abs(rng.gauss(0, 0.003))) for p in prices]
+                df = pl.DataFrame({
+                    "timestamp": [_wfo_t.time() - (n - i) * 3600 for i in range(n)],
+                    "price": prices, "high": highs, "low": lows,
+                    "volume": [rng.randint(100, 10000) for _ in range(n)],
+                })
+                def strategy_factory(params):
+                    lb = params.get("lookback", 20)
+                    th = params.get("threshold", 0.02)
+                    def _strat(d):
+                        return d.with_columns(pl.col("price").pct_change(lb).alias("_mom")).with_columns(
+                            pl.when(pl.col("_mom") > th).then(1.0).when(pl.col("_mom") < -th).then(-1.0).otherwise(0.0).alias("signal")
+                        )
+                    return _strat
+                param_grid = [{"lookback": lb, "threshold": th} for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
+                wfo_result = engine.run_walk_forward_optimization(
+                    strategy_factory=strategy_factory, param_grid=param_grid,
+                    historical_data=df, train_window_bars=max(200, n // (n_folds * 2)),
+                    test_window_bars=max(50, n // (n_folds * 4)), step_bars=max(50, n // (n_folds * 4)),
+                    purge_bars=5, label_horizon_bars=1, initial_capital=100000.0, timeframe_seconds=3600.0,
+                )
+                # Serialize WFO folds
+                folds_data = []
+                for f in wfo_result.folds:
+                    folds_data.append({
+                        "fold_id": f.fold_id,
+                        "is_sharpe": f.is_metrics.get("sharpe_ratio", 0),
+                        "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0),
+                        "wfe": f.wfe,
+                        "winner_params": f.winner_params,
+                    })
+                self._send_json(200, {
+                    "symbol": symbol, "folds": n_folds,
+                    "pooled_oos_sharpe": wfo_result.pooled_oos_sharpe,
+                    "mean_wfe": wfo_result.mean_wfe,
+                    "fold_count": wfo_result.fold_count,
+                    "effective_trials": wfo_result.effective_trial_count,
+                    "folds_data": folds_data,
+                })
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
 

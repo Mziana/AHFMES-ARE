@@ -1,0 +1,15 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install polars
+      - name: Run pytest
+        run: python -m pytest tests/are/ -k "backtest or enhanced or cpcv" -q --tb=short
+      - name: Smoke test backtest
+        run: bash TOOLS/smoke_test_backtest.sh
