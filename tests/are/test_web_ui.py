@@ -18,6 +18,10 @@ from are.web_ui import AREAPIHandler, AREServerState
 class TestWebUI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Hermetic (DELEGASI_051 P0-3): kill Ollama before AREServerState builds
+        # its Copilot. A live Ollama daemon takes >10s per chat request, which
+        # exceeds the 10s HTTP client timeout and caused TimeoutError flakes.
+        os.environ["OLLAMA_URL"] = "http://127.0.0.1:1/api/generate"
         cls.tmp_dir = tempfile.TemporaryDirectory()
         cls.db_path = os.path.join(cls.tmp_dir.name, "web_test.db")
         cls.state = AREServerState(cls.db_path)
@@ -161,6 +165,9 @@ class TestWebUI(unittest.TestCase):
 class TestWebUIAuth(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Hermetic (DELEGASI_051 P0-3): kill Ollama before AREServerState builds
+        # its Copilot — same rationale as TestWebUI above.
+        os.environ["OLLAMA_URL"] = "http://127.0.0.1:1/api/generate"
         cls.tmp_dir = tempfile.TemporaryDirectory()
         cls.db_path = os.path.join(cls.tmp_dir.name, "auth_test.db")
         cls.auth_token = "secure_test_token_123"

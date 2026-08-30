@@ -17,7 +17,14 @@ class TestXAIDiagnosticsInvariants(unittest.TestCase):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.tmp_dir.name, "xai_test.db")
         self.store = EventStore(self.db_path)
-        self.copilot = ConversationalCopilot(event_store=self.store)
+        # Hermetic (DELEGASI_051 P0-2): point Ollama at a dead port so the
+        # deterministic builtin fallback engine is always exercised.
+        # Otherwise a live Ollama daemon on the host hijacks the response
+        # and the deterministic assertions below become flaky.
+        self.copilot = ConversationalCopilot(
+            event_store=self.store,
+            ollama_url="http://127.0.0.1:1/api/generate",
+        )
 
     def tearDown(self):
         try:

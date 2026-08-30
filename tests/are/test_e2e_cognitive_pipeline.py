@@ -217,7 +217,14 @@ class TestE2ECognitivePipeline(unittest.TestCase):
                     "stream_stats": {"total_ticks": 1000, "veto_count": 0, "chain_health": "VERIFIED_OK"},
                 }
 
-        copilot = ConversationalCopilot(server_state=MockServerState(), event_store=store)
+        # Hermetic (DELEGASI_051 P0-2): dead Ollama URL forces the deterministic
+        # builtin fallback engine; a live Ollama daemon would hijack the reply
+        # and break the deterministic champion assertion below.
+        copilot = ConversationalCopilot(
+            server_state=MockServerState(),
+            event_store=store,
+            ollama_url="http://127.0.0.1:1/api/generate",
+        )
         reply = copilot.generate_response("Bagaimana status champion aktif saat ini?")
         self.assertIn("ALPHA_E2E_MOMENTUM_V1", reply)
         store.close()
