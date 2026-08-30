@@ -313,10 +313,10 @@ def handle_backtest(args: argparse.Namespace) -> int:
                     strategy_logic = lambda df, p=params: df.with_columns(
                         pl.col("price").pct_change(p.get("emaFast", 20)).alias("_momentum")
                     ).with_columns(
-                        pl.when(pl.col("_momentum") > 0.02).then(1)
-                        .when(pl.col("_momentum") < -0.02).then(-1)
-                        .otherwise(0).alias("position")
-                    )
+                        pl.when(pl.col("_momentum") > 0.02).then(1.0)
+                        .when(pl.col("_momentum") < -0.02).then(-1.0)
+                        .otherwise(0.0).alias("signal")
+                    ).drop("_momentum")
                     break
 
         # Load real OHLC data from MT5 export or parquet
@@ -339,10 +339,10 @@ def handle_backtest(args: argparse.Namespace) -> int:
             df = df.with_columns(
                 pl.col("price").pct_change(20).alias("_momentum")
             ).with_columns(
-                pl.when(pl.col("_momentum") > 0.02).then(1)
-                .when(pl.col("_momentum") < -0.02).then(-1)
-                .otherwise(0).alias("position")
-            )
+                pl.when(pl.col("_momentum") > 0.02).then(1.0)
+                .when(pl.col("_momentum") < -0.02).then(-1.0)
+                .otherwise(0.0).alias("signal")
+            ).drop("_momentum")
             return df
 
         bt_func = strategy_logic if strategy_logic else default_strategy
