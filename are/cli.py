@@ -232,7 +232,7 @@ def handle_run_cycle(args: argparse.Namespace) -> int:
             split = int(len(df_real) * 0.8)
             holdout_df = df_real.slice(split)
             holdout_dataset = [
-                {"timestamp": int(holdout_df['timestamp'][i]), "score": float(holdout_df['price'][i])}
+                {"timestamp": int(holdout_df['timestamp'][i]), "price": float(holdout_df['price'][i])}
                 for i in range(len(holdout_df))
             ]
             print(f"  Real data: {len(df_real)} bars, Sharpe={eval_score:.4f}, holdout={len(holdout_dataset)} bars")

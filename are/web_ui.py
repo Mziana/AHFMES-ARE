@@ -643,7 +643,8 @@ def run_server(
         print(f"[ARE-WEB] WARNING: Kill switch synced from persistent state (ACTIVE)")
 
     server_address = (host, port)
-    httpd = http.server.HTTPServer(server_address, AREAPIHandler)
+    # Use ThreadingHTTPServer so kill-switch remains responsive during long-running backtest/WFO
+    httpd = http.server.ThreadingHTTPServer(server_address, AREAPIHandler)
     token_info = f" [Auth Protected: token='{auth_token}']" if auth_token else " [No Auth]"
     print(f"[ARE-WEB] Server started at http://{host}:{port}{token_info} (Database: {db_path})")
     try:
