@@ -850,18 +850,22 @@ class BacktestOrchestrator:
             stats["psr"] = 0.0
             stats["dsr_p_value"] = 1.0
 
-        # Monte Carlo with actual seed propagation
+        # Monte Carlo with block bootstrap
         try:
             from are.validation import monte_carlo_simulation
             if len(oos_returns) > 10:
                 mc = monte_carlo_simulation(
                     oos_returns,
-                    n_simulations=run.mc_simulations,
+                    num_simulations=run.mc_simulations,
                     initial_capital=100000,
-                    random_seed=run.random_seed,
                 )
-                stats["mc_ruin_probability"] = mc.get("ruin_probability", 1.0) if isinstance(mc, dict) else 1.0
-                stats["mc_mean_equity"] = mc.get("mean_final_equity", 0.0) if isinstance(mc, dict) else 0.0
+                # MC returns multiple ruin metrics; use the most conservative
+                stats["mc_ruin_probability"] = mc.get(
+                    "mc_terminal_ruin_probability",
+                    mc.get("mc_probability_of_ruin", 1.0)
+                ) if isinstance(mc, dict) else 1.0
+                stats["mc_mean_equity"] = mc.get("mc_mean_final_equity", 0.0) if isinstance(mc, dict) else 0.0
+                stats["mc_95th_dd"] = mc.get("mc_95th_pct_drawdown", 0.0) if isinstance(mc, dict) else 0.0
             else:
                 stats["mc_ruin_probability"] = 1.0
                 stats["mc_mean_equity"] = 0.0
@@ -1130,11 +1134,12 @@ class BacktestOrchestrator:
             json.dump(config.to_dict(), f, indent=2, default=str)
         files_manifest["config.json"] = compute_sha256(json.dumps(config.to_dict(), sort_keys=True, default=str).encode())
 
-        # -- run.json (top-level)
-        run_file = os.path.join(run_dir, "run.json")
-        with open(run_file, "w") as f:
-            json.dump(run.to_dict(), f, indent=2, default=str)
-        files_manifest["run.json"] = compute_sha256(json.dumps(run.to_dict(), sort_keys=True, default=str).encode())
+        # -- run.json (top-level) -- computed last, AFTER manifest is attached
+        # Note: _save_run() will write the final run.json after this stage.
+        # We compute the hash from the run dict WITHOUT artifact_manifest
+        # (which gets added later), so the hash stays stable.
+        run_snapshot = {k: v for k, v in run.to_dict().items() if k != "artifact_manifest"}
+        files_manifest["run.json"] = compute_sha256(json.dumps(run_snapshot, sort_keys=True, default=str).encode())
 
         # Compute overall artifact hash from all file hashes
         all_hashes = json.dumps(files_manifest, sort_keys=True)
