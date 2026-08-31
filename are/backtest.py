@@ -177,30 +177,27 @@ class BacktestResearchContract:
 
 
 def build_wfo_provenance_payload(evidence: WFOEvidence) -> Dict[str, Any]:
-    return {
-        "folds": [
-            {
-                "winner_params": f.winner_params,
-                "oos_sharpe": f.oos_metrics.get("sharpe_ratio", 0.0)
-            } for f in evidence.folds
-        ],
-        "pooled_oos_returns": evidence.pooled_oos_returns,
-        "pooled_sharpe": evidence.pooled_oos_sharpe,
-        "pooled_oos_return": evidence.pooled_oos_return,
-        "pooled_oos_max_drawdown": evidence.pooled_oos_max_drawdown,
-        "fold_count": evidence.fold_count,
-        "parameter_family_size": evidence.parameter_family_size,
-        "evaluation_count": evidence.evaluation_count,
-        "effective_trial_count": evidence.effective_trial_count,
-        "training_overlap_ratio": evidence.training_overlap_ratio,
-        "oos_overlap_ratio": evidence.oos_overlap_ratio,
-        "purge_bars": evidence.purge_bars,
-        "label_horizon_bars": evidence.label_horizon_bars,
-        "warmup_bars": evidence.warmup_bars,
-        "mean_wfe": evidence.mean_wfe,
-        "median_wfe": evidence.median_wfe,
-        "worst_wfe": evidence.worst_wfe,
-    }
+    """P1-02: Hash ALL evidence fields — canonical payload for provenance.
+    
+    Missing any field here means evidence can be mutated without breaking the hash.
+    """
+    import dataclasses as _dc
+    
+    # Serialize ALL fields from WFOEvidence
+    payload = {}
+    for f in _dc.fields(evidence):
+        val = getattr(evidence, f.name)
+        if f.name == 'provenance_hash':
+            continue  # Don't include the hash itself
+        if isinstance(val, tuple):
+            payload[f.name] = [
+                _dc.asdict(item) if hasattr(item, '__dataclass_fields__') else item
+                for item in val
+            ]
+        else:
+            payload[f.name] = val
+    
+    return payload
 
 def calculate_sharpe_ratio(
     returns: List[float],
@@ -280,23 +277,41 @@ class IsolatedBacktestEngine:
 
         # Compute raw dataset hash BEFORE purification (P0-4)
         import struct as _struct
-        _ts = historical_data["timestamp"].to_list() if "timestamp" in historical_data.columns else []
-        _pr = historical_data["price"].to_list() if "price" in historical_data.columns else []
-        _vol = historical_data["volume"].to_list() if "volume" in historical_data.columns else [0.0] * len(_ts)
-        _raw_bytes = b"V1" + b"".join(_struct.pack(">d", float(x)) for x in _ts) + b"".join(_struct.pack(">d", float(x)) for x in _pr) + b"".join(_struct.pack(">d", float(x)) for x in _vol)
-        raw_dataset_hash = compute_sha256(_raw_bytes)
+        # P1-03: Hash ALL market columns (not just timestamp/price/volume)
+        # Includes: timestamp, open, high, low, close, price, volume, bid, ask, etc.
+        _market_cols = ["timestamp", "open", "high", "low", "close", "price", "volume", "bid", "ask"]
+        _raw_parts = [b"V2"]  # Version bump for new hash format
+        for col in _market_cols:
+            if col in historical_data.columns:
+                _vals = historical_data[col].to_list()
+                _raw_parts.append(col.encode())
+                _raw_parts.append(b"|")
+                _raw_parts.append(b"".join(_struct.pack(">d", float(x)) for x in _vals))
+                _raw_parts.append(b"|")
+        # Include schema metadata
+        _raw_parts.append(f"rows={len(historical_data)}".encode())
+        _raw_parts.append(b"|")
+        _raw_parts.append(f"cols={','.join(historical_data.columns)}".encode())
+        raw_dataset_hash = compute_sha256(b"".join(_raw_parts))
 
         # Purify raw tick / bar data via DataPurifier (Anti-GIGO, DELEGASI_029b)
         purifier = DataPurifier()
         purified_data = purifier.purify_tick_data(historical_data)
         purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
 
-        # Compute purified dataset hash AFTER purification
-        _pts = purified_data["timestamp"].to_list() if "timestamp" in purified_data.columns else []
-        _ppr = purified_data["price"].to_list() if "price" in purified_data.columns else []
-        _pvol = purified_data["volume"].to_list() if "volume" in purified_data.columns else [0.0] * len(_pts)
-        _purified_bytes = b"V1" + b"".join(_struct.pack(">d", float(x)) for x in _pts) + b"".join(_struct.pack(">d", float(x)) for x in _ppr) + b"".join(_struct.pack(">d", float(x)) for x in _pvol)
-        purified_dataset_hash = compute_sha256(_purified_bytes)
+        # Compute purified dataset hash AFTER purification (same format)
+        _purified_parts = [b"V2"]
+        for col in _market_cols:
+            if col in purified_data.columns:
+                _vals = purified_data[col].to_list()
+                _purified_parts.append(col.encode())
+                _purified_parts.append(b"|")
+                _purified_parts.append(b"".join(_struct.pack(">d", float(x)) for x in _vals))
+                _purified_parts.append(b"|")
+        _purified_parts.append(f"rows={len(purified_data)}".encode())
+        _purified_parts.append(b"|")
+        _purified_parts.append(f"cols={','.join(purified_data.columns)}".encode())
+        purified_dataset_hash = compute_sha256(b"".join(_purified_parts))
 
         # A4: STRATEGY INPUT PROTECTION
         # Defensive copy: strategy receives immutable snapshot
