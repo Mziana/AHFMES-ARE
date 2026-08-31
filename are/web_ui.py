@@ -557,10 +557,22 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     strategy_logic = None
                 def strategy_factory(params):
-                    lb = params.get("lookback", 20)
                     def _strat(d):
+                        df_with_params = d
+                        for k, v in params.items():
+                            df_with_params = df_with_params.with_columns(
+                                pl.lit(v).alias(f"_param_{k}")
+                            )
                         if strategy_logic:
+                            try:
+                                result = strategy_logic(df_with_params)
+                                if "signal" in result.columns:
+                                    return result
+                            except Exception:
+                                pass
                             return strategy_logic(d)
+                        # Fallback: momentum
+                        lb = params.get("lookback", 20)
                         return d.with_columns(pl.col("price").pct_change(lb).alias("_mom")).with_columns(
                             pl.when(pl.col("_mom") > 0.02).then(1.0).when(pl.col("_mom") < -0.02).then(-1.0).otherwise(0.0).alias("signal")
                         )
@@ -570,12 +582,19 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 if isinstance(raw_grid, list) and len(raw_grid) > 0:
                     param_grid = raw_grid
                 else:
-                    param_grid = [{"lookback": lb} for lb in (10, 15, 20, 25, 30)]
+                    param_grid = [{"lookback": lb} for lb in range(10, 50, 5)]
+                # Configurable WFO windows from request body
+                train_window = int(payload.get("train_window_bars", max(200, n // (n_folds * 2))))
+                test_window = int(payload.get("test_window_bars", max(50, n // (n_folds * 4))))
+                step_window = int(payload.get("step_bars", max(50, n // (n_folds * 4))))
+                purge = int(payload.get("purge_bars", 5))
+                warmup = int(payload.get("warmup_bars", 50))
                 wfo_result = engine.run_walk_forward_optimization(
                     strategy_factory=strategy_factory, param_grid=param_grid,
-                    historical_data=df, train_window_bars=max(200, n // (n_folds * 2)),
-                    test_window_bars=max(50, n // (n_folds * 4)), step_bars=max(50, n // (n_folds * 4)),
-                    purge_bars=5, label_horizon_bars=1, initial_capital=100000.0, timeframe_seconds=3600.0,
+                    historical_data=df, train_window_bars=train_window,
+                    test_window_bars=test_window, step_bars=step_window,
+                    purge_bars=purge, warmup_bars=warmup,
+                    label_horizon_bars=1, initial_capital=100000.0, timeframe_seconds=3600.0,
                 )
                 # Serialize WFO folds
                 folds_data = []

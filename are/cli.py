@@ -82,10 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--timeframe", default="H1", help="Timeframe")
     wfo_parser = bt_subs.add_parser("wfo", help="Run Walk-Forward Optimization")
     wfo_parser.add_argument("--symbol", default="XAUUSD", help="Trading symbol")
+    wfo_parser.add_argument("--strategy", default="dsr-momentum-001", help="Strategy ID from strategies.json")
     wfo_parser.add_argument("--folds", type=int, default=5, help="Number of WFO folds")
-    wfo_parser.add_argument("--start", default="2020-01-01", help="Start date")
-    wfo_parser.add_argument("--end", default="2026-12-31", help="End date")
+    wfo_parser.add_argument("--start", default="2025-01-01", help="Start date")
+    wfo_parser.add_argument("--end", default="2026-08-01", help="End date")
     wfo_parser.add_argument("--timeframe", default="H1", help="Timeframe")
+    wfo_parser.add_argument("--param-grid", default=None, help='Param grid as JSON: "[{lookback:10},{lookback:20}]" or auto')
+    wfo_parser.add_argument("--capital", type=float, default=100000, help="Initial capital")
     bt_subs.add_parser("list", help="List all backtest results")
 
     # 8. data
@@ -450,38 +453,83 @@ def handle_backtest(args: argparse.Namespace) -> int:
 
     elif args.bt_command == "wfo":
         import polars as pl
-        import math, random, time as _time
-        # Load real OHLC data from MT5 export or parquet
+        import math, time as _time
         from are.data_loader import load_ohlc_data, export_mt5_ohlc
+        from are.strategy_engine import load_strategy_from_config
+
+        # Load real OHLC data
         try:
             df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+            print(f"  Loaded {len(df)} bars: {args.symbol} {args.timeframe}")
         except FileNotFoundError:
             print(f"  No parquet data for {args.symbol}. Exporting from MT5...")
             try:
                 export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
                 df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
+                print(f"  Exported and loaded {len(df)} bars")
             except Exception as e:
                 print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
                 return 1
 
-        from are.strategy_engine import load_strategy_from_config
+        # Load strategy from registry (not hardcoded)
+        strat_path = os.path.join("data", "strategies", "strategies.json")
+        strategy_logic = None
+        strategy_id = args.strategy
+        if os.path.exists(strat_path):
+            with open(strat_path) as _f:
+                raw = _json.load(_f)
+            strats = raw if isinstance(raw, list) else raw.get("strategies", [])
+            for s in strats:
+                if s.get("id") == args.strategy or s.get("name", "").lower().replace(" ", "-") == args.strategy:
+                    strategy_logic = load_strategy_from_config(s)
+                    strategy_id = s.get("id", args.strategy)
+                    print(f"  Strategy: {s.get('name', strategy_id)} (family={s.get('family', 'auto')})")
+                    break
+        if not strategy_logic:
+            # Fallback: default momentum strategy
+            def strategy_logic(df_inner):
+                return df_inner.with_columns(
+                    pl.col("price").rolling_mean(20).alias("fast_ma"),
+                    pl.col("price").rolling_mean(50).alias("slow_ma"),
+                ).with_columns(
+                    pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
+                    .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
+                    .otherwise(0.0).alias("signal")
+                )
+            print(f"  Strategy: fallback momentum (ID: {strategy_id})")
+
+        # Build strategy_factory: wraps real strategy with parameter injection
         def strategy_factory(params):
-            # Build strategy config from WFO params
-            strat_cfg = {
-                'id': 'wfo_candidate',
-                'family': 'MOMENTUM',
-                'parameters': {
-                    'emaFast': params.get('lookback', 20),
-                    'emaSlow': params.get('lookback', 20) * 2,
-                    'adxThreshold': int(params.get('threshold', 0.02) * 1000),
-                },
-                'entryLogic': f'momentum lookback={params.get("lookback", 20)}',
-            }
-            return load_strategy_from_config(strat_cfg)
+            def logic(df_inner):
+                df_with_params = df_inner
+                for k, v in params.items():
+                    df_with_params = df_with_params.with_columns(
+                        pl.lit(v).alias(f"_param_{k}")
+                    )
+                try:
+                    result = strategy_logic(df_with_params)
+                    if "signal" in result.columns:
+                        return result
+                except Exception:
+                    pass
+                return strategy_logic(df_inner)
+            return logic
 
-        param_grid = [{"lookback": lb, "threshold": th}
-                      for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
+        # Parse param_grid from CLI or auto-generate from strategy defaults
+        if args.param_grid:
+            try:
+                param_grid = _json.loads(args.param_grid)
+                if not isinstance(param_grid, list):
+                    raise ValueError("param_grid must be a list of dicts")
+            except Exception as e:
+                print(f"  ERROR: Invalid param_grid: {e}")
+                return 1
+        else:
+            # Auto-generate: vary lookback if strategy has it, else use sensible defaults
+            param_grid = [{"lookback": lb} for lb in range(10, 50, 5)]
+            print(f"  Param grid: auto ({len(param_grid)} combos, lookback 10-45)")
 
+        print(f"  Running WFO: {args.folds} folds, {len(param_grid)} param combos...")
         wfo_result = engine.run_walk_forward_optimization(
             strategy_factory=strategy_factory,
             param_grid=param_grid,
@@ -491,14 +539,73 @@ def handle_backtest(args: argparse.Namespace) -> int:
             step_bars=max(50, df.height // (args.folds * 4)),
             purge_bars=5,
             label_horizon_bars=1,
-            initial_capital=100000.0,
+            initial_capital=args.capital,
             timeframe_seconds=3600.0,
         )
-        print(f"\nWFO COMPLETE -- {args.folds} folds, {len(param_grid)} param combos")
+        print(f"\nWFO COMPLETE -- {strategy_id}, {args.folds} folds, {len(param_grid)} combos")
         print(f"  Pooled OOS Sharpe : {wfo_result.pooled_oos_sharpe:.3f}")
+        print(f"  Pooled OOS Return : {wfo_result.pooled_oos_return * 100:.2f}%")
         print(f"  Mean WFE          : {wfo_result.mean_wfe:.3f}")
         print(f"  Fold count        : {wfo_result.fold_count}")
         print(f"  Effective trials  : {wfo_result.effective_trial_count}")
+
+        # Auto-save WFOEvidence
+        import os as _os
+        wfo_dir = os.path.join("data", "backtests")
+        _os.makedirs(wfo_dir, exist_ok=True)
+        wfo_file = os.path.join(wfo_dir, f"wfo-{strategy_id}-{int(_time.time()*1000)}.json")
+        try:
+            with open(wfo_file, "w") as f:
+                _json.dump({
+                    "strategy_id": strategy_id,
+                    "symbol": args.symbol,
+                    "timeframe": args.timeframe,
+                    "start": args.start,
+                    "end": args.end,
+                    "fold_count": wfo_result.fold_count,
+                    "pooled_oos_sharpe": wfo_result.pooled_oos_sharpe,
+                    "pooled_oos_return": wfo_result.pooled_oos_return,
+                    "pooled_oos_max_drawdown": wfo_result.pooled_oos_max_drawdown,
+                    "mean_wfe": wfo_result.mean_wfe,
+                    "effective_trial_count": wfo_result.effective_trial_count,
+                    "param_grid": param_grid,
+                    "provenance_hash": wfo_result.provenance_hash,
+                    "saved_at": _time.time(),
+                }, f, indent=2)
+            print(f"  Saved to: {wfo_file}")
+        except Exception as e:
+            print(f"  WARNING: Could not save WFO evidence: {e}")
+
+        # Update strategies.json with WFO results
+        try:
+            if os.path.exists(strat_path):
+                with open(strat_path) as f:
+                    strats_raw = _json.load(f)
+                strats_list = strats_raw if isinstance(strats_raw, list) else strats_raw.get("strategies", [])
+                for s in strats_list:
+                    if s.get("id") == strategy_id:
+                        s.setdefault("metrics", {})
+                        s["metrics"]["wfo_sharpe"] = round(wfo_result.pooled_oos_sharpe, 4)
+                        s["metrics"]["wfo_return"] = round(wfo_result.pooled_oos_return * 100, 2)
+                        s["metrics"]["wfo_max_dd"] = round(wfo_result.pooled_oos_max_drawdown * 100, 2)
+                        s["metrics"]["wfo_folds"] = wfo_result.fold_count
+                        s["metrics"]["wfo_effective_trials"] = wfo_result.effective_trial_count
+                        s.setdefault("backtestHistory", [])
+                        s["backtestHistory"].append({
+                            "type": "wfo",
+                            "sharpe": round(wfo_result.pooled_oos_sharpe, 4),
+                            "return": round(wfo_result.pooled_oos_return * 100, 2),
+                            "timestamp": _time.time(),
+                        })
+                        s["backtestHistory"] = s["backtestHistory"][-50:]
+                        break
+                save_raw = strats_raw if isinstance(strats_raw, list) else {"strategies": strats_list}
+                with open(strat_path, "w") as f:
+                    _json.dump(save_raw, f, indent=2)
+                print(f"  Updated strategies.json for {strategy_id}")
+        except Exception as e:
+            print(f"  WARNING: Could not update strategies.json: {e}")
+
         return 0
 
     elif args.bt_command == "list":
