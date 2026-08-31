@@ -283,6 +283,17 @@ class BacktestOrchestrator:
         run_state_mgr = RunStateManager(os.path.join(self.RUNS_DIR, run.run_id))
         run_state_mgr.transition(RunPhase.RUNNING)
 
+        # A9: Complexity guard — reject if estimated work exceeds budget
+        grid_size = config.parameter_grid.grid_size
+        estimated_folds = max(1, (len(df) if df is not None else 10000) // 500)
+        estimated_work = grid_size * estimated_folds
+        MAX_WORK_BUDGET = 50000  # Max param*fold combinations
+        if estimated_work > MAX_WORK_BUDGET:
+            raise ValueError(
+                f"Work budget exceeded: {grid_size} params x ~{estimated_folds} folds = {estimated_work} > {MAX_WORK_BUDGET}. "
+                f"Reduce grid size or increase window size."
+            )
+
         # Total budget: 10 minutes for entire experiment
         deadline = run.started_at + 600
 
@@ -1238,6 +1249,14 @@ class BacktestOrchestrator:
             extra_checks.append({"check": "evidence_binding", "pass": eb_valid, "value": 'binding chain intact' if eb_valid else 'binding broken'})
         else:
             extra_checks.append({"check": "evidence_binding", "pass": False, "value": 'no binding created'})
+
+        # A8: WFE gate — Walk-Forward Efficiency must be positive
+        wfe = oos.get("mean_wfe", 0.0)
+        extra_checks.append({"check": "wfe_positive", "pass": wfe > 0.0, "value": f"{wfe:.4f}"})
+
+        # A8: Minimum fold count — need at least 3 folds for statistical validity
+        fold_count = oos.get("fold_count", 0)
+        extra_checks.append({"check": "min_folds", "pass": fold_count >= 3, "value": f"{fold_count} folds"})
 
         # Combine all checks
         all_checks = metrics_gate["checks"] + extra_checks

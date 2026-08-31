@@ -102,7 +102,9 @@ class DataPurifier:
         if "timestamp" not in cols:
             raise ValueError("Dataset must contain a 'timestamp' column")
 
-        # Synthesize bid/ask from price if only price is provided
+        # A3: Synthesize bid/ask from price — LABEL AS BAR_APPROXIMATION
+        # These are NOT real market bid/ask. They are approximations for
+        # backtesting only. Execution model should be labeled CLOSE_TO_CLOSE.
         if "bid" not in cols or "ask" not in cols:
             if "price" in cols:
                 synthetic_bid_ask = len(df)

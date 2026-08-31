@@ -298,9 +298,16 @@ class IsolatedBacktestEngine:
         _purified_bytes = b"V1" + b"".join(_struct.pack(">d", float(x)) for x in _pts) + b"".join(_struct.pack(">d", float(x)) for x in _ppr) + b"".join(_struct.pack(">d", float(x)) for x in _pvol)
         purified_dataset_hash = compute_sha256(_purified_bytes)
 
+        # A4: STRATEGY INPUT PROTECTION
+        # Defensive copy: strategy receives immutable snapshot
+        import hashlib
+        _input_snapshot = purified_data.clone()
+        _pre_cols = set(_input_snapshot.columns)
+        _pre_row_count = len(_input_snapshot)
+
         # 1. Apply Strategy Logic / Moving Average Crossover
         if strategy_logic is not None:
-            df = strategy_logic(purified_data)
+            df = strategy_logic(_input_snapshot)
         else:
             # Default Vectorized Moving Average Crossover
             df = purified_data.with_columns([
@@ -340,6 +347,26 @@ class IsolatedBacktestEngine:
         nan_count = df["signal"].is_null().sum()
         if nan_count > 0:
             raise ValueError(f"Strategy produced {nan_count} NaN signals.")
+
+        # A4: Post-strategy mutation check
+        # Verify strategy didn't mutate input market data (price, OHLC, timestamp)
+        _post_cols = set(df.columns)
+        _post_row_count = len(df)
+        _new_cols = _post_cols - _pre_cols - {"signal"}
+        # Row count must match
+        if _post_row_count != _pre_row_count:
+            raise ValueError(
+                f"Strategy changed row count: {_pre_row_count} -> {_post_row_count}. "
+                "Strategy must not add or remove rows."
+            )
+        # Check if strategy modified existing market columns
+        for col in ['timestamp', 'price', 'open', 'high', 'low', 'close']:
+            if col in _pre_cols and col in df.columns:
+                if not _input_snapshot[col].equals(df[col]):
+                    raise ValueError(
+                        f"Strategy MUTATED '{col}' column. "
+                        "Market data columns are immutable."
+                    )
 
         # Neutralize / block trade execution on toxic spreads or closed market periods (DELEGASI_029b)
         if "is_toxic_spread" in df.columns or "is_market_closed" in df.columns:
@@ -746,8 +773,19 @@ class IsolatedBacktestEngine:
                     "is_turnover": is_turnover,
                 })
                 
+            # A6: optimization_metric drives selection
             def _wfo_selection_key(c):
-                return (round(c["is_sharpe"], 6), -abs(c["is_max_dd"]), -c["is_turnover"])
+                # Primary metric from optimization_metric parameter
+                if optimization_metric == "sharpe_ratio":
+                    primary = round(c["is_sharpe"], 6)
+                elif optimization_metric == "sortino_ratio":
+                    primary = round(c.get("is_sortino", c["is_sharpe"]), 6)
+                elif optimization_metric == "calmar_ratio":
+                    primary = round(c.get("is_calmar", 0.0), 6)
+                else:
+                    primary = round(c["is_sharpe"], 6)  # Default
+                # Tie-break: lower drawdown, then lower turnover
+                return (primary, -abs(c["is_max_dd"]), -c["is_turnover"])
                 
             candidates.sort(key=_wfo_selection_key, reverse=True)
             best_cand = candidates[0]
