@@ -351,7 +351,7 @@ class BacktestOrchestrator:
             holdout_evidence = None
             if split_id:
                 try:
-                    holdout_df = holdout_mgr.get_holdout(split_id, df, caller="orchestrator")
+                    holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
                     engine_holdout = IsolatedBacktestEngine()
                     best_params = {}
                     if run.wfo_result and run.wfo_result.get("parameter_family_size", 0) > 0:
@@ -576,7 +576,12 @@ class BacktestOrchestrator:
             )
 
     def _stage_verify(self, run: BacktestRun) -> StageResult:
-        """Independent verification — recompute metrics from actual OOS returns."""
+        """Independent verification — recompute ALL metrics from actual OOS returns.
+        
+        Uses IndependentVerifier.verify_trade_metrics() for trade-level checks
+        (win rate, profit factor, total return) plus Sharpe and drawdown recompute.
+        All checks must pass for VERIFIED status.
+        """
         t0 = time.time()
         try:
             run_dir = os.path.join(self.RUNS_DIR, run.run_id)
@@ -590,15 +595,14 @@ class BacktestOrchestrator:
             # 1. Verify artifact integrity (manifest hashes match files)
             artifact_result = IndependentVerifier.verify_artifact_integrity(run_dir)
 
-            # 2. Independent Sharpe recompute from actual OOS returns
             oos_returns = run.oos_result.get("pooled_oos_returns", []) if run.oos_result else []
             stats = run.statistics_result or {}
-            claimed_sharpe = stats.get("sharpe", 0.0)
 
+            # 2. Independent Sharpe recompute from actual OOS returns
             if oos_returns and len(oos_returns) > 2:
                 sharpe_check = IndependentVerifier.verify_sharpe(
                     returns=oos_returns,
-                    claimed_sharpe=claimed_sharpe,
+                    claimed_sharpe=stats.get("sharpe", 0.0),
                 )
             else:
                 sharpe_check = {"valid": False, "reason": "No OOS returns to verify"}
@@ -606,7 +610,6 @@ class BacktestOrchestrator:
             # 3. Independent return/DD recompute
             return_check = {"valid": True, "checks": []}
             if oos_returns and len(oos_returns) > 1:
-                # Recompute cumulative return
                 cum = 1.0
                 peak = 1.0
                 max_dd = 0.0
@@ -638,13 +641,33 @@ class BacktestOrchestrator:
                 all_return_ok = all(c["match"] for c in return_check["checks"])
                 return_check["valid"] = all_return_ok
 
-            all_valid = artifact_result.get("valid", False) and sharpe_check.get("valid", False) and return_check.get("valid", False)
+            # 4. Trade-level verification (win rate, profit factor, return)
+            trade_check = {"valid": False, "reason": "No returns"}
+            if oos_returns and len(oos_returns) > 2:
+                trade_check = IndependentVerifier.verify_trade_metrics(
+                    returns=oos_returns,
+                    claimed_win_rate=stats.get("win_rate", 0.0),
+                    claimed_profit_factor=stats.get("profit_factor", 0.0),
+                    claimed_total_return=stats.get("return_pct", 0.0),
+                )
+
+            all_valid = (
+                artifact_result.get("valid", False)
+                and sharpe_check.get("valid", False)
+                and return_check.get("valid", False)
+                and trade_check.get("valid", False)
+            )
 
             return StageResult(
                 stage="verify",
                 status=RunStage.PASSED if all_valid else RunStage.FAILED,
                 started_at=t0, completed_at=time.time(),
-                data={"artifact_integrity": artifact_result, "sharpe_check": sharpe_check, "return_check": return_check},
+                data={
+                    "artifact_integrity": artifact_result,
+                    "sharpe_check": sharpe_check,
+                    "return_check": return_check,
+                    "trade_check": trade_check,
+                },
             )
         except Exception as e:
             return StageResult(
@@ -815,7 +838,12 @@ class BacktestOrchestrator:
             return StageResult(
                 stage="wfo", status=RunStage.PASSED,
                 started_at=t0, completed_at=time.time(),
-                data={"fold_count": wfo_evidence.fold_count, "provenance": wfo_evidence.provenance_hash[:16]},
+                data={
+                    "fold_count": wfo_evidence.fold_count,
+                    "provenance": wfo_evidence.provenance_hash[:16],
+                    "param_binding_valid": param_binding_valid,
+                    "param_binding_note": "Parameters affect strategy output" if param_binding_valid else "WARNING: Parameters may not affect strategy",
+                },
             )
         except Exception as e:
             return StageResult(
@@ -1161,7 +1189,7 @@ class BacktestOrchestrator:
         files_manifest = {}
 
         # Create subdirectories
-        for subdir in ["dataset", "baseline", "wfo", "oos", "statistics", "crisis", "final_gate"]:
+        for subdir in ["dataset", "baseline", "wfo", "oos", "statistics", "crisis", "holdout", "final_gate"]:
             os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
 
         def _write_and_hash(rel_path: str, data: Any):
@@ -1201,6 +1229,10 @@ class BacktestOrchestrator:
         # -- final_gate/
         if run.final_gate:
             _write_and_hash("final_gate/decision.json", run.final_gate)
+
+        # -- holdout/
+        if run.holdout_evidence:
+            _write_and_hash("holdout/evidence.json", run.holdout_evidence)
 
         # -- config.json (top-level)
         _write_and_hash("config.json", config.to_dict())

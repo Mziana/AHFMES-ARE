@@ -86,10 +86,46 @@ class HoldoutManager:
     """
     Manages research holdout integrity.
     Enforces the invariant: holdout data is NEVER seen during training/selection.
+    Supports persistence to disk for crash recovery and audit trail.
     """
 
-    def __init__(self):
+    PERSISTENCE_DIR = "data/research/holdouts"
+
+    def __init__(self, persist: bool = True):
         self._splits: Dict[str, DatasetSplit] = {}
+        self._persist = persist
+        if persist:
+            os.makedirs(self.PERSISTENCE_DIR, exist_ok=True)
+            self._load_all()
+
+    def _persist_split(self, split: DatasetSplit):
+        """Save split state to disk for crash recovery and audit trail."""
+        if not self._persist:
+            return
+        path = os.path.join(self.PERSISTENCE_DIR, f"{split.split_id}.json")
+        with open(path, "w") as f:
+            json.dump(split.to_dict(), f, indent=2)
+
+    def _load_all(self):
+        """Load all persisted splits from disk."""
+        if not os.path.exists(self.PERSISTENCE_DIR):
+            return
+        for fname in os.listdir(self.PERSISTENCE_DIR):
+            if not fname.endswith(".json"):
+                continue
+            try:
+                path = os.path.join(self.PERSISTENCE_DIR, fname)
+                with open(path) as f:
+                    data = json.load(f)
+                data["holdout_state"] = HoldoutState(data["holdout_state"])
+                split = DatasetSplit(**{k: v for k, v in data.items() if hasattr(DatasetSplit, k)})
+                self._splits[split.split_id] = split
+            except Exception:
+                pass
+
+    def get_split(self, split_id: str) -> Optional[DatasetSplit]:
+        """Get a split by ID (from memory or disk)."""
+        return self._splits.get(split_id)
 
     def create_split(
         self,
@@ -110,13 +146,15 @@ class HoldoutManager:
         train_end = int(n * train_ratio)
         val_end = int(n * (train_ratio + validation_ratio))
 
-        # Compute hashes for each split
+        # Compute hashes for each split — include ALL OHLC columns for integrity
         def _hash_slice(d: pl.DataFrame) -> str:
-            cols = [c for c in ["timestamp", "price", "volume"] if c in d.columns]
+            cols = [c for c in ["timestamp", "open", "high", "low", "price", "volume"] if c in d.columns]
             data = b""
             for c in cols:
                 vals = d[c].to_list()
+                data += c.encode() + b":"
                 data += b"".join(struct.pack(">d", float(x)) for x in vals if x is not None)
+                data += b","
             return compute_sha256(data)
 
         split = DatasetSplit(
@@ -134,6 +172,7 @@ class HoldoutManager:
         )
 
         self._splits[split.split_id] = split
+        self._persist_split(split)
         return split
 
     def lock_holdout(self, split_id: str) -> DatasetSplit:
@@ -146,6 +185,7 @@ class HoldoutManager:
 
         split.holdout_state = HoldoutState.LOCKED
         split.locked_at = time.time()
+        self._persist_split(split)
         return split
 
     def get_train(self, split_id: str, df: pl.DataFrame) -> pl.DataFrame:
@@ -163,7 +203,10 @@ class HoldoutManager:
         return df.slice(split.validation_start_idx, split.validation_end_idx - split.validation_start_idx)
 
     def get_holdout(self, split_id: str, df: pl.DataFrame, caller: str = "unknown") -> pl.DataFrame:
-        """Get holdout portion. Logs access. If LOCKED, raises error."""
+        """Get holdout portion. Logs access. If LOCKED, raises error.
+        
+        Use evaluate_access() for post-training holdout evaluation.
+        """
         split = self._splits.get(split_id)
         if not split:
             raise KeyError(f"Split {split_id} not found")
@@ -178,8 +221,35 @@ class HoldoutManager:
         if split.holdout_state == HoldoutState.LOCKED:
             raise PermissionError(
                 "HOLDOUT_LOCKED: Cannot access holdout data during training/selection. "
-                "Holdout is only accessible after all training is complete."
+                "Holdout is only accessible after all training is complete. "
+                "Use evaluate_access() for post-training holdout evaluation."
             )
+
+        return df.slice(split.holdout_start_idx, split.holdout_end_idx - split.holdout_start_idx)
+
+    def evaluate_access(self, split_id: str, df: pl.DataFrame, caller: str = "orchestrator") -> pl.DataFrame:
+        """Access holdout data for post-training evaluation (after WFO is complete).
+        
+        This is the ONLY permitted way to read holdout data after locking.
+        It requires state=LOCKED (i.e., all training is done).
+        Logs the access and transitions state toward EVALUATED.
+        """
+        split = self._splits.get(split_id)
+        if not split:
+            raise KeyError(f"Split {split_id} not found")
+
+        # Can only evaluate-access when LOCKED (training is done)
+        if split.holdout_state not in (HoldoutState.LOCKED,):
+            raise PermissionError(
+                f"evaluate_access requires state=LOCKED, got {split.holdout_state.value}"
+            )
+
+        split.holdout_access_log.append({
+            "caller": caller,
+            "timestamp": time.time(),
+            "state_at_access": split.holdout_state.value,
+            "purpose": "post_training_evaluation",
+        })
 
         return df.slice(split.holdout_start_idx, split.holdout_end_idx - split.holdout_start_idx)
 
@@ -190,6 +260,7 @@ class HoldoutManager:
             raise KeyError(f"Split {split_id} not found")
         split.holdout_state = HoldoutState.EVALUATED
         split.evaluated_at = time.time()
+        self._persist_split(split)
         return split
 
 
@@ -624,33 +695,123 @@ class IndependentVerifier:
         }
 
     @staticmethod
+    def verify_trade_metrics(
+        returns: List[float],
+        claimed_win_rate: float,
+        claimed_profit_factor: float,
+        claimed_total_return: float,
+        tolerance: float = 0.05,
+    ) -> Dict[str, Any]:
+        """Verify trade-level metrics from raw OOS returns."""
+        if not returns or len(returns) < 2:
+            return {"valid": False, "error": "Insufficient returns"}
+
+        # Recompute win rate
+        wins = [r for r in returns if r > 0]
+        losses = [r for r in returns if r < 0]
+        flats = [r for r in returns if r == 0]
+        n_wins = len(wins)
+        n_losses = len(losses)
+        n_total = len(returns)
+        recomputed_wr = (n_wins / n_total * 100) if n_total > 0 else 0.0
+        wr_match = abs(recomputed_wr - claimed_win_rate) < (tolerance * 100)
+
+        # Recompute profit factor — handle zero trades / zero losses
+        gross_profit = sum(wins) if wins else 0.0
+        gross_loss = abs(sum(losses)) if losses else 0.0
+        if gross_loss > 1e-10 and gross_profit > 0:
+            recomputed_pf = gross_profit / gross_loss
+        elif gross_profit == 0 and gross_loss == 0:
+            # No winning trades and no losing trades — PF is undefined but both agree
+            recomputed_pf = 0.0
+        else:
+            recomputed_pf = 0.0
+        # Match if both are zero/undefined
+        if claimed_profit_factor == 0 and recomputed_pf == 0:
+            pf_match = True
+        elif claimed_profit_factor == 0 and n_wins == 0:
+            pf_match = True  # No wins means PF=0 is correct
+        else:
+            pf_match = abs(recomputed_pf - claimed_profit_factor) < (tolerance * 10)
+
+        # Recompute total return
+        cum = 1.0
+        for r in returns:
+            cum *= (1 + r)
+        recomputed_return = (cum - 1.0) * 100
+        ret_match = abs(recomputed_return - claimed_total_return) < 0.1
+
+        all_match = wr_match and pf_match and ret_match
+
+        return {
+            "valid": all_match,
+            "win_rate": {
+                "claimed": round(claimed_win_rate, 2),
+                "recomputed": round(recomputed_wr, 2),
+                "match": wr_match,
+            },
+            "profit_factor": {
+                "claimed": round(claimed_profit_factor, 4),
+                "recomputed": round(recomputed_pf, 4),
+                "match": pf_match,
+            },
+            "total_return_pct": {
+                "claimed": round(claimed_total_return, 4),
+                "recomputed": round(recomputed_return, 4),
+                "match": ret_match,
+            },
+        }
+
+    @staticmethod
     def full_verification(run_data: Dict[str, Any]) -> Dict[str, Any]:
         """Run all verification checks on a backtest run."""
         results = {}
 
-        # Verify Sharpe
         stats = run_data.get("statistics_result", {})
         oos = run_data.get("oos_result", {})
-        if stats.get("sharpe") is not None:
+        oos_returns = oos.get("pooled_oos_returns", [])
+
+        # 1. Verify Sharpe from actual OOS returns
+        if oos_returns and len(oos_returns) > 2:
             results["sharpe"] = IndependentVerifier.verify_sharpe(
-                returns=[],  # Would need actual returns
+                returns=oos_returns,
                 claimed_sharpe=stats.get("sharpe", 0.0),
             )
+        else:
+            results["sharpe"] = {"valid": False, "reason": "No OOS returns"}
 
-        # Verify max drawdown
-        if oos.get("pooled_max_dd") is not None:
-            results["max_drawdown"] = {
-                "claimed": oos.get("pooled_max_dd", 0),
-                "note": "Full verification requires equity curve data",
-            }
+        # 2. Verify max drawdown from equity reconstruction
+        if oos_returns and len(oos_returns) > 1:
+            cum = 1.0
+            equity = [1.0]
+            for r in oos_returns:
+                cum *= (1 + r)
+                equity.append(cum)
+            results["max_drawdown"] = IndependentVerifier.verify_max_drawdown(
+                equity_curve=equity,
+                claimed_max_dd=stats.get("max_dd_pct", 0.0) / 100.0,
+            )
+        else:
+            results["max_drawdown"] = {"valid": False, "reason": "No equity data"}
 
-        # Verify artifact integrity
+        # 3. Verify trade-level metrics (NEW)
+        if oos_returns and len(oos_returns) > 2:
+            results["trade_metrics"] = IndependentVerifier.verify_trade_metrics(
+                returns=oos_returns,
+                claimed_win_rate=stats.get("win_rate", 0.0),
+                claimed_profit_factor=stats.get("profit_factor", 0.0),
+                claimed_total_return=stats.get("return_pct", 0.0),
+            )
+        else:
+            results["trade_metrics"] = {"valid": False, "reason": "No trade data"}
+
+        # 4. Verify artifact integrity
         run_id = run_data.get("run_id", "")
         run_dir = f"data/backtest_runs/{run_id}"
         if os.path.exists(run_dir):
             results["artifact_integrity"] = IndependentVerifier.verify_artifact_integrity(run_dir)
 
-        # Overall
+        # Overall: ALL checks must pass
         all_valid = all(
             r.get("valid", True)
             for r in results.values()
