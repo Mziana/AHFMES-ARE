@@ -133,6 +133,10 @@ def build_parser() -> argparse.ArgumentParser:
     res_subs.add_parser("strategies", help="List registered strategies")
     res_replay = res_subs.add_parser("replay", help="Deterministic replay of a run")
     res_replay.add_argument("run_id", help="Run ID to replay")
+    res_qual = res_subs.add_parser("qualification", help="Run qualification test with golden dataset + corruption matrix")
+    res_qual.add_argument("--symbol", default="XAUUSD", help="Symbol")
+    res_verify = res_subs.add_parser("verify", help="Independent verify a research run")
+    res_verify.add_argument("run_id", help="Run ID to verify")
 
     return parser
 
@@ -673,6 +677,10 @@ def handle_research(args: argparse.Namespace) -> int:
         return _research_strategies()
     elif args.res_command == "replay":
         return _research_replay(args)
+    elif args.res_command == "qualification":
+        return _research_qualification(args)
+    elif args.res_command == "verify":
+        return _research_verify(args)
 
     return 0
 
@@ -973,6 +981,82 @@ def _research_replay(args: argparse.Namespace) -> int:
         print(f"    Original: {original_hash[:16]}...")
         print(f"    Replay:   {replay_hash[:16]}...")
         return 1
+
+
+def _research_qualification(args: argparse.Namespace) -> int:
+    """Run qualification test: golden dataset + corruption matrix."""
+    import subprocess, sys
+    print("=" * 60)
+    print("  QUALIFICATION TEST SUITE")
+    print("  Running 14 tests: golden dataset + determinism + corruption")
+    print("=" * 60)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/are/test_qualification.py", "-v", "--tb=short"],
+        capture_output=False, cwd=os.getcwd(),
+    )
+    return result.returncode
+
+
+def _research_verify(args: argparse.Namespace) -> int:
+    """Independent verify a research run."""
+    import json as _json
+    from are.research.orchestrator import BacktestOrchestrator
+    from are.research.integrity import IndependentVerifier
+
+    print(f"=" * 60)
+    print(f"  INDEPENDENT VERIFY: {args.run_id}")
+    print(f"=" * 60)
+
+    orch = BacktestOrchestrator()
+    try:
+        run = orch.load_run(args.run_id)
+    except FileNotFoundError:
+        print(f"  Run {args.run_id} not found.")
+        return 1
+
+    run_dir = os.path.join(orch.RUNS_DIR, args.run_id)
+    oos_returns = run.oos_result.get("pooled_oos_returns", []) if run.oos_result else []
+    stats = run.statistics_result or {}
+
+    print(f"  Status: {run.status.value}")
+    print(f"  Gate: {run.final_gate.get('decision', 'UNKNOWN') if run.final_gate else 'N/A'}")
+
+    # 1. Artifact integrity
+    art = IndependentVerifier.verify_artifact_integrity(run_dir)
+    icon = "OK" if art.get("valid") else "FAIL"
+    print(f"  [{icon}] Artifact integrity: {'MATCH' if art.get('valid') else art.get('error', 'MISMATCH')}")
+
+    # 2. Sharpe
+    if oos_returns and len(oos_returns) > 2:
+        sharpe = IndependentVerifier.verify_sharpe(oos_returns, stats.get("sharpe", 0.0))
+        icon = "OK" if sharpe.get("valid") else "FAIL"
+        print(f"  [{icon}] Sharpe: claimed={sharpe.get('claimed')}, recomputed={sharpe.get('recomputed')}")
+    else:
+        print(f"  [SKIP] Sharpe: insufficient returns")
+
+    # 3. Return/DD
+    if oos_returns and len(oos_returns) > 1:
+        cum = 1.0
+        peak = 1.0
+        max_dd = 0.0
+        for r in oos_returns:
+            cum *= (1 + r)
+            if cum > peak: peak = cum
+            dd = (peak - cum) / peak if peak > 0 else 0
+            if dd > max_dd: max_dd = dd
+        ret = (cum - 1.0) * 100
+        print(f"  [INFO] Return: {ret:.2f}%, Max DD: {max_dd*100:.2f}%")
+
+    # 4. Trade metrics
+    if oos_returns and len(oos_returns) > 2:
+        trade = IndependentVerifier.verify_trade_metrics(
+            oos_returns, stats.get("win_rate", 0.0), stats.get("profit_factor", 0.0),
+            stats.get("return_pct", 0.0),
+        )
+        icon = "OK" if trade.get("valid") else "FAIL"
+        print(f"  [{icon}] Trade metrics: {trade.get('metric', 'N/A')}")
+
+    return 0
 
 
 def handle_approve(args: argparse.Namespace) -> int:

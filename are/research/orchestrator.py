@@ -140,9 +140,10 @@ class BacktestRun:
     crisis_result: Optional[Dict[str, Any]] = None
     stability_result: Optional[Dict[str, Any]] = None
     final_gate: Optional[Dict[str, Any]] = None
-    quality_report: Optional[Dict[str, Any]] = None
+    quality_report: Optional[Dict[str, Any]] = None    # Capital
+    initial_capital: float = 10000.0
 
-# RNG / Seed governance
+    # RNG / Seed governance
     random_seed: int = 42
     rng_algorithm: str = "PythonRandom"
     mc_simulations: int = 1000
@@ -262,6 +263,7 @@ class BacktestOrchestrator:
         em = config.execution_model
         run.random_seed = 42  # Default; explicit for reproducibility
         run.mc_simulations = config.mc_simulations
+        run.initial_capital = config.execution_model.initial_capital
 
         # Total budget: 10 minutes for entire experiment
         deadline = run.started_at + 600
@@ -1004,7 +1006,7 @@ class BacktestOrchestrator:
                 mc = monte_carlo_simulation(
                     oos_returns,
                     num_simulations=run.mc_simulations,
-                    initial_capital=100000,
+                    initial_capital=run.initial_capital,
                 )
                 # MC returns multiple ruin metrics; use the most conservative
                 stats["mc_ruin_probability"] = mc.get(
@@ -1081,9 +1083,10 @@ class BacktestOrchestrator:
                     result = strategy_logic(df_with_param)
                     if "signal" in result.columns:
                         return result
-                except Exception:
-                    pass
-                # Fallback: call original strategy with original df
+                except Exception as e:
+                    import logging
+                    logging.warning(f"Stability analysis: param {val} failed: {e}")
+                # Return original strategy result (param may not affect output)
                 return strategy_logic(df_inner)
 
             stability = parameter_stability_analysis(
