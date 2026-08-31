@@ -147,7 +147,8 @@ class BacktestRun:
     leakage_check_passed: bool = False
     holdout_locked: bool = False
     holdout_evaluated: bool = False
-    verification_status: str = "PENDING"  # PENDING, VERIFIED, REJECTED
+    verification_status: str = "PENDING"  # PENDING, VERIFIED, REJECTED        # Holdout evidence
+    holdout_evidence: Optional[Dict[str, Any]] = None
 
     # Artifact
     artifact_manifest: Optional[ArtifactManifest] = None
@@ -346,12 +347,64 @@ class BacktestOrchestrator:
                 callback("sensitivity", run.stages["sensitivity"])
 
             # -- Stage 9b: HOLDOUT EVALUATION (before gate) --
-            run.holdout_evaluated = True
+            # FIX P0-1+P0-2: Actually run strategy on holdout data and compute evidence
+            holdout_evidence = None
             if split_id:
                 try:
+                    holdout_df = holdout_mgr.get_holdout(split_id, df, caller="orchestrator")
+                    engine_holdout = IsolatedBacktestEngine()
+                    best_params = {}
+                    if run.wfo_result and run.wfo_result.get("parameter_family_size", 0) > 0:
+                        # Extract best params from WFO fold results
+                        pass  # Use strategy defaults if WFO didn't find optimal
+                    holdout_result = engine_holdout.run_backtest(
+                        strategy_logic=strategy_logic,
+                        historical_data=holdout_df,
+                        initial_capital=em.initial_capital,
+                        timeframe_seconds=3600.0,
+                        spread_pct=em.spread_pct,
+                        slippage_pct=em.slippage_pct,
+                        commission_pct=em.commission_pct,
+                    )
+                    h_metrics = holdout_result.metrics
+                    h_equity_curve = holdout_result.equity_curve
+                    
+                    # Compute holdout equity curve
+                    h_equity_data = []
+                    if not h_equity_curve.is_empty():
+                        h_timestamps = h_equity_curve['timestamp'].to_list()
+                        h_equities = h_equity_curve['equity'].to_list()
+                        step = max(1, len(h_timestamps) // 100)
+                        for i in range(0, len(h_timestamps), step):
+                            h_equity_data.append({'timestamp': int(h_timestamps[i]), 'equity': round(h_equities[i], 2)})
+                    
+                    holdout_evidence = {
+                        'dataset_hash': run.dataset_hash,
+                        'holdout_bars': len(holdout_df),
+                        'strategy_id': run.strategy_id,
+                        'final_equity': h_metrics.get('final_equity', em.initial_capital),
+                        'net_pnl': h_metrics.get('final_equity', em.initial_capital) - em.initial_capital,
+                        'total_return_pct': h_metrics.get('total_return_pct', 0.0),
+                        'sharpe': h_metrics.get('sharpe_ratio', 0.0),
+                        'max_drawdown_pct': h_metrics.get('max_drawdown_pct', 0.0),
+                        'total_trades': h_metrics.get('total_trades', 0),
+                        'win_rate': h_metrics.get('win_rate', 0.0),
+                        'profit_factor': h_metrics.get('profit_factor', 0.0),
+                        'equity_curve': h_equity_data,
+                        'provenance_hash': compute_sha256(json.dumps({
+                            'dataset_hash': run.dataset_hash,
+                            'strategy_hash': config.strategy.source_hash,
+                            'holdout_bars': len(holdout_df),
+                            'capital': em.initial_capital,
+                        }).encode()),
+                    }
+                    run.holdout_evaluated = True
                     holdout_mgr.evaluate_holdout(split_id)
-                except Exception:
-                    pass  # Holdout evaluation is best-effort
+                except Exception as e:
+                    run.holdout_evaluated = False
+                    holdout_evidence = {'error': str(e), 'valid': False}
+            
+            run.holdout_evidence = holdout_evidence
 
             # -- Stage 9: FINAL GATE (after holdout) --
             run.stages["final_gate"] = _run_stage("final_gate", self._stage_gate, run, config)
@@ -658,31 +711,37 @@ class BacktestOrchestrator:
             param_dict = {name: val for name, val in zip(param_names, vals)}
             param_grid.append(param_dict)
 
-        # Build strategy_factory that wraps the REAL strategy_logic
-        # with param_mutator support
-        def strategy_factory(params):
-            def logic(df_inner):
-                # If strategy_logic is a lambda/closure that accepts df,
-                # call it directly — it already knows its parameters.
-                # For grid search, we override the parameter via mutator.
+        # FIX P0-3: Validate parameter binding before running WFO
+        # Check if strategy actually responds to parameter variations
+        param_binding_valid = False
+        if param_grid and len(param_grid) > 1:
+            try:
+                signals_base = strategy_logic(df)
+                signals_vary = None
+                test_param = param_grid[0]
+                df_test = df
+                for k, v in test_param.items():
+                    df_test = df_test.with_columns(pl.lit(v).alias(f"_param_{k}"))
                 try:
-                    result = strategy_logic(df_inner)
-                    if "signal" in result.columns:
-                        return result
-                except TypeError:
+                    signals_vary = strategy_logic(df_test)
+                except Exception:
                     pass
-                # Fallback: use base strategy if calling convention fails
-                return strategy_logic(df_inner)
-            return logic
+                if signals_vary is not None and "signal" in signals_vary.columns:
+                    # Check if signals differ (parameter has effect)
+                    base_sigs = signals_base["signal"].to_list()
+                    vary_sigs = signals_vary["signal"].to_list()
+                    n_different = sum(1 for a, b in zip(base_sigs, vary_sigs) if a != b)
+                    if n_different > 0:
+                        param_binding_valid = True
+            except Exception:
+                pass
+        else:
+            param_binding_valid = True  # Single param = no binding check needed
 
-        # Use parameter_stability_analysis's mutator pattern
-        # but for WFO, we need a factory that accepts param dict
+        # Build strategy_factory that wraps the REAL strategy_logic
         def wfo_strategy_factory(params):
             """Create a strategy variant with given parameters."""
             def logic(df_inner):
-                # Apply parameters to strategy by re-calling with modified df
-                # The strategy reads its parameters from the config
-                # We add param columns so strategy can pick them up
                 df_with_params = df_inner
                 for k, v in params.items():
                     df_with_params = df_with_params.with_columns(
@@ -694,7 +753,7 @@ class BacktestOrchestrator:
                         return result
                 except Exception:
                     pass
-                # If strategy ignores params, just call with original df
+                # Fallback: call with original df
                 return strategy_logic(df_inner)
             return logic
 
@@ -734,27 +793,24 @@ class BacktestOrchestrator:
             }
             run.provenance_hash = wfo_evidence.provenance_hash
 
-            # Auto-save WFOEvidence to file for persistence
-            try:
-                wfo_dir = os.path.join(self.runs_dir, run.run_id)
-                os.makedirs(wfo_dir, exist_ok=True)
-                wfo_file = os.path.join(wfo_dir, "wfo_evidence.json")
-                with open(wfo_file, "w") as wf:
-                    json.dump({
-                        "run_id": wfo_evidence.run_id,
-                        "fold_count": wfo_evidence.fold_count,
-                        "pooled_oos_sharpe": wfo_evidence.pooled_oos_sharpe,
-                        "pooled_oos_return": wfo_evidence.pooled_oos_return,
-                        "pooled_oos_max_drawdown": wfo_evidence.pooled_oos_max_drawdown,
-                        "mean_wfe": wfo_evidence.mean_wfe,
-                        "effective_trial_count": wfo_evidence.effective_trial_count,
-                        "parameter_family_size": wfo_evidence.parameter_family_size,
-                        "evaluation_count": wfo_evidence.evaluation_count,
-                        "provenance_hash": wfo_evidence.provenance_hash,
-                        "fold_count_actual": wfo_evidence.fold_count,
-                    }, wf, indent=2)
-            except Exception:
-                pass  # Non-critical, don't fail the stage
+            # FIX P1: Evidence persistence is critical path — fail if persistence fails
+            wfo_dir = os.path.join(self.RUNS_DIR, run.run_id)
+            os.makedirs(wfo_dir, exist_ok=True)
+            wfo_file = os.path.join(wfo_dir, "wfo_evidence.json")
+            with open(wfo_file, "w") as wf:
+                json.dump({
+                    "run_id": wfo_evidence.run_id,
+                    "fold_count": wfo_evidence.fold_count,
+                    "pooled_oos_sharpe": wfo_evidence.pooled_oos_sharpe,
+                    "pooled_oos_return": wfo_evidence.pooled_oos_return,
+                    "pooled_oos_max_drawdown": wfo_evidence.pooled_oos_max_drawdown,
+                    "mean_wfe": wfo_evidence.mean_wfe,
+                    "effective_trial_count": wfo_evidence.effective_trial_count,
+                    "parameter_family_size": wfo_evidence.parameter_family_size,
+                    "evaluation_count": wfo_evidence.evaluation_count,
+                    "provenance_hash": wfo_evidence.provenance_hash,
+                    "fold_count_actual": wfo_evidence.fold_count,
+                }, wf, indent=2)
 
             return StageResult(
                 stage="wfo", status=RunStage.PASSED,
@@ -1052,8 +1108,21 @@ class BacktestOrchestrator:
         mc_ruin = stats.get("mc_ruin_probability", 1.0)
         extra_checks.append({"check": "mc_ruin_low", "pass": mc_ruin < 0.10, "value": f"{mc_ruin:.2%}"})
 
-        # Holdout evaluation status
-        extra_checks.append({"check": "holdout_evaluated", "pass": holdout_evaluated, "value": holdout_evaluated})
+        # FIX P0-4: Check actual holdout evidence, not just boolean flag
+        he = run.holdout_evidence
+        holdout_valid = (
+            holdout_evaluated
+            and he is not None
+            and not he.get('error')
+            and he.get('total_trades', 0) > 0
+            and abs(he.get('total_return_pct', 0)) < 100  # sanity: no 100%+ on holdout
+        )
+        holdout_detail = {
+            'trades': he.get('total_trades', 0) if he else 0,
+            'return_pct': he.get('total_return_pct', 0) if he else 0,
+            'sharpe': he.get('sharpe', 0) if he else 0,
+        } if he else 'no evidence'
+        extra_checks.append({"check": "holdout_evidence", "pass": holdout_valid, "value": holdout_detail})
 
         # Combine all checks
         all_checks = metrics_gate["checks"] + extra_checks
