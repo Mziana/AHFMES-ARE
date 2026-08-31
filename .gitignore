@@ -14,3 +14,8 @@ tmp/*
 skills/
 .agent-memory/
 .opencode/data/test_engine.db
+
+# Data files (too large for git)
+data/market_data/*.parquet
+data/backtest_runs/
+data/backtests/
