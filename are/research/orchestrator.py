@@ -12,12 +12,17 @@ Zero external dependencies except Polars + stdlib.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import dataclasses
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from are.atomic_io import atomic_write_json
+from are.run_state import RunStateManager, RunPhase
+from are.input_guard import validate_param_grid, validate_numeric
 
 try:
     import polars as pl
@@ -258,12 +263,25 @@ class BacktestOrchestrator:
             execution_model_hash=config.execution_model.model_hash,
         )
 
+        # §45: Input validation before starting
+        validate_numeric(config.execution_model.initial_capital, "initial_capital", min_val=1, max_val=1e12)
+        if config.parameter_grid.grid_size > 0:
+            validate_param_grid(
+                [{k: v for k, v in zip(config.parameter_grid.param_names or ['x'], combo)}
+                 for combo in (config.parameter_grid.param_values or [])],
+                max_combos=10000,
+            )
+
         run.started_at = time.time()
         run.status = RunStatus.RUNNING
         em = config.execution_model
         run.random_seed = 42  # Default; explicit for reproducibility
         run.mc_simulations = config.mc_simulations
         run.initial_capital = config.execution_model.initial_capital
+
+        # §42: Initialize run state manager for crash recovery
+        run_state_mgr = RunStateManager(os.path.join(self.RUNS_DIR, run.run_id))
+        run_state_mgr.transition(RunPhase.RUNNING)
 
         # Total budget: 10 minutes for entire experiment
         deadline = run.started_at + 600
@@ -307,9 +325,17 @@ class BacktestOrchestrator:
                 timer.cancel()
 
             # Post-hoc check (for stages that don't check abort_flag)
-            if time.time() > stage_deadline:
-                result.status = RunStage.FAILED
-                result.error = f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit (hard)"
+            # §42: Track stage completion for crash recovery
+            # Handle both StageResult and raw tuple returns (e.g. holdout_setup)
+            if isinstance(result, StageResult):
+                if time.time() > stage_deadline:
+                    result.status = RunStage.FAILED
+                    result.error = f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit (hard)"
+                if result.status == RunStage.PASSED:
+                    run_state_mgr.mark_stage_completed(name)
+            else:
+                # Raw return (tuple) — track as completed
+                run_state_mgr.mark_stage_completed(name)
             return result
 
         try:
@@ -1254,10 +1280,9 @@ class BacktestOrchestrator:
             os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
 
         def _write_and_hash(rel_path: str, data: Any):
-            """Write JSON data to disk, then hash the ACTUAL bytes written."""
+            """Write JSON data atomically to disk, then hash the ACTUAL bytes written."""
             full_path = os.path.join(run_dir, rel_path)
-            with open(full_path, "w") as f:
-                json.dump(data, f, indent=2, default=str)
+            atomic_write_json(full_path, data)
             # Hash the actual bytes on disk (not in-memory object)
             with open(full_path, "rb") as f:
                 files_manifest[rel_path] = compute_sha256(f.read())
@@ -1319,8 +1344,7 @@ class BacktestOrchestrator:
         )
 
         manifest_file = os.path.join(run_dir, "manifest.json")
-        with open(manifest_file, "w") as f:
-            json.dump(artifact.to_dict(), f, indent=2)
+        atomic_write_json(manifest_file, artifact.to_dict())
 
         run.artifact_manifest = artifact
 
@@ -1339,8 +1363,7 @@ class BacktestOrchestrator:
         run_dir = os.path.join(self.RUNS_DIR, run.run_id)
         os.makedirs(run_dir, exist_ok=True)
         run_file = os.path.join(run_dir, "run.json")
-        with open(run_file, "w") as f:
-            json.dump(run.to_dict(), f, indent=2, default=str)
+        atomic_write_json(run_file, run.to_dict())
         # Patch run.json hash into artifact manifest
         if run.artifact_manifest:
             with open(run_file, "rb") as f:
@@ -1348,10 +1371,9 @@ class BacktestOrchestrator:
             # Recompute overall artifact hash
             all_hashes = json.dumps(run.artifact_manifest.files, sort_keys=True)
             run.artifact_manifest.artifact_hash = compute_sha256(all_hashes.encode())
-            # Update manifest file on disk
+            # Update manifest file on disk (also atomic)
             manifest_file = os.path.join(run_dir, "manifest.json")
-            with open(manifest_file, "w") as f:
-                json.dump(run.artifact_manifest.to_dict(), f, indent=2)
+            atomic_write_json(manifest_file, run.artifact_manifest.to_dict())
 
     def load_run(self, run_id: str) -> BacktestRun:
         """Load a completed run."""
