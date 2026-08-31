@@ -141,9 +141,18 @@ class ExecutionStateMachine:
             "last_updated": time.time(),
         }
         tmp_file = self.state_file + ".tmp"
-        with open(tmp_file, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_file, self.state_file)  # Atomic on most OS
+        try:
+            with open(tmp_file, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_file, self.state_file)  # Atomic on most OS
+        except (OSError, PermissionError):
+            # Windows: file may be locked by another process
+            # Fall back to direct write (non-atomic but functional)
+            try:
+                with open(self.state_file, "w") as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                print(f"[EXEC_STATE] Failed to persist state: {e}")
 
     # ─── Kill Switch (Persistent) ────────────────────────────────────────
 

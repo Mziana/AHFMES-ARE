@@ -45,13 +45,20 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
     # =========================================================================
     # RES-RED-17: Dual WFA Semantics Confusion
     # =========================================================================
+    def _make_synthetic_data(self):
+        """Create synthetic test data for tests that need historical data."""
+        timestamps = [1700000000 + i * 3600 for i in range(2000)]
+        prices = [100.0 + (math.sin(i * 0.05) * 5.0) + (i * 0.02) for i in range(2000)]
+        return pl.DataFrame({"timestamp": timestamps, "price": prices})
+
     def test_deprecated_wfa_emits_deprecation_warning(self):
         """
         RES-RED-17: Memanggil run_walk_forward_analysis WAJIB mengeluarkan DeprecationWarning.
         """
+        df = self._make_synthetic_data()
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            self.engine.run_walk_forward_analysis()
+            self.engine.run_walk_forward_analysis(historical_data=df)
             dep_warnings = [item for item in w if issubclass(item.category, DeprecationWarning)]
             self.assertGreaterEqual(len(dep_warnings), 1)
             self.assertIn("deprecated", str(dep_warnings[0].message).lower())
@@ -60,10 +67,11 @@ class TestStatisticalValidityInvariants(unittest.TestCase):
         """
         RES-RED-17: run_rolling_oos_evaluation menghasilkan struktur dan hasil yang identik dengan method lama.
         """
+        df = self._make_synthetic_data()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            old_res = self.engine.run_walk_forward_analysis()
-        new_res = self.engine.run_rolling_oos_evaluation()
+            old_res = self.engine.run_walk_forward_analysis(historical_data=df)
+        new_res = self.engine.run_rolling_oos_evaluation(historical_data=df)
 
         self.assertEqual(old_res["n_folds"], new_res["n_folds"])
         self.assertAlmostEqual(old_res["mean_train_sharpe"], new_res["mean_train_sharpe"])

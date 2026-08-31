@@ -239,10 +239,17 @@ def test_wfo_pooling_always_long_uptrend_no_equity_jump():
         assert eq[i] >= eq[i-1] - 1e-6, f"Equity dropped at index {i}: {eq[i-1]} -> {eq[i]}"
 
 
+def _make_test_data():
+    import math
+    timestamps = [1700000000 + i * 3600 for i in range(2000)]
+    prices = [100.0 + (math.sin(i * 0.05) * 5.0) + (i * 0.02) for i in range(2000)]
+    return pl.DataFrame({"timestamp": timestamps, "price": prices})
+
+
 def test_deterministic_tie_breaker(monkeypatch):
     engine = IsolatedBacktestEngine()
     
-    def mock_run_backtest(strategy_logic, **kwargs):
+    def mock_run_backtest(strategy_logic=None, historical_data=None, **kwargs):
         if not hasattr(mock_run_backtest, "counter"):
             mock_run_backtest.counter = 0
             
@@ -267,7 +274,9 @@ def test_deterministic_tie_breaker(monkeypatch):
         def logic(df): return df
         return logic
         
+    test_data = _make_test_data()
     ev = engine.run_walk_forward_optimization(
+        historical_data=test_data,
         strategy_factory=dummy_factory,
         param_grid=[{"id": 1}, {"id": 2}, {"id": 3}],
         train_window_bars=10,

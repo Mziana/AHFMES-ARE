@@ -1244,10 +1244,21 @@ class BacktestOrchestrator:
         failed = [c for c in all_checks if not c["pass"]]
         passed = [c for c in all_checks if c["pass"]]
 
-        # Decision: fail-closed
+        # P0-8: Fail-closed decision semantics
+        # DSR failure = FAIL (never BORDERLINE)
+        # Holdout failure = FAIL
+        # Any critical failure = FAIL or INVALID
         base_decision = metrics_gate["decision"]
+        critical_failures = [c for c in failed if c["check"] in (
+            "dsr_significant", "holdout_evidence", "evidence_sufficiency",
+            "evidence_binding",
+        )]
+        
         if base_decision == "PASS" and len(failed) == 0:
             decision = GateDecision.PASS
+        elif len(critical_failures) > 0:
+            # Critical check failed — FAIL, never BORDERLINE
+            decision = GateDecision.FAIL
         elif base_decision in ("PASS", "BORDERLINE") and len(failed) <= 2:
             decision = GateDecision.BORDERLINE
         else:

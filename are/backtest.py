@@ -139,7 +139,7 @@ class BacktestResearchContract:
     purification_report: Dict[str, Any]  # from DataQualityReport.to_dict()
     
     # Execution Semantics
-    signal_timing: str  # 'next_bar_open' | 'next_tick' | 'same_bar_close'
+    signal_timing: str  # 'next_bar_close' | 'next_tick' | 'same_bar_open' | 'same_bar_close'
     entry_price_type: str  # 'bid' | 'ask' | 'mid'
     exit_price_type: str  # 'bid' | 'ask' | 'mid'
     position_model: str  # 'continuous' | 'discrete'
@@ -317,12 +317,29 @@ class IsolatedBacktestEngine:
 
         if "signal" not in df.columns:
             # FAIL-CLOSED: Strategy MUST produce a 'signal' column.
-            # Always-long fallback masks broken strategies -- reject instead.
             raise ValueError(
                 "Strategy did not produce 'signal' column.\n"
                 "Every strategy_logic function must add a 'signal' column with values: -1.0, 0.0, or 1.0.\n"
                 "Received columns: " + ", ".join(df.columns)
             )
+
+        # P0-4: STRATEGY OUTPUT FIREWALL
+        # Strategy must NOT modify market truth (price, timestamp, OHLC)
+        # Only 'signal' (and strategy-added columns) are allowed to change.
+        pre_signal_columns = set(df.columns) - {'signal'}
+        # Validate signal domain
+        signal_values = df["signal"].unique().to_list()
+        valid_signals = {-1.0, 0.0, 1.0}
+        invalid_signals = [s for s in signal_values if s not in valid_signals]
+        if invalid_signals:
+            raise ValueError(
+                f"Strategy produced invalid signal values: {invalid_signals}. "
+                f"Only -1.0, 0.0, 1.0 are allowed."
+            )
+        # Validate signal is finite
+        nan_count = df["signal"].is_null().sum()
+        if nan_count > 0:
+            raise ValueError(f"Strategy produced {nan_count} NaN signals.")
 
         # Neutralize / block trade execution on toxic spreads or closed market periods (DELEGASI_029b)
         if "is_toxic_spread" in df.columns or "is_market_closed" in df.columns:
@@ -429,8 +446,8 @@ class IsolatedBacktestEngine:
             # P0-1: Purification audit trail
             "purification_report": purification_report,
             # P0-4: Execution semantics
-            "signal_timing": "next_bar_open",
-            "entry_price": "close",
+            "signal_timing": "next_bar_close",  # Signal at close[t], return measured close[t] to close[t+1]
+            "entry_price": "close",  # P&L based on close-to-close returns
             "position_model": "continuous",
             "fill_guarantee": "guaranteed",
         }
@@ -558,13 +575,12 @@ class IsolatedBacktestEngine:
         For true Walk-Forward Optimization with parameter fitting, use run_walk_forward_optimization().
         """
         if historical_data is None:
-            # Generate deterministic synthetic baseline
-            timestamps = [1700000000 + i * 60 for i in range(1000)]
-            prices = [100.0 + (math.sin(i * 0.05) * 5.0) + (i * 0.02) for i in range(1000)]
-            historical_data = pl.DataFrame({
-                "timestamp": timestamps,
-                "price": prices,
-            })
+            # FAIL-CLOSED: No synthetic fallback in research mode.
+            raise ValueError(
+                "Rolling evaluation requires real historical data.\n"
+                "Pass historical_data=DataFrame with OHLCV data.\n"
+                "For testing only: pass a synthetic DataFrame explicitly."
+            )
 
         n_rows = len(historical_data)
         folds: List[Dict[str, Any]] = []
@@ -671,13 +687,12 @@ class IsolatedBacktestEngine:
             raise ValueError("PURGE_VIOLATION")
 
         if historical_data is None:
-            # Generate deterministic dataset with sufficient bars
-            timestamps = [1700000000 + i * int(timeframe_seconds) for i in range(1500)]
-            prices = [65000.0 + (math.sin(i * 0.03) * 300.0) + (i * 0.2) for i in range(1500)]
-            historical_data = pl.DataFrame({
-                "timestamp": timestamps,
-                "price": prices,
-            })
+            # FAIL-CLOSED: No synthetic fallback in research mode.
+            raise ValueError(
+                "WFO requires real historical data.\n"
+                "Pass historical_data=DataFrame with OHLCV data.\n"
+                "For testing only: pass a synthetic DataFrame explicitly."
+            )
 
         purifier = DataPurifier()
         purified_data = purifier.purify_tick_data(historical_data)

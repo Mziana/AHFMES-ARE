@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
-"""Qualification script for AI strategy proposals.
-Called by Next.js API: python are/qualify_proposal.py <symbol> <timeframe> <start> <end>
+"""
+AHFMES-ARE Proposal Screening Script
+
+IMPORTANT: This is a PRELIMINARY SCREENING tool, NOT a research qualification.
+It runs a quick backtest to estimate strategy viability before the full
+research pipeline (WFO → DSR → Holdout → Final Gate) is executed.
+
+Status meanings:
+  SCREENED_PASS   = passed preliminary screening (trades >= 10 AND sharpe > 0.5)
+  SCREENED_FAIL   = failed preliminary screening
+  RESEARCH_NEEDED = must run full research pipeline for actual qualification
+
+Usage: python -m are.qualify_proposal.py <symbol> <timeframe> <start> <end>
 Output: JSON to stdout.
 """
 import json
@@ -13,7 +24,6 @@ def main():
     start = sys.argv[3] if len(sys.argv) > 3 else '2025-01-01'
     end = sys.argv[4] if len(sys.argv) > 4 else '2026-08-01'
 
-    # Ensure ARE is importable
     are_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, are_dir)
     os.chdir(are_dir)
@@ -33,6 +43,7 @@ def main():
         m = result.metrics
         n_trades = m.get('total_trades', 0)
         sharpe = m.get('sharpe_ratio', 0)
+        win_rate = m.get('win_rate', 0.0)
 
         eq_curve = []
         try:
@@ -40,18 +51,25 @@ def main():
         except Exception:
             pass
 
+        # SCREENING only — not research qualification
+        # A strategy that passes this must still go through:
+        # WFO → OOS → DSR → Crisis → Holdout → Final Gate
+        screening_pass = n_trades >= 10 and sharpe > 0.5
+
         print(json.dumps({
             "success": True,
-            "qualification": {
-                "win_rate": round(m.get('profit_factor', 0) * 50, 1),
+            "screening": {
+                "win_rate": win_rate,
                 "sharpe": sharpe,
                 "total_return": m.get('total_return_pct', 0),
                 "max_drawdown": m.get('max_drawdown_pct', 0),
                 "profit_factor": m.get('profit_factor', 0),
                 "trades": n_trades,
                 "equity_curve": eq_curve,
-                "qualified": n_trades >= 10 and sharpe > 0.5,
-                "status": "QUALIFIED" if (n_trades >= 10 and sharpe > 0.5) else "NOT_QUALIFIED",
+                "screened": screening_pass,
+                "status": "SCREENED_PASS" if screening_pass else "SCREENED_FAIL",
+                "next_step": "RESEARCH_NEEDED" if screening_pass else "STRATEGY_REJECTED",
+                "disclaimer": "This is preliminary screening only. Run 'are research run' for actual qualification through WFO→DSR→Holdout→FinalGate.",
             }
         }))
     except Exception as e:
