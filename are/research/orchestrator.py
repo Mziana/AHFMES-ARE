@@ -982,15 +982,18 @@ class BacktestOrchestrator:
         try:
             from are.validation import calculate_deflated_sharpe_ratio, calculate_probabilistic_sharpe_ratio
             if n_obs > 10 and effective_trials > 0:
-                psr = calculate_probabilistic_sharpe_ratio(oos_sharpe, 0.0, 1.0, n_obs)
-                dsr = calculate_deflated_sharpe_ratio(oos_sharpe, effective_trials, n_obs)
+                psr = calculate_probabilistic_sharpe_ratio(oos_sharpe, 0.0, n_obs)
+                expected_max_sr, dsr_p = calculate_deflated_sharpe_ratio(oos_sharpe, effective_trials, n_obs)
                 stats["psr"] = psr
-                stats["dsr_p_value"] = dsr.get("p_value", 1.0) if isinstance(dsr, dict) else 1.0
+                stats["dsr_p_value"] = dsr_p
+                stats["dsr_expected_max_sr"] = expected_max_sr
             else:
                 stats["psr"] = 0.0
                 stats["dsr_p_value"] = 1.0
                 stats["dsr_skip_reason"] = f"n_obs={n_obs}, trials={effective_trials}"
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.error(f"DSR/PSR computation failed: {e}")
             stats["psr"] = 0.0
             stats["dsr_p_value"] = 1.0
 

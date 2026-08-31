@@ -137,8 +137,10 @@ class MT5LiveRunner:
                 self.evidence_ledger.record_incident(f"AMBIGUOUS_EXECUTION: {str(e)}")
             try:
                 self.gateway.emergency_flat()
-            except Exception:
-                pass
+            except Exception as flat_exc:
+                # SAFETY-CRITICAL: log emergency flat failure (not silent)
+                import logging
+                logging.error(f"EMERGENCY_FLAT_FAILED during AMBIGUOUS_RECONCILIATION: {flat_exc}")
             return {"status": "AMBIGUOUS_RECONCILED", "symbol": self.symbol, "error": str(e)}
 
         except AREFatalError as e:
@@ -146,6 +148,9 @@ class MT5LiveRunner:
             if hasattr(self.evidence_ledger, "record_incident"):
                 self.evidence_ledger.record_incident(f"FATAL_ERROR: {str(e)}")
             raise
+
+
+
 
     async def step_live_tick_async(self, account_equity: float = 10000.0) -> Dict[str, Any]:
         """
@@ -277,8 +282,9 @@ class MT5LiveRunner:
                 self.evidence_ledger.record_incident(f"AMBIGUOUS_EXECUTION_ASYNC: {str(e)}")
             try:
                 await asyncio.wait_for(self.gateway.emergency_flat_async(), timeout=5.0)
-            except Exception:
-                pass
+            except Exception as flat_exc:
+                import logging
+                logging.error(f"EMERGENCY_FLAT_FAILED_ASYNC during AMBIGUOUS_RECONCILIATION: {flat_exc}")
             return {"status": "AMBIGUOUS_RECONCILED", "symbol": self.symbol, "error": str(e), "latency_ms": (time.time() - t_start)*1000}
 
         except AREFatalError as e:
@@ -314,9 +320,11 @@ class MT5LiveRunner:
                 self._running = False
                 if hasattr(self.evidence_ledger, "record_incident"):
                     try: self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
-                    except Exception: pass
+                    except Exception: pass  # Non-critical telemetry
                 try: self.gateway.emergency_flat()
-                except Exception: pass
+                except Exception as flat_exc:
+                    import logging
+                    logging.error(f"EMERGENCY_FLAT_FAILED during RUNNER_FATAL: {flat_exc}")
                 raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False
@@ -348,7 +356,9 @@ class MT5LiveRunner:
                     try: self.evidence_ledger.record_incident(f"RUNNER_FATAL_EXCEPTION: {str(exc)}")
                     except Exception: pass
                 try: await asyncio.wait_for(self.gateway.emergency_flat_async(), timeout=5.0)
-                except Exception: pass
+                except Exception as flat_exc:
+                    import logging
+                    logging.error(f"EMERGENCY_FLAT_FAILED_ASYNC during RUNNER_FATAL: {flat_exc}")
                 raise RuntimeError(f"MT5LiveRunner loop crashed: {exc}") from exc
 
         self._running = False

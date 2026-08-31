@@ -500,17 +500,9 @@ def handle_backtest(args: argparse.Namespace) -> int:
                     print(f"  Strategy: {s.get('name', strategy_id)} (family={s.get('family', 'auto')})")
                     break
         if not strategy_logic:
-            # Fallback: default momentum strategy
-            def strategy_logic(df_inner):
-                return df_inner.with_columns(
-                    pl.col("price").rolling_mean(20).alias("fast_ma"),
-                    pl.col("price").rolling_mean(50).alias("slow_ma"),
-                ).with_columns(
-                    pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
-                    .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
-                    .otherwise(0.0).alias("signal")
-                )
-            print(f"  Strategy: fallback momentum (ID: {strategy_id})")
+            print(f"  ERROR: Strategy '{args.strategy}' not found in strategies.json")
+            print(f"  Available: {[s.get('id','?') for s in (raw if isinstance(raw, list) else raw.get('strategies', []))] if 'raw' in dir() else []}")
+            return 1
 
         # Build strategy_factory: wraps real strategy with parameter injection
         def strategy_factory(params):
@@ -524,8 +516,10 @@ def handle_backtest(args: argparse.Namespace) -> int:
                     result = strategy_logic(df_with_params)
                     if "signal" in result.columns:
                         return result
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.warning(f"Strategy param binding failed for {params}: {e}")
+                    raise ValueError(f"Strategy does not respond to parameter {params}: {e}") from e
                 return strategy_logic(df_inner)
             return logic
 
@@ -919,17 +913,12 @@ def _research_replay(args: argparse.Namespace) -> int:
             strategy_id = _s.get("id", "unknown")
         else:
             raise ValueError("No strategies")
-    except Exception:
-        def strategy_logic(df_inner):
-            return df_inner.with_columns(
-                pl.col("price").rolling_mean(20).alias("fast_ma"),
-                pl.col("price").rolling_mean(50).alias("slow_ma"),
-            ).with_columns(
-                pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
-                .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
-                .otherwise(0.0).alias("signal")
-            )
-        strategy_id = "momentum-20"
+    except Exception as _strat_err:
+        import logging
+        logging.error(f"CRITICAL: Cannot load strategy from registry: {_strat_err}")
+        print(f"  ERROR: Strategy load failed: {_strat_err}")
+        print("  ABORT: run-cycle requires a valid strategy in strategies.json")
+        return
 
     # Rebuild config from frozen values
     from are.research.experiment_config import StrategyIdentity, ExecutionModel, ParameterGrid, ExperimentConfig

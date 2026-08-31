@@ -28,6 +28,7 @@ from are.research.integrity import (
     compute_canonical_dataset_hash,
     compute_canonical_split_hash,
 )
+from are.research.experiment_config import build_execution_model
 
 
 def _make_golden_data(n_bars: int = 500) -> pl.DataFrame:
@@ -190,6 +191,169 @@ class TestQualificationPipeline(unittest.TestCase):
         result = tampered_evidence.validate()
         self.assertFalse(result["valid"])
         self.assertTrue(any("provenance" in i.lower() for i in result["issues"]))
+
+
+class TestDeterminism(unittest.TestCase):
+    """W1.5: Verify deterministic results for identical inputs."""
+
+    def test_backtest_engine_determinism(self):
+        """Same strategy + same data => identical Sharpe, return, DD."""
+        import polars as pl
+        from are.backtest import IsolatedBacktestEngine
+
+        n = 2000
+        timestamps = list(range(1700000000, 1700000000 + n * 3600, 3600))
+        prices = [65000.0 + (i % 50) * 10.0 + (i * 0.1) for i in range(n)]
+        df = pl.DataFrame({"timestamp": timestamps, "price": prices, "volume": [100] * n})
+
+        def strategy_logic(df_inner):
+            return df_inner.with_columns(
+                pl.col("price").rolling_mean(20).alias("fast_ma"),
+                pl.col("price").rolling_mean(50).alias("slow_ma"),
+            ).with_columns(
+                pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
+                .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
+                .otherwise(0.0).alias("signal")
+            )
+
+        engine = IsolatedBacktestEngine()
+        r1 = engine.run_backtest(strategy_logic=strategy_logic, historical_data=df,
+                                  initial_capital=100000, timeframe_seconds=3600.0)
+        r2 = engine.run_backtest(strategy_logic=strategy_logic, historical_data=df,
+                                  initial_capital=100000, timeframe_seconds=3600.0)
+
+        self.assertAlmostEqual(r1.metrics["sharpe_ratio"], r2.metrics["sharpe_ratio"],
+                               places=10, msg="Sharpe must be deterministic")
+        self.assertAlmostEqual(r1.metrics["total_return_pct"], r2.metrics["total_return_pct"],
+                               places=10, msg="Return must be deterministic")
+        self.assertAlmostEqual(r1.metrics["max_drawdown_pct"], r2.metrics["max_drawdown_pct"],
+                               places=10, msg="Max DD must be deterministic")
+        self.assertEqual(len(r1.trade_log), len(r2.trade_log),
+                         msg="Trade count must be deterministic")
+
+    def test_wfo_determinism(self):
+        """Same WFO config => identical fold count and pooled Sharpe."""
+        import polars as pl
+        from are.backtest import IsolatedBacktestEngine
+
+        n = 2000
+        timestamps = list(range(1700000000, 1700000000 + n * 3600, 3600))
+        prices = [65000.0 + (i % 50) * 10.0 + (i * 0.1) for i in range(n)]
+        df = pl.DataFrame({"timestamp": timestamps, "price": prices, "volume": [100] * n})
+
+        def strategy_factory(params):
+            def logic(df_inner):
+                lb = params.get("lookback", 20)
+                return df_inner.with_columns(
+                    pl.col("price").rolling_mean(lb).alias("fast_ma"),
+                    pl.col("price").rolling_mean(lb + 30).alias("slow_ma"),
+                ).with_columns(
+                    pl.when(pl.col("fast_ma") > pl.col("slow_ma")).then(1.0)
+                    .when(pl.col("fast_ma") < pl.col("slow_ma")).then(-1.0)
+                    .otherwise(0.0).alias("signal")
+                )
+            return logic
+
+        param_grid = [{"lookback": 10}, {"lookback": 20}]
+        engine = IsolatedBacktestEngine()
+
+        wfo1 = engine.run_walk_forward_optimization(
+            strategy_factory=strategy_factory, param_grid=param_grid,
+            historical_data=df, train_window_bars=500, test_window_bars=100,
+            step_bars=100, warmup_bars=20, purge_bars=10,
+            initial_capital=100000, timeframe_seconds=3600.0,
+        )
+        wfo2 = engine.run_walk_forward_optimization(
+            strategy_factory=strategy_factory, param_grid=param_grid,
+            historical_data=df, train_window_bars=500, test_window_bars=100,
+            step_bars=100, warmup_bars=20, purge_bars=10,
+            initial_capital=100000, timeframe_seconds=3600.0,
+        )
+
+        self.assertEqual(len(wfo1.folds), len(wfo2.folds),
+                         msg="WFO fold count must be deterministic")
+        self.assertAlmostEqual(wfo1.pooled_oos_sharpe, wfo2.pooled_oos_sharpe,
+                               places=10, msg="WFO pooled Sharpe must be deterministic")
+        self.assertEqual(len(wfo1.pooled_oos_returns), len(wfo2.pooled_oos_returns),
+                         msg="WFO pooled returns length must be deterministic")
+        for i, (r1, r2) in enumerate(zip(wfo1.pooled_oos_returns, wfo2.pooled_oos_returns)):
+            self.assertAlmostEqual(r1, r2, places=15,
+                msg=f"WFO pooled return[{i}] must be deterministic")
+
+    def test_run_id_content_addressing(self):
+        """Different strategy source_hash => different run_id."""
+        from are.research.experiment_config import (
+            ExperimentConfig, StrategyIdentity, ParameterGrid,
+        )
+        from are.research.experiment_config import build_execution_model, build_experiment_config
+        from are.hasher import compute_sha256
+
+        em = build_execution_model()
+        pg = ParameterGrid(
+            grid_id="g1", param_names=("lookback",),
+            param_values=((10.0, 20.0),), grid_size=2, grid_hash="h1",
+            constraints={},
+        )
+        strat1 = StrategyIdentity(
+            strategy_id="det-001", strategy_name="Det 1",
+            strategy_version="1.0.0", strategy_family="MOMENTUM",
+            source_hash="hash_aaa", parameter_schema={"lookback": "int"},
+            signal_contract="discrete_ternary", lookback_bars=20, warmup_bars=50,
+            execution_assumption="next_bar_open",
+        )
+        config1 = build_experiment_config(
+            strategy=strat1,
+            execution_model=em, parameter_grid=pg,
+        )
+
+        strat2 = StrategyIdentity(
+            strategy_id="det-001", strategy_name="Det 1",
+            strategy_version="1.0.0", strategy_family="MOMENTUM",
+            source_hash="hash_bbb", parameter_schema={"lookback": "int"},
+            signal_contract="discrete_ternary", lookback_bars=20, warmup_bars=50,
+            execution_assumption="next_bar_open",
+        )
+        config2 = build_experiment_config(
+            strategy=strat2,
+            execution_model=em, parameter_grid=pg,
+        )
+
+        self.assertNotEqual(config1.config_hash, config2.config_hash,
+            msg="Different configs must have different hashes")
+
+    def test_content_addressable_config_hash(self):
+        """Identical ExperimentConfig => identical config_hash (idempotent)."""
+        from are.research.experiment_config import (
+            ExperimentConfig, StrategyIdentity, ParameterGrid,
+        )
+        from are.research.experiment_config import build_execution_model
+        import time
+
+        kwargs = dict(
+            experiment_id="idem-test",
+            created_at=12345.0,
+            strategy=StrategyIdentity(
+                strategy_id="idem-001", strategy_name="Idem 1",
+                strategy_version="1.0.0", strategy_family="MOMENTUM",
+                source_hash="hash_same", parameter_schema={"lookback": "int"},
+                signal_contract="discrete_ternary", lookback_bars=20, warmup_bars=50,
+                execution_assumption="next_bar_open",
+            ),
+            execution_model=build_execution_model(),
+            parameter_grid=ParameterGrid(
+                grid_id="g1", param_names=("lookback",),
+                param_values=((10.0, 20.0),), grid_size=2, grid_hash="h1",
+                constraints={},
+            ),
+            wfo_train_window_bars=500, wfo_test_window_bars=100,
+            wfo_step_bars=100, wfo_purge_bars=10, wfo_warmup_bars=20,
+            wfo_n_folds=5, wfo_selection_metric="sharpe_ratio",
+            wfo_tie_breaker="(sharpe, -max_dd, -turnover)",
+        )
+        c1 = ExperimentConfig(**kwargs)
+        c2 = ExperimentConfig(**kwargs)
+        self.assertEqual(c1.config_hash, c2.config_hash,
+            msg="Identical configs must produce identical hashes")
 
 
 if __name__ == "__main__":

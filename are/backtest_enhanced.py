@@ -255,7 +255,9 @@ class CumulativeTrialTracker:
         try:
             if os.path.exists(self.TRACKER_FILE):
                 with open(self.TRACKER_FILE) as f: return json.load(f)
-        except Exception: pass
+        except Exception as e:
+            import logging
+            logging.warning(f"TrialTracker: corrupted JSON in {self.TRACKER_FILE}, resetting: {e}")
         return {'total_trials':0,'sessions':[],'symbol_trials':{}}
 
     def _save(self):

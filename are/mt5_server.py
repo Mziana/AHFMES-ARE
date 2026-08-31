@@ -96,8 +96,9 @@ def get_account_data():
                         'ask': round(t.ask, decimals),
                         'spread': round((t.ask - t.bid) * (100 if 'JPY' in sym else 10000), 1)
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.warning(f"MT5 tick error for {sym}: {e}")
         
         positions = []
         for p in (mt5.positions_get() or []):
