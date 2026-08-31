@@ -734,6 +734,28 @@ class BacktestOrchestrator:
             }
             run.provenance_hash = wfo_evidence.provenance_hash
 
+            # Auto-save WFOEvidence to file for persistence
+            try:
+                wfo_dir = os.path.join(self.runs_dir, run.run_id)
+                os.makedirs(wfo_dir, exist_ok=True)
+                wfo_file = os.path.join(wfo_dir, "wfo_evidence.json")
+                with open(wfo_file, "w") as wf:
+                    json.dump({
+                        "run_id": wfo_evidence.run_id,
+                        "fold_count": wfo_evidence.fold_count,
+                        "pooled_oos_sharpe": wfo_evidence.pooled_oos_sharpe,
+                        "pooled_oos_return": wfo_evidence.pooled_oos_return,
+                        "pooled_oos_max_drawdown": wfo_evidence.pooled_oos_max_drawdown,
+                        "mean_wfe": wfo_evidence.mean_wfe,
+                        "effective_trial_count": wfo_evidence.effective_trial_count,
+                        "parameter_family_size": wfo_evidence.parameter_family_size,
+                        "evaluation_count": wfo_evidence.evaluation_count,
+                        "provenance_hash": wfo_evidence.provenance_hash,
+                        "fold_count_actual": wfo_evidence.fold_count,
+                    }, wf, indent=2)
+            except Exception:
+                pass  # Non-critical, don't fail the stage
+
             return StageResult(
                 stage="wfo", status=RunStage.PASSED,
                 started_at=t0, completed_at=time.time(),

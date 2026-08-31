@@ -490,6 +490,42 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 }
                 with open(os.path.join(bt_dir, f"{bt_id}.json"), "w") as f:
                     json.dump(bt_data, f, indent=2)
+                # Update strategies.json with latest backtest metrics
+                try:
+                    strat_file = "data/strategies/strategies.json"
+                    if os.path.exists(strat_file):
+                        with open(strat_file, 'r') as sf:
+                            strat_data = json.load(sf)
+                        strats = strat_data if isinstance(strat_data, list) else strat_data.get("strategies", [])
+                        if strats:
+                            s = strats[0]
+                            if "backtestHistory" not in s:
+                                s["backtestHistory"] = []
+                            s["backtestHistory"].insert(0, {
+                                "id": bt_id,
+                                "date": bt_data["ranAt"],
+                                "result": {
+                                    "sharpe": m.get('sharpe_ratio', 0),
+                                    "winRate": m.get('win_rate', 0),
+                                    "netPnl": round(net_pnl, 2),
+                                    "trades": m.get('total_trades', 0),
+                                    "maxDD": m.get('max_drawdown_pct', 0),
+                                    "pf": m.get('profit_factor', 0),
+                                }
+                            })
+                            s["backtestHistory"] = s["backtestHistory"][:50]  # keep last 50
+                            s["metrics"] = {
+                                "sharpe": m.get('sharpe_ratio', 0),
+                                "winRate": m.get('win_rate', 0),
+                                "totalTrades": m.get('total_trades', 0),
+                                "maxDD": m.get('max_drawdown_pct', 0),
+                                "lastBacktest": bt_data["ranAt"],
+                            }
+                            out_data = strat_data if isinstance(strat_data, list) else {"strategies": strats}
+                            with open(strat_file, 'w') as sf:
+                                json.dump(out_data, sf, indent=2)
+                except Exception:
+                    pass  # Non-critical
                 self._send_json(200, {"success": True, "result": bt_data})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
@@ -529,7 +565,12 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                             pl.when(pl.col("_mom") > 0.02).then(1.0).when(pl.col("_mom") < -0.02).then(-1.0).otherwise(0.0).alias("signal")
                         )
                     return _strat
-                param_grid = [{"lookback": lb} for lb in (10, 15, 20, 25, 30)]
+                # Configurable param_grid from request body
+                raw_grid = payload.get("param_grid")
+                if isinstance(raw_grid, list) and len(raw_grid) > 0:
+                    param_grid = raw_grid
+                else:
+                    param_grid = [{"lookback": lb} for lb in (10, 15, 20, 25, 30)]
                 wfo_result = engine.run_walk_forward_optimization(
                     strategy_factory=strategy_factory, param_grid=param_grid,
                     historical_data=df, train_window_bars=max(200, n // (n_folds * 2)),
