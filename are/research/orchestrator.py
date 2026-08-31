@@ -1073,73 +1073,50 @@ class BacktestOrchestrator:
         for subdir in ["dataset", "baseline", "wfo", "oos", "statistics", "crisis", "final_gate"]:
             os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
 
-        # -- dataset/
-        ds_data = manifest.to_dict()
-        ds_file = os.path.join(run_dir, "dataset", "manifest.json")
-        with open(ds_file, "w") as f:
-            json.dump(ds_data, f, indent=2)
-        files_manifest["dataset/manifest.json"] = compute_sha256(json.dumps(ds_data, sort_keys=True).encode())
+        def _write_and_hash(rel_path: str, data: Any):
+            """Write JSON data to disk, then hash the ACTUAL bytes written."""
+            full_path = os.path.join(run_dir, rel_path)
+            with open(full_path, "w") as f:
+                json.dump(data, f, indent=2, default=str)
+            # Hash the actual bytes on disk (not in-memory object)
+            with open(full_path, "rb") as f:
+                files_manifest[rel_path] = compute_sha256(f.read())
 
+        # -- dataset/
+        _write_and_hash("dataset/manifest.json", manifest.to_dict())
         if run.quality_report:
-            qr_file = os.path.join(run_dir, "dataset", "quality_report.json")
-            with open(qr_file, "w") as f:
-                json.dump(run.quality_report, f, indent=2)
-            files_manifest["dataset/quality_report.json"] = compute_sha256(json.dumps(run.quality_report, sort_keys=True).encode())
+            _write_and_hash("dataset/quality_report.json", run.quality_report)
 
         # -- baseline/
         if run.baseline_result:
-            bl_file = os.path.join(run_dir, "baseline", "summary.json")
-            with open(bl_file, "w") as f:
-                json.dump(run.baseline_result, f, indent=2)
-            files_manifest["baseline/summary.json"] = compute_sha256(json.dumps(run.baseline_result, sort_keys=True).encode())
+            _write_and_hash("baseline/summary.json", run.baseline_result)
 
         # -- wfo/
         if run.wfo_result:
-            wfo_file = os.path.join(run_dir, "wfo", "evidence.json")
-            with open(wfo_file, "w") as f:
-                json.dump(run.wfo_result, f, indent=2)
-            files_manifest["wfo/evidence.json"] = compute_sha256(json.dumps(run.wfo_result, sort_keys=True).encode())
+            _write_and_hash("wfo/evidence.json", run.wfo_result)
 
         # -- oos/
         if run.oos_result:
-            oos_file = os.path.join(run_dir, "oos", "summary.json")
-            with open(oos_file, "w") as f:
-                json.dump(run.oos_result, f, indent=2)
-            files_manifest["oos/summary.json"] = compute_sha256(json.dumps(run.oos_result, sort_keys=True).encode())
+            _write_and_hash("oos/summary.json", run.oos_result)
 
         # -- statistics/
         if run.statistics_result:
-            stat_file = os.path.join(run_dir, "statistics", "summary.json")
-            with open(stat_file, "w") as f:
-                json.dump(run.statistics_result, f, indent=2)
-            files_manifest["statistics/summary.json"] = compute_sha256(json.dumps(run.statistics_result, sort_keys=True).encode())
+            _write_and_hash("statistics/summary.json", run.statistics_result)
 
         # -- crisis/
         if run.crisis_result:
-            crisis_file = os.path.join(run_dir, "crisis", "summary.json")
-            with open(crisis_file, "w") as f:
-                json.dump(run.crisis_result, f, indent=2)
-            files_manifest["crisis/summary.json"] = compute_sha256(json.dumps(run.crisis_result, sort_keys=True).encode())
+            _write_and_hash("crisis/summary.json", run.crisis_result)
 
         # -- final_gate/
         if run.final_gate:
-            gate_file = os.path.join(run_dir, "final_gate", "decision.json")
-            with open(gate_file, "w") as f:
-                json.dump(run.final_gate, f, indent=2)
-            files_manifest["final_gate/decision.json"] = compute_sha256(json.dumps(run.final_gate, sort_keys=True).encode())
+            _write_and_hash("final_gate/decision.json", run.final_gate)
 
         # -- config.json (top-level)
-        config_file = os.path.join(run_dir, "config.json")
-        with open(config_file, "w") as f:
-            json.dump(config.to_dict(), f, indent=2, default=str)
-        files_manifest["config.json"] = compute_sha256(json.dumps(config.to_dict(), sort_keys=True, default=str).encode())
+        _write_and_hash("config.json", config.to_dict())
 
-        # -- run.json (top-level) -- computed last, AFTER manifest is attached
-        # Note: _save_run() will write the final run.json after this stage.
-        # We compute the hash from the run dict WITHOUT artifact_manifest
-        # (which gets added later), so the hash stays stable.
-        run_snapshot = {k: v for k, v in run.to_dict().items() if k != "artifact_manifest"}
-        files_manifest["run.json"] = compute_sha256(json.dumps(run_snapshot, sort_keys=True, default=str).encode())
+        # -- run.json: written by _save_run() AFTER artifact stage.
+        # Placeholder hash — will be updated after _save_run() writes it.
+        files_manifest["run.json"] = "pending"
 
         # Compute overall artifact hash from all file hashes
         all_hashes = json.dumps(files_manifest, sort_keys=True)
@@ -1170,11 +1147,23 @@ class BacktestOrchestrator:
         )
 
     def _save_run(self, run: BacktestRun):
-        """Save the completed run."""
+        """Save the completed run and fix run.json hash in artifact manifest."""
         run_dir = os.path.join(self.RUNS_DIR, run.run_id)
         os.makedirs(run_dir, exist_ok=True)
-        with open(os.path.join(run_dir, "run.json"), "w") as f:
+        run_file = os.path.join(run_dir, "run.json")
+        with open(run_file, "w") as f:
             json.dump(run.to_dict(), f, indent=2, default=str)
+        # Update run.json hash in artifact manifest to match actual file
+        if run.artifact_manifest:
+            with open(run_file, "rb") as f:
+                run.artifact_manifest.files["run.json"] = compute_sha256(f.read())
+            # Recompute overall artifact hash
+            all_hashes = json.dumps(run.artifact_manifest.files, sort_keys=True)
+            run.artifact_manifest.artifact_hash = compute_sha256(all_hashes.encode())
+            # Update manifest file on disk
+            manifest_file = os.path.join(run_dir, "manifest.json")
+            with open(manifest_file, "w") as f:
+                json.dump(run.artifact_manifest.to_dict(), f, indent=2)
 
     def load_run(self, run_id: str) -> BacktestRun:
         """Load a completed run."""

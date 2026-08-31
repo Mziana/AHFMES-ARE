@@ -100,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     res_subs = res_parser.add_subparsers(dest="res_command")
     res_run = res_subs.add_parser("run", help="Run a full research backtest experiment")
     res_run.add_argument("--symbol", default="XAUUSD", help="Symbol")
+    res_run.add_argument("--timeframe", default="H1", help="Timeframe (M1, M5, M15, M30, H1, H4, D1)")
     res_run.add_argument("--start", default="2025-01-01", help="Start date")
     res_run.add_argument("--end", default="2026-08-01", help="End date")
     res_run.add_argument("--lookback", type=int, default=20, help="Strategy lookback period")
@@ -194,12 +195,54 @@ def handle_run_cycle(args: argparse.Namespace) -> int:
         governor_agent="CLI_Governor_Agent",
     )
 
+    # Load REAL market data for evaluation (not hardcoded 0.91)
+    try:
+        from are.data_loader import load_ohlc_data
+        from are.backtest_enhanced import EnhancedBacktestEngine
+        from are.strategy_engine import load_strategy_from_config
+        timeframe = getattr(args, 'timeframe', 'H1')
+        df_real = load_ohlc_data(args.symbol, timeframe, args.start, args.end)
+        # Run real backtest to get actual metrics
+        engine = EnhancedBacktestEngine()
+        with open("data/strategies/strategies.json") as _f:
+            _strats = json.load(_f)
+        _strat_list = _strats if isinstance(_strats, list) else _strats.get("strategies", [])
+        strategy_logic = load_strategy_from_config(_strat_list[0]) if _strat_list else None
+        if strategy_logic and len(df_real) > 0:
+            bt_result = engine.run_backtest(
+                strategy_logic=strategy_logic, historical_data=df_real,
+                initial_capital=100000, timeframe_seconds=3600.0,
+            )
+            m = bt_result.metrics
+            eval_score = m.get('sharpe_ratio', 0.0)
+            eval_data = {
+                "performance": round(eval_score, 4),
+                "score": round(eval_score, 4),
+                "win_rate": m.get('win_rate', 0),
+                "total_trades": m.get('total_trades', 0),
+                "max_drawdown": m.get('max_drawdown_pct', 0),
+            }
+            # Build holdout from last 20% of real OOS returns
+            split = int(len(df_real) * 0.8)
+            holdout_df = df_real.slice(split)
+            holdout_dataset = [
+                {"timestamp": int(holdout_df['timestamp'][i]), "score": float(holdout_df['price'][i])}
+                for i in range(len(holdout_df))
+            ]
+            print(f"  Real data: {len(df_real)} bars, Sharpe={eval_score:.4f}, holdout={len(holdout_dataset)} bars")
+        else:
+            raise ValueError("No strategy or data available")
+    except Exception as e:
+        print(f"  Real data unavailable ({e}), using minimal fallback")
+        eval_data = {"performance": 0.0, "score": 0.0}
+        holdout_dataset = [{"timestamp": t_now, "score": 0.0}]
+
     print(f"[CLI] Running autonomous research cycle for hypothesis {hyp_id}...")
     res = coordinator.run_autonomous_cycle(
         hypothesis_spec={"hypothesis_id": hyp_id, "symbol": args.symbol, "formula": "alpha_momentum_v1"},
-        evaluation_func=lambda f: {"performance": 0.91, "score": 0.91},
+        evaluation_func=lambda f: eval_data,
         market_features={"volatility": 1.1, "trend_strength": 1.5},
-        holdout_dataset=[{"timestamp": t_now, "score": 0.91}],
+        holdout_dataset=holdout_dataset,
         assignment=assignment,
         as_of_cutoff=t_now + 100,
     )
@@ -531,16 +574,17 @@ def _research_run(args: argparse.Namespace) -> int:
     print("=" * 60)
 
     # Step 1: Load data
-    print(f"\n[1/6] Loading data: {args.symbol} {args.start} to {args.end}...")
+    timeframe = getattr(args, 'timeframe', 'H1')
+    print(f"\n[1/6] Loading data: {args.symbol} {timeframe} {args.start} to {args.end}...")
     try:
-        df = load_ohlc_data(args.symbol, args.start, args.end)
+        df = load_ohlc_data(args.symbol, timeframe, args.start, args.end)
         print(f"  Loaded {len(df)} bars")
     except Exception as e:
         print(f"  Data load failed: {e}")
         print("  Exporting from MT5...")
         from are.data_loader import export_mt5_ohlc
         try:
-            filepath = export_mt5_ohlc(args.symbol, "H1", args.start, args.end)
+            filepath = export_mt5_ohlc(args.symbol, timeframe, args.start, args.end)
             df = pl.read_parquet(filepath)
             print(f"  Exported and loaded {len(df)} bars")
         except Exception as e2:

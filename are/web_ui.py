@@ -417,66 +417,119 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
         elif clean_path == "/api/backtest/run":
             try:
                 from are.backtest_enhanced import EnhancedBacktestEngine
-                import polars as pl, random, time as _bt_t
+                from are.data_loader import load_ohlc_data
+                from are.strategy_engine import load_strategy_from_config
+                import polars as pl, time as _bt_t
                 engine = EnhancedBacktestEngine()
                 symbol = payload.get("symbol", "XAUUSD")
+                timeframe = payload.get("timeframe", "H1")
                 capital = float(payload.get("capital", 100000))
-                n_bars = int(payload.get("bars", 5000))
-                rng = random.Random(int(_bt_t.time()) % 10000)
-                prices = [100.0]
-                for _ in range(n_bars - 1):
-                    prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-                df = pl.DataFrame({
-                    "timestamp": [_bt_t.time() - (n_bars - i) * 3600 for i in range(n_bars)],
-                    "price": prices,
-                    "volume": [rng.randint(100, 10000) for _ in range(n_bars)],
-                })
-                df = df.with_columns(pl.col("price").pct_change(20).alias("momentum")).with_columns(
-                    pl.when(pl.col("momentum") > 0.02).then(1).when(pl.col("momentum") < -0.02).then(-1).otherwise(0).alias("signal")
+                start_date = payload.get("start", "2025-01-01")
+                end_date = payload.get("end", "2026-08-01")
+                # Load REAL parquet data
+                df = load_ohlc_data(symbol, timeframe, start_date, end_date)
+                if len(df) == 0:
+                    raise ValueError(f"No data found for {symbol} {timeframe} {start_date}-{end_date}")
+                # Load strategy from registry
+                try:
+                    import json as _json
+                    with open("data/strategies/strategies.json") as _f:
+                        _strats = _json.load(_f)
+                    _strat_list = _strats if isinstance(_strats, list) else _strats.get("strategies", [])
+                    strategy_logic = load_strategy_from_config(_strat_list[0]) if _strat_list else None
+                except Exception:
+                    strategy_logic = None
+                if strategy_logic is None:
+                    def strategy_logic(d):
+                        return d.with_columns(
+                            pl.col("price").pct_change(20).alias("_mom")
+                        ).with_columns(
+                            pl.when(pl.col("_mom") > 0.02).then(1.0)
+                            .when(pl.col("_mom") < -0.02).then(-1.0)
+                            .otherwise(0.0).alias("signal")
+                        )
+                result = engine.run_backtest(
+                    strategy_logic=strategy_logic, historical_data=df,
+                    initial_capital=capital, timeframe_seconds=3600.0,
                 )
-                def strat(d): return d.with_columns(pl.when(pl.col("signal")==1).then(1).when(pl.col("signal")==-1).then(-1).otherwise(0).alias("position"))
-                result = engine.run_backtest(strategy_logic=strat, historical_data=df, initial_capital=capital)
+                m = result.metrics
+                net_pnl = m.get('final_equity', capital) - capital
                 bt_id = f"bkt-{int(_bt_t.time()*1000)}"
                 bt_dir = os.path.join("data", "backtests")
                 os.makedirs(bt_dir, exist_ok=True)
+                # Build equity curve
+                ec = result.equity_curve
+                equity_data = []
+                if not ec.is_empty():
+                    timestamps = ec['timestamp'].to_list()
+                    equities = ec['equity'].to_list()
+                    step = max(1, len(timestamps) // 200)
+                    for i in range(0, len(timestamps), step):
+                        equity_data.append({"timestamp": int(timestamps[i]), "equity": round(equities[i], 2)})
                 bt_data = {
-                    "id": bt_id, "symbol": symbol, "capital": capital,
-                    "metrics": result.metrics, "saved_at": _bt_t.time(),
+                    "id": bt_id, "strategyName": "DSR Momentum Breakout",
+                    "config": {"symbol": symbol, "timeframe": timeframe, "startDate": start_date, "endDate": end_date, "initialBalance": capital},
+                    "results": {
+                        "totalTrades": m.get('total_trades', 0),
+                        "winRate": m.get('win_rate', 0),
+                        "netPnl": round(net_pnl, 2),
+                        "finalEquity": m.get('final_equity', capital),
+                        "sharpe": m.get('sharpe_ratio', 0),
+                        "sortino": m.get('sortino_ratio', 0),
+                        "calmar": m.get('calmar_ratio', 0),
+                        "cvar": m.get('cvar_5pct', 0),
+                        "profitFactor": m.get('profit_factor', 0),
+                        "maxDrawdown": m.get('max_drawdown_pct', 0),
+                        "exposure": m.get('exposure_pct', 0),
+                        "totalReturnPct": m.get('total_return_pct', 0),
+                        "dataBars": m.get('total_bars', 0),
+                    },
+                    "equityCurve": equity_data,
+                    "trades": [],
+                    "ranAt": time.strftime('%Y-%m-%dT%H:%M:%S'),
                 }
                 with open(os.path.join(bt_dir, f"{bt_id}.json"), "w") as f:
                     json.dump(bt_data, f, indent=2)
-                self._send_json(200, bt_data)
+                self._send_json(200, {"success": True, "result": bt_data})
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
 
         elif clean_path == "/api/backtest/wfo":
             try:
                 from are.backtest_enhanced import EnhancedBacktestEngine
-                import polars as pl, random, time as _wfo_t
+                from are.data_loader import load_ohlc_data
+                from are.strategy_engine import load_strategy_from_config
+                import polars as pl, time as _wfo_t
                 engine = EnhancedBacktestEngine()
                 symbol = payload.get("symbol", "XAUUSD")
+                timeframe = payload.get("timeframe", "H1")
                 n_folds = int(payload.get("folds", 5))
-                n = max(2000, n_folds * 400)
-                rng = random.Random(42)
-                prices = [100.0]
-                for _ in range(n - 1):
-                    prices.append(prices[-1] * (1 + rng.gauss(0, 0.01)))
-                highs = [p * (1 + abs(rng.gauss(0, 0.003))) for p in prices]
-                lows = [p * (1 - abs(rng.gauss(0, 0.003))) for p in prices]
-                df = pl.DataFrame({
-                    "timestamp": [_wfo_t.time() - (n - i) * 3600 for i in range(n)],
-                    "price": prices, "high": highs, "low": lows,
-                    "volume": [rng.randint(100, 10000) for _ in range(n)],
-                })
+                start_date = payload.get("start", "2025-01-01")
+                end_date = payload.get("end", "2026-08-01")
+                # Load REAL parquet data
+                df = load_ohlc_data(symbol, timeframe, start_date, end_date)
+                if len(df) == 0:
+                    raise ValueError(f"No data found for {symbol} {timeframe}")
+                n = len(df)
+                # Load strategy
+                try:
+                    import json as _json
+                    with open("data/strategies/strategies.json") as _f:
+                        _strats = _json.load(_f)
+                    _strat_list = _strats if isinstance(_strats, list) else _strats.get("strategies", [])
+                    strategy_logic = load_strategy_from_config(_strat_list[0]) if _strat_list else None
+                except Exception:
+                    strategy_logic = None
                 def strategy_factory(params):
                     lb = params.get("lookback", 20)
-                    th = params.get("threshold", 0.02)
                     def _strat(d):
+                        if strategy_logic:
+                            return strategy_logic(d)
                         return d.with_columns(pl.col("price").pct_change(lb).alias("_mom")).with_columns(
-                            pl.when(pl.col("_mom") > th).then(1.0).when(pl.col("_mom") < -th).then(-1.0).otherwise(0.0).alias("signal")
+                            pl.when(pl.col("_mom") > 0.02).then(1.0).when(pl.col("_mom") < -0.02).then(-1.0).otherwise(0.0).alias("signal")
                         )
                     return _strat
-                param_grid = [{"lookback": lb, "threshold": th} for lb in (10, 20, 30) for th in (0.01, 0.02, 0.03)]
+                param_grid = [{"lookback": lb} for lb in (10, 15, 20, 25, 30)]
                 wfo_result = engine.run_walk_forward_optimization(
                     strategy_factory=strategy_factory, param_grid=param_grid,
                     historical_data=df, train_window_bars=max(200, n // (n_folds * 2)),
