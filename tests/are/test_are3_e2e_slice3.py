@@ -11,6 +11,7 @@ Validates the full multi-agent autonomous scientific discovery lifecycle:
 
 import os
 import tempfile
+import time
 import unittest
 
 from are.champion import ChampionRegistry
@@ -77,9 +78,26 @@ class TestARE3Slice3EndToEnd(unittest.TestCase):
             assignment=self.assignment,
             as_of_cutoff=cutoff_1,
         )
-        self.assertIn(res_1.status, ("PROMOTED", "REJECTED"))
+        self.assertIn(res_1.status, ("PROMOTED", "REJECTED", "PENDING_APPROVAL"))
         champ_1_id = None
-        if res_1.status == "PROMOTED":
+        if res_1.status == "PENDING_APPROVAL":
+            # Human approval required — approve it for test
+            from are.pending_promotions import PendingPromotionRegistry
+            pending_reg = PendingPromotionRegistry()
+            pending_reg.approve(res_1.candidate_id, approved_by="test")
+            # Re-promote through champion registry
+            from are.governor import PromotionDisposition
+            disposition = PromotionDisposition(
+                candidate_id=res_1.candidate_id, champion_id="GENESIS_CHAMPION",
+                decision="PROMOTED", rationale="test approval",
+                governor_signature="TEST", timestamp=time.time(),
+            )
+            champ_rec = self.champion_registry.promote_champion(
+                candidate_id=res_1.candidate_id, promotion_disposition=disposition,
+            )
+            champ_1_id = champ_rec.champion_id
+            self.assertEqual(self.champion_registry.get_active_champion().champion_id, champ_1_id)
+        elif res_1.status == "PROMOTED":
             champ_1_id = res_1.details["champion_id"]
             self.assertEqual(self.champion_registry.get_active_champion().champion_id, champ_1_id)
 
@@ -98,9 +116,24 @@ class TestARE3Slice3EndToEnd(unittest.TestCase):
             assignment=self.assignment,
             as_of_cutoff=cutoff_2,
         )
-        self.assertIn(res_2.status, ("PROMOTED", "REJECTED"))
+        self.assertIn(res_2.status, ("PROMOTED", "REJECTED", "PENDING_APPROVAL"))
         champ_2_id = None
-        if res_2.status == "PROMOTED":
+        if res_2.status == "PENDING_APPROVAL":
+            from are.pending_promotions import PendingPromotionRegistry
+            pending_reg = PendingPromotionRegistry()
+            pending_reg.approve(res_2.candidate_id, approved_by="test")
+            from are.governor import PromotionDisposition
+            disposition = PromotionDisposition(
+                candidate_id=res_2.candidate_id, champion_id=champ_1_id or "GENESIS_CHAMPION",
+                decision="PROMOTED", rationale="test approval",
+                governor_signature="TEST", timestamp=time.time(),
+            )
+            champ_rec = self.champion_registry.promote_champion(
+                candidate_id=res_2.candidate_id, promotion_disposition=disposition,
+            )
+            champ_2_id = champ_rec.champion_id
+            self.assertEqual(self.champion_registry.get_active_champion().champion_id, champ_2_id)
+        elif res_2.status == "PROMOTED":
             champ_2_id = res_2.details["champion_id"]
             self.assertEqual(self.champion_registry.get_active_champion().champion_id, champ_2_id)
 

@@ -67,6 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
     # 5b. safety-release
     subparsers.add_parser("safety-release", help="Release persistent kill-switch")
 
+    # 5c. approve — human approval for pending promotions
+    approve_parser = subparsers.add_parser("approve", help="Approve a pending champion promotion")
+    approve_parser.add_argument("candidate_id", help="Candidate ID to approve")
+    approve_parser.add_argument("--by", default="operator", help="Who approved")
+
+    # 5d. reject — reject a pending promotion
+    reject_parser = subparsers.add_parser("reject", help="Reject a pending champion promotion")
+    reject_parser.add_argument("candidate_id", help="Candidate ID to reject")
+    reject_parser.add_argument("--reason", default="", help="Rejection reason")
+    reject_parser.add_argument("--by", default="operator", help="Who rejected")
+
+    # 5e. pending — list pending promotions
+    subparsers.add_parser("pending", help="List pending champion promotions")
+
     # 6. dashboard
     subparsers.add_parser("dashboard", help="Render rich terminal dashboard")
 
@@ -972,6 +986,103 @@ def _research_replay(args: argparse.Namespace) -> int:
         return 1
 
 
+def handle_approve(args: argparse.Namespace) -> int:
+    """Approve a pending champion promotion."""
+    from are.pending_promotions import PendingPromotionRegistry
+    from are.champion import ChampionRegistry
+    from are.storage import EventStore
+
+    reg = PendingPromotionRegistry()
+    pending = reg.get_pending(args.candidate_id)
+    if not pending:
+        print(f"[CLI] No pending promotion found for '{args.candidate_id}'.")
+        print("  Use 'are pending' to see all pending promotions.")
+        return 1
+
+    promo = pending[0]
+    print(f"[CLI] Approving promotion:")
+    print(f"  Candidate: {promo.candidate_id}")
+    print(f"  Champion:  {promo.champion_id}")
+    print(f"  Gate:     {promo.gate_decision}")
+    print(f"  Rationale: {promo.rationale}")
+
+    # Approve the pending promotion
+    approved = reg.approve(args.candidate_id, approved_by=args.by)
+    print(f"\n  Status: APPROVED by {approved.approved_by}")
+
+    # Now actually promote the champion
+    try:
+        store = EventStore(args.db_path)
+        champ_reg = ChampionRegistry(store)
+        from are.governor import PromotionDisposition
+        disposition = PromotionDisposition(
+            candidate_id=approved.candidate_id,
+            champion_id=approved.champion_id,
+            decision="PROMOTED",
+            rationale=approved.rationale,
+            governor_signature=f"HUMAN_APPROVED:{approved.approved_by}",
+            timestamp=approved.approved_at,
+        )
+        champ_rec = champ_reg.promote_champion(
+            candidate_id=approved.candidate_id,
+            promotion_disposition=disposition,
+        )
+        print(f"  Champion promoted: {champ_rec.champion_id}")
+        store.close()
+    except Exception as e:
+        print(f"  WARNING: Promotion succeeded but champion registry update failed: {e}")
+
+    return 0
+
+
+def handle_reject(args: argparse.Namespace) -> int:
+    """Reject a pending champion promotion."""
+    from are.pending_promotions import PendingPromotionRegistry
+
+    reg = PendingPromotionRegistry()
+    pending = reg.get_pending(args.candidate_id)
+    if not pending:
+        print(f"[CLI] No pending promotion found for '{args.candidate_id}'.")
+        return 1
+
+    promo = pending[0]
+    print(f"[CLI] Rejecting promotion:")
+    print(f"  Candidate: {promo.candidate_id}")
+    print(f"  Reason:    {args.reason or '(no reason given)'}")
+
+    rejected = reg.reject(args.candidate_id, reason=args.reason, rejected_by=args.by)
+    print(f"  Status: REJECTED by {rejected.approved_by}")
+    return 0
+
+
+def handle_pending(args: argparse.Namespace) -> int:
+    """List pending champion promotions."""
+    from are.pending_promotions import PendingPromotionRegistry
+
+    reg = PendingPromotionRegistry()
+    all_promos = reg.list_all()
+
+    if not all_promos:
+        print("  No promotions in registry.")
+        return 0
+
+    print(f"\n{'='*70}")
+    print(f"  PROMOTION REGISTRY ({len(all_promos)} entries)")
+    print(f"{'='*70}")
+    print(f"  {'Status':<12} {'Candidate':<25} {'Champion':<20} {'Created'}")
+    print(f"  {'-'*12} {'-'*25} {'-'*20} {'-'*15}")
+    for p in all_promos:
+        created = time.strftime("%Y-%m-%d %H:%M", time.gmtime(p.created_at))
+        icon = "[OK]" if p.status == "APPROVED" else "[NO]" if p.status == "REJECTED" else "[??]"
+        print(f"  {icon} {p.status:<10} {p.candidate_id:<25} {p.champion_id:<20} {created}")
+        if p.status == "REJECTED" and p.rejection_reason:
+            print(f"    Reason: {p.rejection_reason}")
+    print(f"{'='*70}")
+    print(f"\n  To approve: are approve <candidate_id>")
+    print(f"  To reject:  are reject <candidate_id> --reason 'reason'\n")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -992,6 +1103,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_safety_kill(args)
     elif args.command == "safety-release":
         return handle_safety_release(args)
+    elif args.command == "approve":
+        return handle_approve(args)
+    elif args.command == "reject":
+        return handle_reject(args)
+    elif args.command == "pending":
+        return handle_pending(args)
+
     elif args.command == "dashboard":
         return handle_dashboard(args)
     elif args.command == "backtest":

@@ -277,21 +277,27 @@ class ResearchCoordinator:
             candidate_returns=candidate_returns if candidate_returns else None,
         )
 
-        # 11. Promotion to Champion Registry
+        # 11. Promotion: requires human approval (PENDING_HUMAN_ACK)
         if disposition.decision == "PROMOTED":
-            champ_rec = self.champion_registry.promote_champion(
+            # Submit to pending promotions registry — NOT auto-promoted
+            from are.pending_promotions import PendingPromotionRegistry
+            pending_reg = PendingPromotionRegistry()
+            pending_reg.submit(
                 candidate_id=cand_id,
-                promotion_disposition=disposition,
+                champion_id=champion_id,
+                gate_decision=disposition.decision,
+                rationale=disposition.rationale,
+                disposition_hash=disposition.disposition_hash,
             )
             self.search_tree_engine.record_node_outcome(node.node_id, success=True)
             return ResearchCycleResult(
                 cycle_id=cycle_id,
                 candidate_id=cand_id,
-                status="PROMOTED",
+                status="PENDING_APPROVAL",
                 details={
-                    "champion_id": champ_rec.champion_id,
                     "disposition": disposition.decision,
                     "rationale": disposition.rationale,
+                    "message": f"Candidate '{cand_id}' passed all gates. Awaiting human approval.",
                     "aggregate_metrics": aggs,
                 },
             )

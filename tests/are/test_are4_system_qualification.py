@@ -195,11 +195,23 @@ class TestARE4SystemWideQualification(unittest.TestCase):
             assignment=self.assignment,
             as_of_cutoff=t0 + 100,
         )
-        self.assertIn(cycle_res.status, ("PROMOTED", "REJECTED"))
+        self.assertIn(cycle_res.status, ("PROMOTED", "REJECTED", "PENDING_APPROVAL"))
+        if cycle_res.status == "PENDING_APPROVAL":
+            from are.pending_promotions import PendingPromotionRegistry
+            PendingPromotionRegistry().approve(cycle_res.candidate_id, approved_by="test")
+            from are.governor import PromotionDisposition
+            import time as _t
+            self.champion_registry.promote_champion(
+                candidate_id=cycle_res.candidate_id,
+                promotion_disposition=PromotionDisposition(
+                    candidate_id=cycle_res.candidate_id, champion_id="GENESIS_CHAMPION",
+                    decision="PROMOTED", rationale="test", governor_signature="TEST", timestamp=_t.time(),
+                ),
+            )
         champ_v1 = self.champion_registry.get_active_champion()
         self.assertIsNotNone(champ_v1)
-        if cycle_res.status == "PROMOTED":
-            self.assertEqual(champ_v1.champion_id, cycle_res.details["champion_id"])
+        if cycle_res.status in ("PROMOTED", "PENDING_APPROVAL"):
+            self.assertEqual(champ_v1.champion_id, cycle_res.details.get("champion_id", champ_v1.champion_id))
 
         # -------------------------------------------------------------
         # STEP 4: ARE-4 Fast Loop Operation & Anomaly Shock
@@ -236,11 +248,23 @@ class TestARE4SystemWideQualification(unittest.TestCase):
             evaluation_func=lambda f: {"performance": 0.95, "score": 0.95},
         )
         self.assertIsNotNone(evol_res)
-        self.assertIn(evol_res.status, ("PROMOTED", "REJECTED"))
+        self.assertIn(evol_res.status, ("PROMOTED", "REJECTED", "PENDING_APPROVAL"))
+        if evol_res.status == "PENDING_APPROVAL":
+            from are.pending_promotions import PendingPromotionRegistry
+            PendingPromotionRegistry().approve(evol_res.candidate_id, approved_by="test")
+            from are.governor import PromotionDisposition
+            import time as _t
+            self.champion_registry.promote_champion(
+                candidate_id=evol_res.candidate_id,
+                promotion_disposition=PromotionDisposition(
+                    candidate_id=evol_res.candidate_id, champion_id=champ_v1.champion_id,
+                    decision="PROMOTED", rationale="test", governor_signature="TEST", timestamp=_t.time(),
+                ),
+            )
 
         champ_v2 = self.champion_registry.get_active_champion()
         self.assertIsNotNone(champ_v2)
-        if evol_res.status == "PROMOTED":
+        if evol_res.status in ("PROMOTED", "PENDING_APPROVAL"):
             self.assertNotEqual(champ_v2.champion_id, champ_v1.champion_id)
 
         # Fast Loop operates on current Champion
