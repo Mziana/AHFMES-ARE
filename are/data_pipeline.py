@@ -176,11 +176,17 @@ class DataPurifier:
 
         toxic_count = int(df["is_toxic_spread"].sum())
 
-        # 5. Gap Detection & Market Closed Tagging (Macro-gaps >= 1 hour = 3600 seconds)
+        # 5. Gap Detection & Market Closed Tagging
+        # Detect genuine gaps (weekends, holidays) by using 2.5x median interval
+        # instead of hardcoded 3600s. For H1 data, median diff ~3600s, so threshold ~9000s.
         df = df.with_columns([
             pl.col("timestamp").diff().fill_null(0.0).alias("time_diff")
-        ]).with_columns([
-            (pl.col("time_diff") >= 3600.0).alias("is_market_closed")
+        ])
+        # Compute dynamic threshold: 2.5x median time_diff (catches weekend gaps)
+        median_diff = float(df["time_diff"].median())
+        gap_threshold = median_diff * 2.5 if median_diff > 0 else 9000.0
+        df = df.with_columns([
+            (pl.col("time_diff") > gap_threshold).alias("is_market_closed")
         ])
 
         closed_count = int(df["is_market_closed"].sum())
