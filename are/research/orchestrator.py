@@ -1114,9 +1114,9 @@ class BacktestOrchestrator:
         # -- config.json (top-level)
         _write_and_hash("config.json", config.to_dict())
 
-        # -- run.json: written by _save_run() AFTER artifact stage.
-        # Placeholder hash — will be updated after _save_run() writes it.
-        files_manifest["run.json"] = "pending"
+        # -- run.json: excluded from manifest during artifact stage.
+        # Written by _save_run() AFTER all stages complete, then hash
+        # is patched into manifest.
 
         # Compute overall artifact hash from all file hashes
         all_hashes = json.dumps(files_manifest, sort_keys=True)
@@ -1147,13 +1147,17 @@ class BacktestOrchestrator:
         )
 
     def _save_run(self, run: BacktestRun):
-        """Save the completed run and fix run.json hash in artifact manifest."""
+        """Save the completed run and patch run.json hash into manifest.
+        run.json is written LAST (after all stages) so it includes
+        artifact, verify, and final status. Then its hash is patched
+        into the manifest for consistent verification.
+        """
         run_dir = os.path.join(self.RUNS_DIR, run.run_id)
         os.makedirs(run_dir, exist_ok=True)
         run_file = os.path.join(run_dir, "run.json")
         with open(run_file, "w") as f:
             json.dump(run.to_dict(), f, indent=2, default=str)
-        # Update run.json hash in artifact manifest to match actual file
+        # Patch run.json hash into artifact manifest
         if run.artifact_manifest:
             with open(run_file, "rb") as f:
                 run.artifact_manifest.files["run.json"] = compute_sha256(f.read())
