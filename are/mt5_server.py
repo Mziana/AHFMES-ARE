@@ -50,6 +50,33 @@ def disconnect_mt5():
     MT5_CONNECTED = False
     MT5_ACCOUNT = None
 
+TIMEFRAME_MAP = {
+    'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30,
+    'H1': 16385, 'H4': 16388, 'D1': 16408, 'W1': 32769, 'MN1': 49153,
+}
+
+def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200):
+    if not MT5_CONNECTED or not mt5:
+        return {'connected': False, 'error': 'not connected'}
+    try:
+        tf = TIMEFRAME_MAP.get(timeframe_str.upper(), 16385)
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+        if rates is None or len(rates) == 0:
+            return {'connected': True, 'symbol': symbol, 'candles': [], 'error': 'no data'}
+        candles = []
+        for r in rates:
+            candles.append({
+                'time': int(r['time']),
+                'open': round(r['open'], 5),
+                'high': round(r['high'], 5),
+                'low': round(r['low'], 5),
+                'close': round(r['close'], 5),
+                'volume': int(r['tick_volume']),
+            })
+        return {'connected': True, 'symbol': symbol, 'timeframe': timeframe_str, 'candles': candles}
+    except Exception as e:
+        return {'connected': True, 'error': str(e), 'candles': []}
+
 def get_account_data():
     if not MT5_CONNECTED or not mt5:
         return {'connected': False}
@@ -148,6 +175,12 @@ class MT5Handler(BaseHTTPRequestHandler):
                 'connected': d.get('connected', False),
                 'ticks': d.get('ticks', {}),
             }
+        elif path == '/candles':
+            params = parse_qs(parsed.query)
+            symbol = params.get('symbol', ['XAUUSD'])[0]
+            timeframe_str = params.get('timeframe', ['H1'])[0]
+            count = int(params.get('count', ['200'])[0])
+            data = get_candles(symbol, timeframe_str, count)
         elif path == '/health':
             data = {'status': 'ok', 'mt5_connected': MT5_CONNECTED}
         else:
