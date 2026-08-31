@@ -103,6 +103,22 @@ class WFOEvidence:
     
     provenance_hash: str
 
+    def to_dict(self) -> dict:
+        """Canonical serialization of ALL WFO evidence fields."""
+        import dataclasses as _dc
+        d = {}
+        for f in _dc.fields(self):
+            val = getattr(self, f.name)
+            if isinstance(val, tuple):
+                # Handle Tuple[WFOFoldEvidence, ...]
+                d[f.name] = [
+                    _dc.asdict(item) if hasattr(item, '__dataclass_fields__') else item
+                    for item in val
+                ]
+            else:
+                d[f.name] = val
+        return d
+
 
 @dataclass(frozen=True)
 class BacktestResearchContract:
