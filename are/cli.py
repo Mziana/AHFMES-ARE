@@ -43,7 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 2. run-cycle
     cycle_parser = subparsers.add_parser("run-cycle", help="Run an autonomous scientific research cycle")
-    cycle_parser.add_argument("--symbol", default="BTCUSDT", help="Target trading pair symbol")
+    cycle_parser.add_argument("--symbol", default="XAUUSD", help="Target trading pair symbol")
+    cycle_parser.add_argument("--start", default="2025-01-01", help="Start date (YYYY-MM-DD)")
+    cycle_parser.add_argument("--end", default="2026-08-01", help="End date (YYYY-MM-DD)")
+    cycle_parser.add_argument("--timeframe", default="H1", help="Timeframe")
     cycle_parser.add_argument("--hypothesis-id", default=None, help="Hypothesis ID to investigate")
 
     # 3. run-daemon

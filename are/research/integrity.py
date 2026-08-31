@@ -764,7 +764,12 @@ class IndependentVerifier:
 
     @staticmethod
     def full_verification(run_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Run all verification checks on a backtest run."""
+        """Run all verification checks on a backtest run.
+        
+        NOTE: This method is NOT used by the orchestrator. The orchestrator uses
+        _stage_verify() instead, which operates on the BacktestRun object directly.
+        This method exists for external/standalone verification from a run.json dict.
+        """
         results = {}
 
         stats = run_data.get("statistics_result", {})
@@ -794,7 +799,7 @@ class IndependentVerifier:
         else:
             results["max_drawdown"] = {"valid": False, "reason": "No equity data"}
 
-        # 3. Verify trade-level metrics (NEW)
+        # 3. Verify trade-level metrics
         if oos_returns and len(oos_returns) > 2:
             results["trade_metrics"] = IndependentVerifier.verify_trade_metrics(
                 returns=oos_returns,
