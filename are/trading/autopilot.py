@@ -20,6 +20,16 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Tuple
 import MetaTrader5 as mt5
 
+try:
+    from .ai_brain import AIBrain
+except ImportError:
+    AIBrain = None
+
+try:
+    from .ml_trainer import MLTrainer
+except ImportError:
+    MLTrainer = None
+
 
 # ──────────────────────────────────────────────────────────────
 # TIMEFRAME CONFIGURATION
@@ -230,6 +240,11 @@ class AutopilotBrain:
         self.trades: int = 0
         self.log: List[dict] = []
 
+        # AI Brain + ML Trainer (the soul)
+        self.ai_brain = AIBrain() if AIBrain else None
+        self.ml_trainer = MLTrainer() if MLTrainer else None
+        self._pending_signal = None  # Signal waiting for AI confirmation
+
     def init(self):
         """Load initial bars for all timeframes."""
         print(f"Initializing {self.symbol} with {len(TIMEFRAMES)} timeframes...")
@@ -377,6 +392,50 @@ class AutopilotBrain:
         if hour in (0, 22, 23):
             return None
 
+        # ── AI CONFIRMATION ──
+        if self.ai_brain and self.ai_brain.is_available():
+            market_state = {
+                "symbol": self.symbol,
+                "rsi": {
+                    "D1": d1_rsi, "H4": h4_rsi, "H1": h1_rsi,
+                    "M30": m30_rsi, "M15": m15_rsi, "M5": m5_rsi, "M1": m1_rsi,
+                },
+                "price": {"bid": price, "ask": price, "spread": 0},
+                "position": None,
+                "recent_trades": self.log[-5:] if self.log else [],
+            }
+            ai_decision = self.ai_brain.analyze(market_state)
+            ai_action = ai_decision.get("action", "HOLD")
+            confidence = ai_decision.get("confidence", 0)
+            reasoning = ai_decision.get("reasoning", "")
+
+            if ai_action == "HOLD" or confidence < 0.5:
+                tstr = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
+                print(f"[{tstr}] SIGNAL {signal} REJECTED by AI: {ai_action} (conf={confidence:.2f}) {reasoning[:80]}")
+                return None
+
+            # AI agrees -- use suggested adjustments
+            adj = ai_decision.get("suggested_adjustments", {})
+            if adj.get("tp"):
+                self.tp = adj["tp"]
+            if adj.get("sl"):
+                self.sl = adj["sl"]
+            if adj.get("lot"):
+                self.lot = adj["lot"]
+
+            print(f"[AI] Confirmed {signal} (conf={confidence:.2f}): {reasoning[:100]}")
+
+        # ── ML PREDICTION ──
+        if self.ml_trainer:
+            ml_pred = self.ml_trainer.predict({
+                "rsi": {"D1": d1_rsi, "H4": h4_rsi, "H1": h1_rsi,
+                        "M30": m30_rsi, "M15": m15_rsi, "M5": m5_rsi, "M1": m1_rsi},
+            })
+            if ml_pred.get("recommendation") == "HOLD" and ml_pred.get("confidence", 0) > 0.3:
+                tstr = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
+                print(f"[{tstr}] SIGNAL {signal} REJECTED by ML: prob={ml_pred['probability']:.2f}")
+                return None
+
         # ── EXECUTE ──
         ticket = self._open(signal)
         if ticket:
@@ -405,6 +464,21 @@ class AutopilotBrain:
             tstr = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M:%S")
             pnl = self._get_pnl(self.ticket)
             print(f"[{tstr}] TIME EXIT @ {price:.2f} PnL={pnl:.2f}")
+
+            # Record outcome for ML training
+            if self.ml_trainer:
+                self.ml_trainer.record_trade(
+                    signal_data={
+                        "rsi": {name: self.tf[name].rsi_current() for name in TIMEFRAMES},
+                        "direction": self.open_direction,
+                    },
+                    outcome={
+                        "pnl": pnl,
+                        "win": pnl > 0,
+                        "hold_time": ts - self.open_time,
+                        "exit_reason": "time_exit",
+                    }
+                )
             self.ticket = None
 
     def _get_pnl(self, ticket: int) -> float:

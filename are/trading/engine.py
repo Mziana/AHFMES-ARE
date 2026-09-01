@@ -33,6 +33,7 @@ try:
 except ImportError:
     yaml = None
 
+from .ai_brain import HAS_ANTHROPIC, HAS_OPENAI
 from .autopilot import (
     AutopilotBrain, TFState, TIMEFRAMES, TF_BUFFER_SIZE,
     compute_rsi, detect_divergence
@@ -195,7 +196,13 @@ class ARELiveEngine:
 
     def status(self):
         if self.brain:
-            return self.brain.status()
+            s = self.brain.status()
+            # Add AI/ML info
+            if self.brain.ai_brain:
+                s["ai"] = self.brain.ai_brain.get_stats()
+            if self.brain.ml_trainer:
+                s["ml"] = self.brain.ml_trainer.get_stats()
+            return s
         return {"error": "Engine not started"}
 
     def is_running(self):
@@ -270,6 +277,7 @@ class ARELiveEngine:
         print(f"  Config: lot={self.config.get('lot', 0.01)} "
               f"tp={self.config.get('tp_points', 600)} "
               f"sl={self.config.get('sl_points', 400)}")
+        print(f"  AI Brain: {('AVAILABLE' if HAS_ANTHROPIC or HAS_OPENAI else 'SET API KEY to activate')}")
         print(f"  Start engine: python -m are.cli live start")
         print(f"{'='*70}\n")
         mt5.shutdown()
