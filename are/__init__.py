@@ -89,3 +89,37 @@ __all__ = [
     "RunStatus",
     "StageResult",
 ]
+
+
+# ── Live Trading Engine ──
+try:
+    from are.trading.engine import ARELiveEngine
+except ImportError:
+    pass
+
+class ARE:
+    """
+    ARE — The Living Trading System.
+    
+    Usage:
+        from are import ARE
+        are = ARE()
+        are.live.start()     # Brain starts living
+        are.live.status()    # Brain reports state
+        are.live.stop()      # Brain sleeps
+    """
+    def __init__(self):
+        try:
+            self.live = ARELiveEngine()
+        except NameError:
+            raise ImportError("MetaTrader5 required for live trading")
+    
+    def backtest(self, **kwargs):
+        """Run a backtest."""
+        from are.backtest import IsolatedBacktestEngine
+        engine = IsolatedBacktestEngine()
+        return engine.run_backtest(**kwargs)
+    
+    def status(self):
+        """Get system status."""
+        return self.live.status() if self.live else {"error": "Live engine not available"}

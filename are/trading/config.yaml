@@ -1,0 +1,66 @@
+# AHFMES-ARE Autopilot Configuration
+# ====================================
+# Strategy: RSI(14,Close) Multi-Timeframe Compass + Divergence
+# This file is read by the autopilot brain. Edit values here,
+# not in source code.
+
+# ── Symbol ──
+symbol: XAUUSD
+
+# ── Position Sizing ──
+lot: 0.01
+sl_points: 400
+tp_points: 600
+max_hold_bars: 36          # 36 × 5min = 3 hours
+
+# ── RSI Settings ──
+rsi:
+  period: 14
+  source: close
+
+# ── Multi-Timeframe Layer Rules ──
+# Layer 1: MACRO — D1 + H4 must agree
+macro:
+  timeframes: [D1, H4]
+  bullish_min: 50          # Both D1 & H4 RSI > 50 = BULL
+  bearish_max: 50          # Both D1 & H4 RSI < 50 = BEAR
+
+# Layer 2: COMPASS — H1 RSI 50 pivot
+compass:
+  timeframe: H1
+  bullish_min: 51          # H1 RSI > 51 = favor BUY
+  bearish_max: 49          # H1 RSI < 49 = favor SELL
+
+# Layer 3: MOMENTUM — M30 + M15 confirmation
+momentum:
+  timeframes: [M30, M15]
+  bull_threshold: 45       # At least one TF RSI > 45 in bull
+  bear_threshold: 55       # At least one TF RSI < 55 in bear
+
+# Layer 4: ENTRY — M5 + M1 cross 30/70
+entry:
+  timeframes: [M5, M1]
+  buy_trigger: cross_up_30    # RSI crosses UP through 30
+  sell_trigger: cross_down_70 # RSI crosses DOWN through 70
+
+# ── Divergence Detection ──
+divergence:
+  enabled: true
+  lookback: 20             # bars to scan for divergence
+  min_swing_pct: 1.0       # minimum price swing % to qualify
+
+# ── Filters ──
+filters:
+  session:
+    enabled: true
+    skip_hours_utc: [0, 22, 23]  # Skip Asian low-vol
+  volatility:
+    enabled: false
+    min_atr_ratio: 0.5
+
+# ── Execution ──
+execution:
+  magic: 20260901
+  deviation: 20
+  comment_prefix: AUTO
+  mode: live              # live | dry-run

@@ -138,6 +138,24 @@ def build_parser() -> argparse.ArgumentParser:
     res_verify = res_subs.add_parser("verify", help="Independent verify a research run")
     res_verify.add_argument("run_id", help="Run ID to verify")
 
+    # 10. live — autopilot engine
+    live_parser = subparsers.add_parser("live", help="Live trading autopilot engine")
+    live_subs = live_parser.add_subparsers(dest="live_command")
+    live_start = live_subs.add_parser("start", help="Start the autopilot brain")
+    live_start.add_argument("--dry-run", action="store_true", help="Paper trading mode")
+    live_start.add_argument("--symbol", default=None, help="Override symbol from config")
+    live_start.add_argument("--lot", type=float, default=None, help="Override lot size")
+    live_start.add_argument("--tp", type=int, default=None, help="Override TP points")
+    live_start.add_argument("--sl", type=int, default=None, help="Override SL points")
+    live_subs.add_parser("stop", help="Stop the autopilot brain")
+    live_subs.add_parser("status", help="Show current brain state")
+    live_subs.add_parser("dashboard", help="Show full 7-TF dashboard")
+    live_config = live_subs.add_parser("config", help="Show/edit strategy config")
+    live_config.add_argument("--show", action="store_true", help="Show current config")
+    live_config.add_argument("--lot", type=float, default=None, help="Update lot")
+    live_config.add_argument("--tp", type=int, default=None, help="Update TP")
+    live_config.add_argument("--sl", type=int, default=None, help="Update SL")
+
     return parser
 
 
@@ -1156,6 +1174,104 @@ def handle_pending(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_live(args: argparse.Namespace) -> int:
+    """Handle live trading autopilot commands."""
+    from are.trading.engine import ARELiveEngine
+
+    engine = ARELiveEngine()
+
+    if not args.live_command:
+        print("Usage: are live start|stop|status|dashboard|config")
+        return 0
+
+    if args.live_command == "start":
+        # Apply overrides
+        overrides = {}
+        if args.symbol:
+            overrides["symbol"] = args.symbol
+        if args.lot is not None:
+            overrides["lot"] = args.lot
+        if args.tp is not None:
+            overrides["tp_points"] = args.tp
+        if args.sl is not None:
+            overrides["sl_points"] = args.sl
+        if overrides:
+            engine.update_config(**overrides)
+
+        dry_run = getattr(args, "dry_run", False)
+        engine.start(dry_run=dry_run)
+        return 0
+
+    elif args.live_command == "stop":
+        # Read PID and signal it
+        pid_file = engine._pid_file
+        if os.path.exists(pid_file):
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, signal.SIGTERM)
+                print(f"Sent stop signal to PID {pid}")
+            except ProcessLookupError:
+                print(f"PID {pid} not found — cleaning up")
+                os.remove(pid_file)
+        else:
+            print("Engine not running (no PID file)")
+        return 0
+
+    elif args.live_command == "status":
+        pid_file = engine._pid_file
+        if os.path.exists(pid_file):
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, 0)
+                print(f"Engine is RUNNING (PID {pid})")
+            except ProcessLookupError:
+                print(f"Engine NOT running (stale PID {pid})")
+        else:
+            print("Engine is STOPPED")
+
+        # Show last log entries
+        log_file = engine._log_file
+        if os.path.exists(log_file):
+            with open(log_file) as f:
+                lines = f.readlines()
+            print(f"\nRecent log:")
+            for line in lines[-5:]:
+                print(f"  {line.rstrip()}")
+        return 0
+
+    elif args.live_command == "dashboard":
+        engine.print_dashboard()
+        return 0
+
+    elif args.live_command == "config":
+        config = engine.get_config()
+        if getattr(args, "show", False) or (args.lot is None and args.tp is None and args.sl is None):
+            import yaml
+            print(yaml.dump(config, default_flow_style=False))
+        else:
+            updates = {}
+            if args.lot is not None:
+                updates["lot"] = args.lot
+            if args.tp is not None:
+                updates["tp_points"] = args.tp
+            if args.sl is not None:
+                updates["sl_points"] = args.sl
+            if updates:
+                config_path = os.path.join(
+                    os.path.dirname(os.path.abspath(engine.config.get("__file__", "are/trading/config.yaml"))),
+                    "config.yaml"
+                )
+                config.update(updates)
+                with open(config_path, "w") as f:
+                    yaml.dump(config, f, default_flow_style=False)
+                print(f"Config updated: {updates}")
+        return 0
+
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1191,6 +1307,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return handle_data(args)
     elif args.command == "research":
         return handle_research(args)
+    elif args.command == "live":
+        return handle_live(args)
 
     return 0
 
