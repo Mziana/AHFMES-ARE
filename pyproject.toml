@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "ahfmes-are"
+version = "0.1.0"
+description = "AHFMES Autonomous Research Engine — vectorized backtesting, WFO/DSR pipeline, MT5 execution"
+readme = "README.md"
+license = {text = "Proprietary"}
+requires-python = ">=3.10"
+dependencies = [
+    "polars>=1.0.0",
+    "pandas>=2.0.0",
+]
+
+[project.optional-dependencies]
+mt5 = [
+    "MetaTrader5>=5.0.45",
+]
+numpy = [
+    "numpy>=1.24.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-timeout>=2.3",
+    "hypothesis>=6.100.0",
+]
+all = [
+    "ahfmes-are[mt5,numpy,dev]",
+]
+
+[project.scripts]
+ahfmes = "are.cli:main"
+
+[project.entry-points."are.strategies"]
+# Strategy plugins can register here
+
+[tool.setuptools.packages.find]
+include = ["are*"]
+
+[tool.setuptools.package-data]
+are = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+addopts = "-q --tb=short"
+
+[tool.hypothesis]
+database = ".hypothesis/examples"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
