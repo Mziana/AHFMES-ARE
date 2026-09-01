@@ -58,6 +58,25 @@ filters:
     enabled: false
     min_atr_ratio: 0.5
 
+
+# -- AI Brain (the soul) --
+ai:
+  enabled: true
+  provider: ollama               # Primary: Ollama (local, free)
+  api_key: "ollama"
+  model: "qwen2.5:3b"
+  base_url: "http://localhost:11434/v1"
+  timeout_sec: 30
+  min_interval_sec: 5
+  openrouter_key: ""  # Set OPENROUTER_API_KEY env var instead
+  fallback:
+    - provider: openrouter
+      base_url: "https://openrouter.ai/api/v1"
+      model: "meta-llama/llama-4-maverick:free"
+    - provider: opencode
+      base_url: "http://localhost:4096/v1"
+      model: "qwen2.5-coder"
+
 # ── Execution ──
 execution:
   magic: 20260901

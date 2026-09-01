@@ -29,6 +29,7 @@ echo   [4]  Background Mode (Everything hidden, browser opens)
 echo   [5]  Stop All        (Kill all ARE processes)
 echo   [6]  Health Check    (Verify engine + UI are running)
 echo   [7]  Live Trading    (Start autopilot brain - tick by tick)
+echo   [8]  AI Chat         (Chat with ARE brain - floating window)
 
 echo.
 echo   [0]  Exit
@@ -43,6 +44,7 @@ if "%choice%"=="4" goto BACKGROUND
 if "%choice%"=="5" goto STOP_ALL
 if "%choice%"=="6" goto HEALTH_CHECK
 if "%choice%"=="7" goto LIVE_TRADING
+if "%choice%"=="8" goto AI_CHAT
 
 if "%choice%"=="0" goto EXIT
 
@@ -245,6 +247,27 @@ goto MENU
 
 
 
+
+:: ============================================================
+::  MODE 8: AI CHAT (Floating Chatbox)
+:: ============================================================
+:AI_CHAT
+cls
+echo.
+echo  ============================================================
+echo   AHFMES-ARE // AI CHAT - Talk to ARE's Brain
+echo  ============================================================
+echo.
+echo   Starting chatbox (reads live market data)...
+echo   Commands: /status /rsi /check /clear /quit
+echo.
+cd /d "%ROOT%"
+set PYTHONPATH=.
+python -m are.trading.chatbox
+echo.
+pause
+goto MENU
+
 :HEALTH_CHECK
 cls
 echo.
