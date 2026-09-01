@@ -1,5 +1,5 @@
 @echo off
-title AHFMES-ARE Launcher v2.1
+title AHFMES-ARE Launcher v2.2
 color 0A
 
 set "ROOT=%~dp0"
@@ -18,7 +18,7 @@ cd /d "%ROOT%"
 cls
 echo.
 echo  ============================================================
-echo           AHFMES-ARE  -  UNIFIED LAUNCHER  v2.1
+echo           AHFMES-ARE  -  UNIFIED LAUNCHER  v2.2
 echo        Autonomous Research Engine Control Center
 echo  ============================================================
 echo.
@@ -28,6 +28,8 @@ echo   [3]  UI Only         (Next.js Dashboard on port %NEXTJS_PORT%)
 echo   [4]  Background Mode (Everything hidden, browser opens)
 echo   [5]  Stop All        (Kill all ARE processes)
 echo   [6]  Health Check    (Verify engine + UI are running)
+echo   [7]  Live Trading    (Start autopilot brain - tick by tick)
+
 echo.
 echo   [0]  Exit
 echo.
@@ -40,6 +42,8 @@ if "%choice%"=="3" goto UI_ONLY
 if "%choice%"=="4" goto BACKGROUND
 if "%choice%"=="5" goto STOP_ALL
 if "%choice%"=="6" goto HEALTH_CHECK
+if "%choice%"=="7" goto LIVE_TRADING
+
 if "%choice%"=="0" goto EXIT
 
 echo.
@@ -201,6 +205,46 @@ goto MENU
 :: ============================================================
 ::  MODE 6: HEALTH CHECK
 :: ============================================================
+
+
+:: ============================================================
+
+::  MODE 7: LIVE TRADING (Autopilot Brain)
+
+:: ============================================================
+
+:LIVE_TRADING
+
+cls
+
+echo.
+
+echo  ============================================================
+
+echo   AHFMES-ARE // LIVE TRADING ENGINE
+
+echo  ============================================================
+
+echo.
+
+echo   Starting autopilot brain (7 timeframes, tick by tick)...
+
+echo.
+
+cd /d "%ROOT%"
+
+set PYTHONPATH=.
+
+python arelauncher.py
+
+echo.
+
+pause
+
+goto MENU
+
+
+
 :HEALTH_CHECK
 cls
 echo.
