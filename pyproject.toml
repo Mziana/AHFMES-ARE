@@ -32,6 +32,7 @@ all = [
 
 [project.scripts]
 ahfmes = "are.cli:main"
+arelauncher = "arelauncher:main"
 
 [project.entry-points."are.strategies"]
 # Strategy plugins can register here
