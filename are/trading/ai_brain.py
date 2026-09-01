@@ -77,13 +77,14 @@ class AIBrain:
     The AI that lives inside ARE. Thinks, analyzes, decides.
     """
 
-    def __init__(self, provider="anthropic", api_key=None, model=None):
+    def __init__(self, provider="anthropic", api_key=None, model=None, base_url=None):
         self.provider = provider
         self.api_key = api_key or self._get_api_key(provider)
         self.model = model or self._default_model(provider)
+        self.base_url = base_url
         self._call_count = 0
         self._last_call_time = 0
-        self._min_interval = 5.0  # Minimum 5 seconds between API calls
+        self._min_interval = 5.0
         self._cache: Dict[str, dict] = {}
         self._log_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -111,6 +112,8 @@ class AIBrain:
             return True
         if self.provider == "openai" and HAS_OPENAI and self.api_key:
             return True
+        if self.provider in ("ollama", "opencode"):
+            return True  # Local/free, no API key needed
         return False
 
     def analyze(self, market_state: dict) -> dict:
@@ -221,7 +224,10 @@ class AIBrain:
     def _call_api(self, prompt: str) -> str:
         """Call the AI API."""
         if self.provider == "anthropic" and HAS_ANTHROPIC:
-            client = anthropic.Anthropic(api_key=self.api_key)
+            kwargs = {"api_key": self.api_key}
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            client = anthropic.Anthropic(**kwargs)
             response = client.messages.create(
                 model=self.model,
                 max_tokens=500,
@@ -230,8 +236,15 @@ class AIBrain:
             )
             return response.content[0].text
 
-        elif self.provider == "openai" and HAS_OPENAI:
-            client = openai.OpenAI(api_key=self.api_key)
+        elif self.provider in ("openai", "ollama", "opencode") and HAS_OPENAI:
+            kwargs = {"api_key": self.api_key or "ollama"}
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            elif self.provider == "ollama":
+                kwargs["base_url"] = "http://localhost:11434/v1"
+            elif self.provider == "opencode":
+                kwargs["base_url"] = "http://localhost:4096/v1"
+            client = openai.OpenAI(**kwargs)
             response = client.chat.completions.create(
                 model=self.model,
                 messages=[

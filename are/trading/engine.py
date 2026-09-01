@@ -104,6 +104,25 @@ class ARELiveEngine:
             max_hold_s=self.config.get("max_hold_bars", 36) * 300,
         )
 
+        # Initialize AI brain from config
+        ai_cfg = self.config.get("ai", {})
+        if ai_cfg.get("enabled", False) and self.brain.ai_brain:
+            provider = ai_cfg.get("provider", "anthropic")
+            api_key = ai_cfg.get("api_key") or None
+            model = ai_cfg.get("model")
+            base_url = ai_cfg.get("base_url") or None
+            self.brain.ai_brain.provider = provider
+            if api_key:
+                self.brain.ai_brain.api_key = api_key
+            if model:
+                self.brain.ai_brain.model = model
+            if base_url:
+                self.brain.ai_brain.base_url = base_url
+            self.brain.ai_brain._min_interval = ai_cfg.get("min_interval_sec", 5)
+            print(f"  AI Brain: {provider} ({self.brain.ai_brain.model})")
+        else:
+            print(f"  AI Brain: DISABLED (set ai.enabled=true in config.yaml to activate)")
+
         if dry_run:
             self.brain._open = lambda d: (print(f"[DRY] Would open {d}"), None)[1]
             self.brain._close = lambda t: (print(f"[DRY] Would close {t}"), None)[1]
