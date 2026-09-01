@@ -19,3 +19,24 @@ skills/
 data/market_data/*.parquet
 data/backtest_runs/
 data/backtests/
+
+# Database files
+*.db
+*.db-wal
+*.db-shm
+*.db-witness.jsonl
+
+# Large data directories
+data/datasets/
+data/research/
+data/strategies/ai_proposals.json
+
+# Temporary files
+tmp/
+*.log
+*.log.err
+
+# MT5 data (fetched locally, not in git)
+data/market_data/
+data/backtest_runs/
+data/backtests/
