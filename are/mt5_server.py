@@ -131,7 +131,7 @@ def get_account_data():
     except Exception as e:
         return {'connected': False, 'error': str(e)}
 
-def send_order(symbol, direction, lot, sl=0, tp=0, comment="ARE"):
+def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, comment="ARE"):
     if not MT5_CONNECTED or not mt5:
         return {'success': False, 'error': 'MT5 not connected'}
     try:
@@ -139,6 +139,17 @@ def send_order(symbol, direction, lot, sl=0, tp=0, comment="ARE"):
         if tick is None:
             return {'success': False, 'error': f'no tick for {symbol}'}
         price = tick.ask if direction == 'BUY' else tick.bid
+
+        # Calculate SL/TP from live price using points offsets
+        if sl_points and sl_points > 0:
+            sl = (price - sl_points) if direction == 'BUY' else (price + sl_points)
+        if tp_points and tp_points > 0:
+            tp = (price + tp_points) if direction == 'BUY' else (price - tp_points)
+
+        # Round to 2 decimals for XAUUSD
+        sl = round(sl, 2) if sl else 0
+        tp = round(tp, 2) if tp else 0
+
         req = {
             'action': mt5.TRADE_ACTION_DEAL,
             'symbol': symbol, 'volume': lot,
@@ -263,6 +274,8 @@ class MT5Handler(BaseHTTPRequestHandler):
                 body.get('lot', body.get('volume', 0.01)),
                 body.get('sl', 0),
                 body.get('tp', 0),
+                body.get('sl_points', 0),
+                body.get('tp_points', 0),
                 body.get('comment', 'ARE'),
             )
         elif path == '/close':
