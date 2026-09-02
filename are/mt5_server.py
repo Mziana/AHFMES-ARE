@@ -6,10 +6,16 @@ Usage:
     python -m are.mt5_server --port 18888
 
 Endpoints:
-    GET /account   — account info + ticks + positions
-    GET /positions — positions only (fast)
-    GET /ticks     — ticks only (fast)
-    POST /order    — send order
+    GET  /account    — account info + ticks + positions
+    GET  /positions  — positions only (fast)
+    GET  /ticks      — ticks only (fast)
+    GET  /candles    — OHLCV candle data
+    GET  /health     — health check
+    POST /order      — send order (direction/type, lot/volume)
+    POST /close      — close position by ticket
+    POST /close_all  — close all positions
+    POST /connect    — connect MT5
+    POST /disconnect — disconnect MT5
 """
 from __future__ import annotations
 import json
@@ -151,6 +157,57 @@ def send_order(symbol, direction, lot, sl=0, tp=0, comment="ARE"):
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
+def close_position(ticket):
+    if not MT5_CONNECTED or not mt5:
+        return {'success': False, 'error': 'MT5 not connected'}
+    try:
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions or len(positions) == 0:
+            return {'success': False, 'error': f'position {ticket} not found'}
+        pos = positions[0]
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if tick is None:
+            return {'success': False, 'error': f'no tick for {pos.symbol}'}
+        price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        req = {
+            'action': mt5.TRADE_ACTION_DEAL,
+            'symbol': pos.symbol, 'volume': pos.volume,
+            'type': close_type,
+            'position': ticket,
+            'price': price,
+            'comment': 'ARE-CLOSE',
+            'type_time': mt5.ORDER_TIME_GTC,
+            'type_filling': mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(req)
+        if result is None:
+            return {'success': False, 'error': 'close_order returned None'}
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            return {'success': False, 'error': result.comment, 'retcode': result.retcode}
+        return {'success': True, 'ticket': result.ticket, 'message': f'position {ticket} closed'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def close_all_positions(symbol=None):
+    if not MT5_CONNECTED or not mt5:
+        return {'success': False, 'error': 'MT5 not connected'}
+    try:
+        positions = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
+        if not positions:
+            return {'success': True, 'message': 'no positions to close', 'closed': 0}
+        closed = 0
+        errors = []
+        for pos in positions:
+            r = close_position(pos.ticket)
+            if r.get('success'):
+                closed += 1
+            else:
+                errors.append(f'{pos.ticket}: {r.get("error", "unknown")}')
+        return {'success': closed > 0, 'closed': closed, 'errors': errors}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
 
 class MT5Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -202,12 +259,18 @@ class MT5Handler(BaseHTTPRequestHandler):
         if path == '/order':
             data = send_order(
                 body.get('symbol', 'XAUUSD'),
-                body.get('direction', 'BUY'),
-                body.get('lot', 0.01),
+                body.get('direction', body.get('type', 'BUY')),
+                body.get('lot', body.get('volume', 0.01)),
                 body.get('sl', 0),
                 body.get('tp', 0),
                 body.get('comment', 'ARE'),
             )
+        elif path == '/close':
+            ticket = body.get('ticket', 0)
+            data = close_position(int(ticket)) if ticket else {'success': False, 'error': 'missing ticket'}
+        elif path == '/close_all':
+            symbol = body.get('symbol')
+            data = close_all_positions(symbol)
         elif path == '/connect':
             ok, msg = connect_mt5()
             data = {'success': ok, 'message': msg}
