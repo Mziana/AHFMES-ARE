@@ -40,3 +40,27 @@ tmp/
 data/market_data/
 data/backtest_runs/
 data/backtests/
+data/autopilot/
+data/backups/
+data/market/
+data/cumulative_trials.json
+.env
+
+# Local state files
+data/execution_state.json
+data/strategies/strategies.json
+data/strategies/ai_proposals.json
+
+# Freebuff/OpenCode internal
+.freebuff/
+.opencode/
+
+# Test output
+test_results.txt
+
+# Database files (all)
+*.db*
+*.jsonl
+
+# Large local files
+ahfmes_are.db*
