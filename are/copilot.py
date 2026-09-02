@@ -18,6 +18,8 @@ import re
 import time
 import urllib.error
 import urllib.request
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from are.diagnostics import PostTradeDiagnostics, SlippageReport
@@ -31,6 +33,71 @@ STATIC_SYSTEM_PREFIX = (
     "4. Post-Trade Shadow Diagnostics: Factual slippage drift and latency anomaly analysis.\n"
     "Aturan Komunikasi: Jawab dalam Bahasa Indonesia kuantitatif, ramah, profesional, dan berbasis bukti faktual tanpa halusinasi."
 )
+
+
+@dataclass
+class ConversationSession:
+    """Stores multi-turn conversation history for a single session."""
+    session_id: str
+    messages: List[Dict[str, str]] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
+    last_active: float = field(default_factory=time.time)
+    max_history: int = 20
+
+    def add_message(self, role: str, content: str) -> None:
+        """Add a message to history. role is 'user' or 'assistant'."""
+        self.messages.append({"role": role, "content": content})
+        self.last_active = time.time()
+        # Trim to max_history (keep most recent)
+        if len(self.messages) > self.max_history:
+            self.messages = self.messages[-self.max_history:]
+
+    def get_history(self) -> List[Dict[str, str]]:
+        """Return a copy of the message history."""
+        return list(self.messages)
+
+    def resolve_followup(self, user_message: str) -> str:
+        """Resolve follow-up references using recent conversation history.
+
+        Handles patterns like:
+        - 'kenapa tinggi?' → references the last topic discussed
+        - 'apa itu?' → asks for explanation of last mentioned entity
+        - 'bagaimana dengan X?' → shifts topic while maintaining context
+        """
+        if not self.messages:
+            return user_message
+
+        lower_msg = user_message.lower().strip()
+
+        # Detect follow-up pronouns/demonstratives that need resolution
+        followup_patterns = [
+            r"^(kenapa|mengapa|why)\s+(tinggi|rendah|buruk|bagus|mahal|murah|lambat|cepat)\??$",
+            r"^(apa\s+itu|apa\s+maksudnya| jelaskan|tolehkan)\??\s*$",
+            r"^(lagi|more|detail|selanjutnya|lanjut)\??$",
+            r"^(bagaimana\s+dengan|gimana\s+soal|how\s+about)\s+(.+)\??$",
+        ]
+
+        is_bare_followup = False
+        for pattern in followup_patterns:
+            if re.match(pattern, lower_msg):
+                is_bare_followup = True
+                break
+
+        if not is_bare_followup:
+            return user_message
+
+        # Find the last substantive assistant response to use as context
+        last_topic = ""
+        for msg in reversed(self.messages):
+            if msg["role"] == "assistant" and len(msg["content"]) > 20:
+                last_topic = msg["content"][:200]
+                break
+
+        if not last_topic:
+            return user_message
+
+        # Prepend context reference so the LLM can resolve it
+        return f"[Konteks percakapan sebelumnya: {last_topic}...]\n{user_message}"
 
 
 class ConversationalCopilot:
@@ -52,6 +119,7 @@ class ConversationalCopilot:
         self._model_discovered = False
         self.diagnostics = PostTradeDiagnostics()
         self._openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+        self._sessions: Dict[str, ConversationSession] = {}
 
     def _discover_ollama_model(self) -> Optional[str]:
         if self._model_discovered:
@@ -144,11 +212,37 @@ class ConversationalCopilot:
         )
         return f"{STATIC_SYSTEM_PREFIX}\n\n{evidence_context}\n{dynamic_part}\nUser: {user_message}\nAI:"
 
-    def generate_response(self, user_message: str) -> str:
-        msg = user_message.strip()
-        if not msg:
+    def start_session(self, session_id: str, max_history: int = 20) -> ConversationSession:
+        """Start a new conversation session. Returns the session object."""
+        session = ConversationSession(session_id=session_id, max_history=max_history)
+        self._sessions[session_id] = session
+        return session
+
+    def end_session(self, session_id: str) -> None:
+        """End a conversation session and remove it from memory."""
+        self._sessions.pop(session_id, None)
+
+    def get_session(self, session_id: str) -> Optional[ConversationSession]:
+        """Get a session by ID, or None if not found."""
+        return self._sessions.get(session_id)
+
+    def generate_response(self, user_message: str, session_id: Optional[str] = None) -> str:
+        raw_msg = user_message.strip()
+        if not raw_msg:
             return "Silakan ajukan pertanyaan atau instruksi terkait sistem AHFMES-ARE."
-        lower_msg = msg.lower()
+
+        # Session-aware processing
+        session = None
+        resolved_msg = raw_msg  # For LLM queries (may include context prefix)
+        if session_id is not None:
+            session = self._sessions.get(session_id)
+            if session is None:
+                session = self.start_session(session_id)
+            # Resolve follow-up — only affects LLM input, not keyword matching
+            resolved_msg = session.resolve_followup(raw_msg)
+
+        # Keyword matching uses the ORIGINAL message (not context-enriched)
+        lower_msg = raw_msg.lower()
         if any(w in lower_msg for w in ("hidupkan", "nyalakan", "resume", "aktifkan kembali", "reset kill", "unblock")):
             if self.server_state is not None and hasattr(self.server_state, "set_kill_switch"):
                 self.server_state.set_kill_switch(False)
@@ -157,16 +251,25 @@ class ConversationalCopilot:
                 self.server_state.set_kill_switch(True)
         self._discover_ollama_model()
         context = self._get_current_context()
-        # 1. Try Ollama (local, free)
-        ollama_reply = self._query_ollama(msg, context)
+
+        # Build response — try LLM chain first (with resolved context), then builtin
+        reply = None
+        ollama_reply = self._query_ollama(resolved_msg, context)
         if ollama_reply is not None:
-            return f"[ollama] {ollama_reply}"
-        # 2. Try OpenRouter (free models)
-        openrouter_reply = self._query_openrouter(msg, context)
-        if openrouter_reply is not None:
-            return f"[openrouter] {openrouter_reply}"
-        # 3. Fallback to deterministic rules
-        return self._generate_builtin_response(msg)
+            reply = f"[ollama] {ollama_reply}"
+        if reply is None:
+            openrouter_reply = self._query_openrouter(resolved_msg, context)
+            if openrouter_reply is not None:
+                reply = f"[openrouter] {openrouter_reply}"
+        if reply is None:
+            reply = self._generate_builtin_response(raw_msg)
+
+        # Store exchange in session if active
+        if session is not None:
+            session.add_message("user", raw_msg)
+            session.add_message("assistant", reply)
+
+        return reply
 
     def _query_openrouter(self, user_message: str, context: Dict[str, Any]) -> Optional[str]:
         if not self._openrouter_key:

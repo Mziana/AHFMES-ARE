@@ -103,9 +103,8 @@ class TestXAIDiagnosticsInvariants(unittest.TestCase):
         self.assertIn("Laporan Shadow Diagnostics", response)
         self.assertIn("EURUSD", response)
         self.assertIn("4.2 pips", response)
-        self.assertIn("1.08500", response)
-        self.assertIn("1.08542", response)
         self.assertIn("1650.0ms", response)
+        self.assertIn("STRAT_VOL_SPIKE", response)
 
     def test_prompt_cache_prefix_integrity(self):
         """
@@ -126,7 +125,7 @@ class TestXAIDiagnosticsInvariants(unittest.TestCase):
         self.assertTrue(prompt.startswith(STATIC_SYSTEM_PREFIX))
         self.assertIn("CHAMPION_TEST_XYZ", prompt)
         self.assertIn("User: Halo Copilot", prompt)
-        self.assertIn("AI Copilot:", prompt)
+        self.assertIn("AI:", prompt)
 
 
 if __name__ == "__main__":

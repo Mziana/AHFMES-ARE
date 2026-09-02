@@ -28,6 +28,35 @@ from are.telemetry import TelemetryAggregator
 from are.validation import ValidationService
 
 
+def ensure_data_loaded(symbol: str, timeframe: str, start: str, end: str, verbose: bool = True):
+    """Load OHLC data, exporting from MT5 if not found locally.
+
+    Tries load_ohlc_data first. On FileNotFoundError, attempts MT5 export.
+    Returns a Polars DataFrame on success.
+    Raises RuntimeError on failure (caller should print FATAL and return 1).
+    """
+    from are.data_loader import load_ohlc_data, export_mt5_ohlc
+    try:
+        df = load_ohlc_data(symbol, timeframe, start, end)
+        if verbose:
+            print(f"  Loaded {len(df)} bars: {symbol} {timeframe}")
+        return df
+    except FileNotFoundError:
+        if verbose:
+            print(f"  No parquet data for {symbol}. Exporting from MT5...")
+        try:
+            export_mt5_ohlc(symbol, timeframe, start, end)
+            df = load_ohlc_data(symbol, timeframe, start, end)
+            if verbose:
+                print(f"  Exported and loaded {len(df)} bars")
+            return df
+        except Exception as e:
+            raise RuntimeError(
+                f"Cannot load data for {symbol}: {e}. "
+                f"Export MT5 data first: python -m are.cli data export --symbol {symbol}"
+            ) from e
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="are",
@@ -420,18 +449,11 @@ def handle_backtest(args: argparse.Namespace) -> int:
 
         # Load real OHLC data from MT5 export or parquet
         import polars as pl
-        from are.data_loader import load_ohlc_data, export_mt5_ohlc
         try:
-            df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
-        except FileNotFoundError:
-            print(f"  No parquet data for {args.symbol}. Exporting from MT5...")
-            try:
-                export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
-                df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
-            except Exception as e:
-                print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
-                print(f"  Export MT5 data first: python -m are.cli data export --symbol {args.symbol}")
-                return 1
+            df = ensure_data_loaded(args.symbol, args.timeframe, args.start, args.end)
+        except RuntimeError as e:
+            print(f"  FATAL: {e}")
+            return 1
 
         def default_strategy(df: pl.DataFrame) -> pl.DataFrame:
             # Generate signal from price data (engine purifies non-price cols)
@@ -490,22 +512,14 @@ def handle_backtest(args: argparse.Namespace) -> int:
     elif args.bt_command == "wfo":
         import polars as pl
         import math, time as _time
-        from are.data_loader import load_ohlc_data, export_mt5_ohlc
         from are.strategy_engine import load_strategy_from_config
 
         # Load real OHLC data
         try:
-            df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
-            print(f"  Loaded {len(df)} bars: {args.symbol} {args.timeframe}")
-        except FileNotFoundError:
-            print(f"  No parquet data for {args.symbol}. Exporting from MT5...")
-            try:
-                export_mt5_ohlc(args.symbol, args.timeframe, args.start, args.end)
-                df = load_ohlc_data(args.symbol, args.timeframe, args.start, args.end)
-                print(f"  Exported and loaded {len(df)} bars")
-            except Exception as e:
-                print(f"  FATAL: Cannot load data for {args.symbol}: {e}")
-                return 1
+            df = ensure_data_loaded(args.symbol, args.timeframe, args.start, args.end)
+        except RuntimeError as e:
+            print(f"  FATAL: {e}")
+            return 1
 
         # Load strategy from registry (not hardcoded)
         strat_path = os.path.join("data", "strategies", "strategies.json")
@@ -709,7 +723,6 @@ def _research_run(args: argparse.Namespace) -> int:
         BacktestOrchestrator, DatasetRegistry, StrategyRegistry,
         build_execution_model, build_parameter_grid, build_experiment_config,
     )
-    from are.data_loader import load_ohlc_data
     from are.strategy_engine import load_strategy_from_config
     import polars as pl
 
@@ -721,19 +734,10 @@ def _research_run(args: argparse.Namespace) -> int:
     timeframe = getattr(args, 'timeframe', 'H1')
     print(f"\n[1/6] Loading data: {args.symbol} {timeframe} {args.start} to {args.end}...")
     try:
-        df = load_ohlc_data(args.symbol, timeframe, args.start, args.end)
-        print(f"  Loaded {len(df)} bars")
-    except Exception as e:
-        print(f"  Data load failed: {e}")
-        print("  Exporting from MT5...")
-        from are.data_loader import export_mt5_ohlc
-        try:
-            filepath = export_mt5_ohlc(args.symbol, timeframe, args.start, args.end)
-            df = pl.read_parquet(filepath)
-            print(f"  Exported and loaded {len(df)} bars")
-        except Exception as e2:
-            print(f"  FATAL: Cannot load data: {e2}")
-            return 1
+        df = ensure_data_loaded(args.symbol, timeframe, args.start, args.end)
+    except RuntimeError as e:
+        print(f"  FATAL: {e}")
+        return 1
 
     # Step 2: Register dataset
     print("\n[2/6] Registering dataset...")

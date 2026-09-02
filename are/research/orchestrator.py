@@ -6,19 +6,15 @@ PRECHECK -> DATA -> STRATEGY -> BASELINE -> WFO -> OOS -> STATISTICS -> CRISIS -
 
 Produces BacktestRun -- one immutable research object per experiment.
 
-Zero external dependencies except Polars + stdlib.
+This is a thin coordinator. Stage logic lives in are.research.stages.*.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
-import dataclasses
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from are.atomic_io import atomic_write_json
 from are.run_state import RunStateManager, RunPhase
@@ -29,170 +25,39 @@ try:
 except ImportError:
     raise ImportError("Polars required: pip install polars")
 
-from are.backtest import (
-    IsolatedBacktestEngine,
-    BacktestResult,
-    WFOEvidence,
-    baseline_buy_and_hold,
-    baseline_always_flat,
-    baseline_naive_long,
-    baseline_naive_short,
-    baseline_random_permutation,
-    run_baseline_comparison,
-    parameter_stability_analysis,
-)
-from are.data_pipeline import DataPurifier
 from are.hasher import compute_sha256
-from are.research.dataset_registry import DatasetRegistry, DatasetManifest, DataQualityGate
+from are.research.dataset_registry import DatasetRegistry, DatasetManifest
 from are.research.experiment_config import (
     ExperimentConfig,
-    StrategyIdentity,
     ExecutionModel,
-    ParameterGrid,
 )
 from are.research.integrity import (
     LeakageFirewall,
-    TemporalContract,
     HoldoutManager,
-    IndependentVerifier,
-    HoldoutEvidence,
     HoldoutEvaluationEngine,
     EvidenceBinding,
     compute_canonical_dataset_hash,
-    compute_canonical_split_hash,
 )
 
+# -- Shared types (re-exported for backward compatibility) --
+from are.research.types import (  # noqa: F401
+    RunStage,
+    RunStatus,
+    GateDecision,
+    StageResult,
+    ArtifactManifest,
+    BacktestRun,
+)
 
-class RunStage(Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    PASSED = "PASSED"
-    FAILED = "FAILED"
-    SKIPPED = "SKIPPED"
-
-
-class RunStatus(Enum):
-    CREATED = "CREATED"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-
-
-class GateDecision(Enum):
-    PASS = "PASS"
-    BORDERLINE = "BORDERLINE"
-    FAIL = "FAIL"
-    INVALID = "INVALID"
-
-
-@dataclass
-class StageResult:
-    stage: str
-    status: RunStage
-    started_at: float = 0.0
-    completed_at: float = 0.0
-    data: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-
-
-@dataclass
-class ArtifactManifest:
-    """Complete artifact manifest for a backtest run."""
-    run_id: str
-    artifact_hash: str
-    dataset_hash: str
-    strategy_hash: str
-    config_hash: str
-    execution_model_hash: str
-    wfo_provenance_hash: str
-    files: Dict[str, str] = field(default_factory=dict)  # path -> hash
-    created_at: float = 0.0
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class BacktestRun:
-    """
-    Primary research object. One run = one immutable experiment.
-    Contains the full lifecycle of a backtest from data to artifact.
-    """
-    run_id: str
-    experiment_id: str
-    created_at: float
-    engine_version: str = "4.0.0"
-
-    # Identity
-    strategy_id: str = ""
-    strategy_version: str = ""
-    dataset_id: str = ""
-    dataset_hash: str = ""
-    purified_hash: str = ""
-    config_hash: str = ""
-    execution_model_hash: str = ""
-
-    # Status
-    status: RunStatus = RunStatus.CREATED
-    stages: Dict[str, StageResult] = field(default_factory=dict)
-
-    # Results
-    baseline_result: Optional[Dict[str, Any]] = None
-    wfo_result: Optional[Dict[str, Any]] = None
-    oos_result: Optional[Dict[str, Any]] = None
-    statistics_result: Optional[Dict[str, Any]] = None
-    crisis_result: Optional[Dict[str, Any]] = None
-    stability_result: Optional[Dict[str, Any]] = None
-    final_gate: Optional[Dict[str, Any]] = None
-    quality_report: Optional[Dict[str, Any]] = None    # Capital
-    initial_capital: float = 10000.0
-
-    # RNG / Seed governance
-    random_seed: int = 42
-    rng_algorithm: str = "PythonRandom"
-    mc_simulations: int = 1000
-
-    # Integrity
-    temporal_contract_hash: str = ""
-    leakage_check_passed: bool = False
-    holdout_locked: bool = False
-    holdout_evaluated: bool = False
-    verification_status: str = "PENDING"  # PENDING, VERIFIED, REJECTED
-
-    # Evidence chain
-    holdout_evidence: Optional[Dict[str, Any]] = None  # HoldoutEvidence.to_dict()
-    evidence_binding: Optional[Dict[str, Any]] = None  # EvidenceBinding.to_dict()
-
-    # Artifact
-    artifact_manifest: Optional[ArtifactManifest] = None
-    provenance_hash: str = ""
-
-    # Timestamps
-    started_at: float = 0.0
-    completed_at: float = 0.0
-
-    def to_dict(self) -> Dict[str, Any]:
-        d = {}
-        for f in dataclasses.fields(self):
-            val = getattr(self, f.name)
-            if isinstance(val, Enum):
-                d[f.name] = val.value
-            elif f.name == "stages":
-                d[f.name] = {}
-                for sk, sv in val.items():
-                    if isinstance(sv, StageResult):
-                        sd = {kk: vv.value if isinstance(vv, Enum) else vv for kk, vv in asdict(sv).items()}
-                        d[f.name][sk] = sd
-                    else:
-                        d[f.name][sk] = sv
-            elif isinstance(val, list):
-                d[f.name] = [item.to_dict() if hasattr(item, "to_dict") else item for item in val]
-            elif hasattr(val, "to_dict"):
-                d[f.name] = val.to_dict()
-            else:
-                d[f.name] = val
-        return d
+# -- Stage imports --
+from are.research.stages.data import DataStage
+from are.research.stages.strategy import StrategyStage, LeakageStage, BaselineStage
+from are.research.stages.precheck import HoldoutSetupStage
+from are.research.stages.wfo import WFOStage, OOSStage, StabilityStage, SensitivityStage
+from are.research.stages.statistics import StatisticsStage
+from are.research.stages.crisis import CrisisStage
+from are.research.stages.gate import GateStage, VerifyStage
+from are.research.stages.artifact import ArtifactStage, save_run
 
 
 class BacktestOrchestrator:
@@ -204,7 +69,6 @@ class BacktestOrchestrator:
     RUNS_DIR = "data/backtest_runs"
     DEFAULT_STAGE_TIMEOUT = 300  # 5 minutes per stage
 
-    # Per-stage timeouts (seconds)
     STAGE_TIMEOUTS = {
         "data": 30,
         "strategy": 30,
@@ -224,6 +88,21 @@ class BacktestOrchestrator:
 
     def __init__(self):
         os.makedirs(self.RUNS_DIR, exist_ok=True)
+        # Stage instances
+        self._data_stage = DataStage()
+        self._strategy_stage = StrategyStage()
+        self._leakage_stage = LeakageStage()
+        self._holdout_stage = HoldoutSetupStage()
+        self._baseline_stage = BaselineStage()
+        self._wfo_stage = WFOStage()
+        self._oos_stage = OOSStage()
+        self._statistics_stage = StatisticsStage()
+        self._crisis_stage = CrisisStage()
+        self._stability_stage = StabilityStage()
+        self._sensitivity_stage = SensitivityStage()
+        self._gate_stage = GateStage()
+        self._verify_stage = VerifyStage()
+        self._artifact_stage = ArtifactStage()
 
     def run_experiment(
         self,
@@ -233,21 +112,16 @@ class BacktestOrchestrator:
         strategy_logic: Callable[[pl.DataFrame], pl.DataFrame],
         callback: Optional[Callable[[str, StageResult], None]] = None,
     ) -> BacktestRun:
-        """
-        Execute a full backtest experiment through all stages.
-        callback(stage_name, stage_result) is called after each stage.
-        """
-        # Content-addressed run ID: same inputs = same run_id (idempotent)
+        """Execute a full backtest experiment through all stages."""
+        # Content-addressed run ID
         run_hash = compute_sha256(
             (dataset_manifest.raw_hash + config.strategy.source_hash +
              config.config_hash + config.execution_model.model_hash).encode()
         )
         run_id = f"BT-{run_hash[:16]}"
 
-        # Check if this exact run already exists (idempotent)
         existing_dir = os.path.join(self.RUNS_DIR, run_id)
         if os.path.exists(os.path.join(existing_dir, "run.json")):
-            # Return existing run -- don't re-run identical experiment
             return self.load_run(run_id)
 
         run = BacktestRun(
@@ -263,7 +137,7 @@ class BacktestOrchestrator:
             execution_model_hash=config.execution_model.model_hash,
         )
 
-        # §45: Input validation before starting
+        # Input validation
         validate_numeric(config.execution_model.initial_capital, "initial_capital", min_val=1, max_val=1e12)
         if config.parameter_grid.grid_size > 0:
             validate_param_grid(
@@ -275,54 +149,40 @@ class BacktestOrchestrator:
         run.started_at = time.time()
         run.status = RunStatus.RUNNING
         em = config.execution_model
-        run.random_seed = 42  # Default; explicit for reproducibility
+        run.random_seed = 42
         run.mc_simulations = config.mc_simulations
         run.initial_capital = config.execution_model.initial_capital
 
-        # §42: Initialize run state manager for crash recovery
         run_state_mgr = RunStateManager(os.path.join(self.RUNS_DIR, run.run_id))
         run_state_mgr.transition(RunPhase.RUNNING)
 
-        # A9: Complexity guard — reject if estimated work exceeds budget
+        # Complexity guard
         grid_size = config.parameter_grid.grid_size
         estimated_folds = max(1, (len(df) if df is not None else 10000) // 500)
         estimated_work = grid_size * estimated_folds
-        MAX_WORK_BUDGET = 50000  # Max param*fold combinations
+        MAX_WORK_BUDGET = 50000
         if estimated_work > MAX_WORK_BUDGET:
             raise ValueError(
                 f"Work budget exceeded: {grid_size} params x ~{estimated_folds} folds = {estimated_work} > {MAX_WORK_BUDGET}. "
                 f"Reduce grid size or increase window size."
             )
 
-        # Total budget: 10 minutes for entire experiment
         deadline = run.started_at + 600
 
-        # Build temporal contract for leakage check
         contract = LeakageFirewall.build_default_contract()
         run.temporal_contract_hash = contract.contract_hash
 
-        # Holdout manager
         holdout_mgr = HoldoutManager()
         split_id = None
 
         def _run_stage(name, stage_func, *args, **kwargs):
-            """Run a stage with timeout enforcement via cooperative abort.
-            
-            Uses a timer thread that sets an abort flag. If the stage
-            checks the flag, it can exit early. If not, we detect timeout
-            after completion and mark as FAILED.
-            
-            For hard enforcement on CPU-bound stages, use subprocess isolation
-            (not implemented here — cooperative is sufficient for backtest stages
-            which are mostly Polars operations that respect Python's GIL).
-            """
+            """Run a stage with timeout enforcement via cooperative abort."""
             import threading
             timeout = self.STAGE_TIMEOUTS.get(name, self.DEFAULT_STAGE_TIMEOUT)
             stage_deadline = time.time() + timeout
             if time.time() > deadline:
                 raise TimeoutError(f"EXPERIMENT_TIMEOUT: Total budget exceeded")
 
-            # Cooperative abort mechanism
             abort_flag = threading.Event()
             def _abort_if_overdue():
                 if time.time() > stage_deadline:
@@ -335,9 +195,6 @@ class BacktestOrchestrator:
             finally:
                 timer.cancel()
 
-            # Post-hoc check (for stages that don't check abort_flag)
-            # §42: Track stage completion for crash recovery
-            # Handle both StageResult and raw tuple returns (e.g. holdout_setup)
             if isinstance(result, StageResult):
                 if time.time() > stage_deadline:
                     result.status = RunStage.FAILED
@@ -345,103 +202,82 @@ class BacktestOrchestrator:
                 if result.status == RunStage.PASSED:
                     run_state_mgr.mark_stage_completed(name)
             else:
-                # Raw return (tuple) — track as completed
                 run_state_mgr.mark_stage_completed(name)
             return result
 
         try:
-            # -- Stage 1: DATA --
-            run.stages["data"] = _run_stage("data", self._stage_data, run, df, dataset_manifest)
-            if callback:
-                callback("data", run.stages["data"])
+            # Stage 1: DATA
+            run.stages["data"] = _run_stage("data", self._data_stage.run, run, df, dataset_manifest)
+            if callback: callback("data", run.stages["data"])
             if run.stages["data"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 2: STRATEGY --
-            run.stages["strategy"] = _run_stage("strategy", self._stage_strategy, run, config, strategy_logic, df)
-            if callback:
-                callback("strategy", run.stages["strategy"])
+            # Stage 2: STRATEGY
+            run.stages["strategy"] = _run_stage("strategy", self._strategy_stage.run, run, config, strategy_logic, df)
+            if callback: callback("strategy", run.stages["strategy"])
             if run.stages["strategy"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 2b: LEAKAGE FIREWALL --
-            run.stages["leakage"] = _run_stage("leakage", self._stage_leakage, run, config, strategy_logic, df, contract)
-            if callback:
-                callback("leakage", run.stages["leakage"])
+            # Stage 2b: LEAKAGE FIREWALL
+            run.stages["leakage"] = _run_stage("leakage", self._leakage_stage.run, run, config, strategy_logic, df, contract)
+            if callback: callback("leakage", run.stages["leakage"])
             run.leakage_check_passed = run.stages["leakage"].status in (RunStage.PASSED, RunStage.FAILED)
 
-            # -- Stage 2c: HOLDOUT SPLIT + LOCK --
-            split_id, holdout_split = _run_stage("holdout_setup", self._stage_holdout_setup, run, dataset_manifest, df, holdout_mgr)
+            # Stage 2c: HOLDOUT SPLIT + LOCK
+            split_id, holdout_split = _run_stage("holdout_setup", self._holdout_stage.run, run, dataset_manifest, df, holdout_mgr)
             run.holdout_locked = True
-            if callback:
-                callback("holdout_setup", StageResult(stage="holdout_setup", status=RunStage.PASSED))
+            if callback: callback("holdout_setup", StageResult(stage="holdout_setup", status=RunStage.PASSED))
 
-            # -- Stage 3: BASELINE --
-            run.stages["baseline"] = _run_stage("baseline", self._stage_baseline, run, df, em)
-            if callback:
-                callback("baseline", run.stages["baseline"])
+            # Stage 3: BASELINE
+            run.stages["baseline"] = _run_stage("baseline", self._baseline_stage.run, run, df, em)
+            if callback: callback("baseline", run.stages["baseline"])
 
-            # -- Stage 4: WFO (on TRAIN portion only) --
+            # Stage 4: WFO (on TRAIN portion only)
             train_df = holdout_mgr.get_train(split_id, df)
-            run.stages["wfo"] = _run_stage("wfo", self._stage_wfo, run, config, train_df, strategy_logic, em)
-            if callback:
-                callback("wfo", run.stages["wfo"])
+            run.stages["wfo"] = _run_stage("wfo", self._wfo_stage.run, run, config, train_df, strategy_logic, em)
+            if callback: callback("wfo", run.stages["wfo"])
             if run.stages["wfo"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
                 return run
 
-            # -- Stage 5: OOS --
-            run.stages["oos"] = _run_stage("oos", self._stage_oos, run)
-            if callback:
-                callback("oos", run.stages["oos"])
+            # Stage 5: OOS
+            run.stages["oos"] = _run_stage("oos", self._oos_stage.run, run)
+            if callback: callback("oos", run.stages["oos"])
 
-            # -- Stage 6: STATISTICS --
-            run.stages["statistics"] = _run_stage("statistics", self._stage_statistics, run)
-            if callback:
-                callback("statistics", run.stages["statistics"])
+            # Stage 6: STATISTICS
+            run.stages["statistics"] = _run_stage("statistics", self._statistics_stage.run, run)
+            if callback: callback("statistics", run.stages["statistics"])
 
-            # -- Stage 7: CRISIS --
-            run.stages["crisis"] = _run_stage("crisis", self._stage_crisis, run, config, df, strategy_logic, em)
-            if callback:
-                callback("crisis", run.stages["crisis"])
+            # Stage 7: CRISIS
+            run.stages["crisis"] = _run_stage("crisis", self._crisis_stage.run, run, config, df, strategy_logic, em)
+            if callback: callback("crisis", run.stages["crisis"])
 
-            # -- Stage 8: STABILITY --
-            run.stages["stability"] = _run_stage("stability", self._stage_stability, run, config, df, strategy_logic)
-            if callback:
-                callback("stability", run.stages["stability"])
+            # Stage 8: STABILITY
+            run.stages["stability"] = _run_stage("stability", self._stability_stage.run, run, config, df, strategy_logic)
+            if callback: callback("stability", run.stages["stability"])
 
-            # -- Stage 8b: SENSITIVITY --
-            run.stages["sensitivity"] = _run_stage("sensitivity", self._stage_sensitivity, run, config, df, strategy_logic)
-            if callback:
-                callback("sensitivity", run.stages["sensitivity"])
+            # Stage 8b: SENSITIVITY
+            run.stages["sensitivity"] = _run_stage("sensitivity", self._sensitivity_stage.run, run, config, df, strategy_logic)
+            if callback: callback("sensitivity", run.stages["sensitivity"])
 
-            # -- Stage 9b: HOLDOUT EVALUATION (before gate) --
-            # BT-01: REAL HOLDOUT EVALUATION ENGINE
-            # Run strategy on holdout data with WFO-selected parameters.
-            # Produces immutable HoldoutEvidence. No state markers.
+            # Stage 9b: HOLDOUT EVALUATION (before gate)
             holdout_evidence = None
             if split_id:
-                # Extract selected params from WFO (frozen after WFO)
                 selected_params = {}
                 if run.wfo_result:
                     folds = run.wfo_result.get('folds', [])
                     if folds:
-                        # Use winner params from the last fold
                         last_fold = folds[-1] if isinstance(folds[-1], dict) else {}
                         selected_params = last_fold.get('winner_params', {})
                 if not selected_params:
-                    selected_params = {'lookback': 20}  # Default if WFO produced no params
+                    selected_params = {'lookback': 20}
 
-                # Access holdout data (must be LOCKED — post-training only)
                 holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
+                holdout_split_obj = holdout_mgr.get_split(split_id)
+                split_hash_val = holdout_split_obj.holdout_hash if holdout_split_obj else ""
 
-                # Compute split hash for binding
-                holdout_split = holdout_mgr.get_split(split_id)
-                split_hash_val = holdout_split.holdout_hash if holdout_split else ""
-
-                # Run HoldoutEvaluationEngine — raises on failure (no except: pass)
                 holdout_evidence = HoldoutEvaluationEngine.evaluate(
                     strategy_logic=strategy_logic,
                     holdout_df=holdout_df,
@@ -459,11 +295,9 @@ class BacktestOrchestrator:
                     wfo_provenance_hash=run.provenance_hash,
                 )
 
-                # ONLY set holdout_evaluated AFTER evidence is validated
                 run.holdout_evaluated = True
                 holdout_mgr.evaluate_holdout(split_id)
 
-                # BT-04: Evidence binding — cryptographically link all evidence
                 param_hash = compute_sha256(json.dumps(sorted(selected_params.items())).encode())
                 run.evidence_binding = EvidenceBinding(
                     run_id=run.run_id,
@@ -473,30 +307,25 @@ class BacktestOrchestrator:
                     wfo_provenance_hash=run.provenance_hash,
                     holdout_provenance_hash=holdout_evidence.provenance_hash,
                 )
-            
-            # Convert HoldoutEvidence dataclass to dict for serialization
+
             run.holdout_evidence = holdout_evidence.to_dict() if holdout_evidence is not None else None
 
-            # -- Stage 9: FINAL GATE (after holdout) --
-            run.stages["final_gate"] = _run_stage("final_gate", self._stage_gate, run, config)
-            if callback:
-                callback("final_gate", run.stages["final_gate"])
+            # Stage 9: FINAL GATE (after holdout)
+            run.stages["final_gate"] = _run_stage("final_gate", self._gate_stage.run, run, config)
+            if callback: callback("final_gate", run.stages["final_gate"])
 
-            # -- Stage 10: ARTIFACT --
-            run.stages["artifact"] = _run_stage("artifact", self._stage_artifact, run, config, dataset_manifest)
-            if callback:
-                callback("artifact", run.stages["artifact"])
+            # Stage 10: ARTIFACT
+            run.stages["artifact"] = _run_stage("artifact", self._artifact_stage.run, run, config, dataset_manifest)
+            if callback: callback("artifact", run.stages["artifact"])
 
-            # -- Stage 11: INDEPENDENT VERIFICATION --
-            run.stages["verify"] = _run_stage("verify", self._stage_verify, run)
-            if callback:
-                callback("verify", run.stages["verify"])
+            # Stage 11: INDEPENDENT VERIFICATION
+            run.stages["verify"] = _run_stage("verify", self._verify_stage.run, run)
+            if callback: callback("verify", run.stages["verify"])
             run.verification_status = "VERIFIED" if run.stages["verify"].status == RunStage.PASSED else "REJECTED"
 
             run.status = RunStatus.COMPLETED
 
         except Exception as e:
-            # FAILURE -> INVALID: any unhandled exception means the run is INVALID
             run.status = RunStatus.FAILED
             run.stages["_error"] = StageResult(
                 stage="_error", status=RunStage.FAILED, error=str(e)
@@ -505,905 +334,8 @@ class BacktestOrchestrator:
 
         run.completed_at = time.time()
 
-        # Save run manifest (immutable after this point)
-        self._save_run(run)
+        save_run(run)
         return run
-
-    def _stage_data(self, run: BacktestRun, df: pl.DataFrame, manifest: DatasetManifest) -> StageResult:
-        """Validate data quality and freeze."""
-        t0 = time.time()
-        gate = DataQualityGate.validate(df)
-        run.quality_report = gate
-
-        if gate["gate"] == "FAIL":
-            return StageResult(
-                stage="data", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(),
-                data=gate, error=f"Data quality gate FAILED: {gate['failed_count']} failures",
-            )
-
-        return StageResult(
-            stage="data", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(),
-            data={"rows": len(df), "gate": gate["gate"], "warnings": gate["warn_count"]},
-        )
-
-    def _stage_strategy(self, run: BacktestRun, config: ExperimentConfig,
-                        strategy_logic: Callable, df: pl.DataFrame) -> StageResult:
-        """Validate strategy produces valid signal output."""
-        t0 = time.time()
-        try:
-            result = strategy_logic(df)
-            if "signal" not in result.columns:
-                return StageResult(
-                    stage="strategy", status=RunStage.FAILED,
-                    started_at=t0, completed_at=time.time(),
-                    error="Strategy did not produce 'signal' column",
-                )
-
-            signals = result["signal"]
-            valid_signals = signals.is_in([-1.0, 0.0, 1.0]).all()
-            has_nulls = signals.is_null().any()
-            has_nan = signals.is_nan().any() if hasattr(signals, 'is_nan') else False
-
-            issues = []
-            if has_nulls:
-                issues.append("null signals")
-            if has_nan:
-                issues.append("NaN signals")
-
-            if issues:
-                return StageResult(
-                    stage="strategy", status=RunStage.FAILED,
-                    started_at=t0, completed_at=time.time(),
-                    error=f"Invalid signals: {', '.join(issues)}",
-                )
-
-            return StageResult(
-                stage="strategy", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(),
-                data={
-                    "strategy_id": config.strategy.strategy_id,
-                    "source_hash": config.strategy.source_hash[:16],
-                    "total_bars": len(df),
-                    "signal_distribution": {
-                        "long": int((signals == 1.0).sum()),
-                        "short": int((signals == -1.0).sum()),
-                        "flat": int((signals == 0.0).sum()),
-                    },
-                },
-            )
-        except Exception as e:
-            return StageResult(
-                stage="strategy", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_leakage(self, run: BacktestRun, config: ExperimentConfig,
-                       strategy_logic: Callable, df: pl.DataFrame,
-                       contract: TemporalContract) -> StageResult:
-        """Run leakage / temporal firewall check. WARNING only -- engine handles shift."""
-        t0 = time.time()
-        try:
-            result = strategy_logic(df)
-            validation = LeakageFirewall.validate_signal_timing(result, contract)
-            # This is a WARNING, not a failure -- the backtest engine explicitly
-            # shifts signals via prev_signal = signal.shift(1), so the strategy
-            # output doesn't need to include the shift itself.
-            validation["note"] = "WARNING: Engine handles signal shift internally. Strategy output is pre-shift."
-            return StageResult(
-                stage="leakage", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(), data=validation,
-            )
-        except Exception as e:
-            return StageResult(
-                stage="leakage", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_holdout_setup(self, run: BacktestRun, manifest: DatasetManifest,
-                            df: pl.DataFrame, mgr: HoldoutManager) -> tuple:
-        """Create 3-layer split and lock holdout."""
-        split = mgr.create_split(manifest.dataset_id, df)
-        split = mgr.lock_holdout(split.split_id)
-        return split.split_id, split
-
-    def _stage_sensitivity(self, run: BacktestRun, config: ExperimentConfig,
-                           df: pl.DataFrame, strategy_logic: Callable) -> StageResult:
-        """Run sensitivity and cost stress analysis."""
-        t0 = time.time()
-        try:
-            from are.research.integrity import SensitivityAnalyzer
-            engine = IsolatedBacktestEngine()
-
-            # Parameter sensitivity
-            pg = config.parameter_grid
-            base_val = list(pg.param_values[0])[len(pg.param_values[0]) // 2] if pg.param_values else 20.0
-            param_result = SensitivityAnalyzer.parameter_sensitivity(
-                engine, df, strategy_logic, "lookback", base_val
-            )
-
-            # Cost stress
-            em = config.execution_model
-            cost_result = SensitivityAnalyzer.cost_stress(
-                engine, df, strategy_logic,
-                base_spread=em.spread_pct, base_slippage=em.slippage_pct,
-                base_commission=em.commission_pct,
-            )
-
-            return StageResult(
-                stage="sensitivity", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(),
-                data={
-                    "param_robustness": param_result.get("verdict", "UNKNOWN"),
-                    "cost_breakeven": cost_result.get("breakeven_multiplier"),
-                    "cost_verdict": cost_result.get("verdict", "UNKNOWN"),
-                },
-            )
-        except Exception as e:
-            return StageResult(
-                stage="sensitivity", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_verify(self, run: BacktestRun) -> StageResult:
-        """Independent verification — recompute ALL metrics from actual OOS returns.
-        
-        Uses IndependentVerifier.verify_trade_metrics() for trade-level checks
-        (win rate, profit factor, total return) plus Sharpe and drawdown recompute.
-        All checks must pass for VERIFIED status.
-        """
-        t0 = time.time()
-        try:
-            run_dir = os.path.join(self.RUNS_DIR, run.run_id)
-            if not os.path.exists(run_dir):
-                return StageResult(
-                    stage="verify", status=RunStage.FAILED,
-                    started_at=t0, completed_at=time.time(),
-                    error="Run directory not found",
-                )
-
-            # 1. Verify artifact integrity (manifest hashes match files)
-            artifact_result = IndependentVerifier.verify_artifact_integrity(run_dir)
-
-            oos_returns = run.oos_result.get("pooled_oos_returns", []) if run.oos_result else []
-            stats = run.statistics_result or {}
-
-            # 2. Independent Sharpe recompute from actual OOS returns
-            if oos_returns and len(oos_returns) > 2:
-                sharpe_check = IndependentVerifier.verify_sharpe(
-                    returns=oos_returns,
-                    claimed_sharpe=stats.get("sharpe", 0.0),
-                )
-            else:
-                sharpe_check = {"valid": False, "reason": "No OOS returns to verify"}
-
-            # 3. Independent return/DD recompute
-            return_check = {"valid": True, "checks": []}
-            if oos_returns and len(oos_returns) > 1:
-                cum = 1.0
-                peak = 1.0
-                max_dd = 0.0
-                for r in oos_returns:
-                    cum *= (1 + r)
-                    if cum > peak:
-                        peak = cum
-                    dd = (peak - cum) / peak if peak > 0 else 0
-                    if dd > max_dd:
-                        max_dd = dd
-                recomputed_return = (cum - 1.0) * 100
-                claimed_return = stats.get("return_pct", 0.0)
-                return_match = abs(recomputed_return - claimed_return) < 0.1
-                return_check["checks"].append({
-                    "metric": "total_return_pct",
-                    "claimed": claimed_return,
-                    "recomputed": round(recomputed_return, 4),
-                    "match": return_match,
-                })
-                recomputed_dd = max_dd * 100
-                claimed_dd = stats.get("max_dd_pct", 0.0)
-                dd_match = abs(recomputed_dd - claimed_dd) < 0.1
-                return_check["checks"].append({
-                    "metric": "max_drawdown_pct",
-                    "claimed": claimed_dd,
-                    "recomputed": round(recomputed_dd, 4),
-                    "match": dd_match,
-                })
-                all_return_ok = all(c["match"] for c in return_check["checks"])
-                return_check["valid"] = all_return_ok
-
-            # 4. Trade-level verification (win rate, profit factor, return)
-            trade_check = {"valid": False, "reason": "No returns"}
-            if oos_returns and len(oos_returns) > 2:
-                trade_check = IndependentVerifier.verify_trade_metrics(
-                    returns=oos_returns,
-                    claimed_win_rate=stats.get("win_rate", 0.0),
-                    claimed_profit_factor=stats.get("profit_factor", 0.0),
-                    claimed_total_return=stats.get("return_pct", 0.0),
-                )
-
-            all_valid = (
-                artifact_result.get("valid", False)
-                and sharpe_check.get("valid", False)
-                and return_check.get("valid", False)
-                and trade_check.get("valid", False)
-            )
-
-            return StageResult(
-                stage="verify",
-                status=RunStage.PASSED if all_valid else RunStage.FAILED,
-                started_at=t0, completed_at=time.time(),
-                data={
-                    "artifact_integrity": artifact_result,
-                    "sharpe_check": sharpe_check,
-                    "return_check": return_check,
-                    "trade_check": trade_check,
-                },
-            )
-        except Exception as e:
-            return StageResult(
-                stage="verify", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_baseline(self, run: BacktestRun, df: pl.DataFrame, em: ExecutionModel) -> StageResult:
-        """Run baseline comparisons."""
-        t0 = time.time()
-        engine = IsolatedBacktestEngine()
-
-        results = {}
-        baselines = {
-            "buy_and_hold": baseline_buy_and_hold,
-            "always_flat": baseline_always_flat,
-            "naive_long": baseline_naive_long,
-            "naive_short": baseline_naive_short,
-            "random": baseline_random_permutation,
-        }
-
-        for name, logic in baselines.items():
-            try:
-                r = engine.run_backtest(
-                    strategy_logic=logic, historical_data=df,
-                    initial_capital=em.initial_capital,
-                    timeframe_seconds=3600.0,
-                    spread_pct=em.spread_pct, slippage_pct=em.slippage_pct,
-                    commission_pct=em.commission_pct,
-                )
-                results[name] = {
-                    "sharpe": r.metrics.get("sharpe_ratio", 0.0),
-                    "return_pct": r.metrics.get("total_return_pct", 0.0),
-                    "max_dd_pct": r.metrics.get("max_drawdown_pct", 0.0),
-                }
-            except Exception:
-                results[name] = {"error": True}
-
-        run.baseline_result = results
-        return StageResult(
-            stage="baseline", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(),
-            data={"baseline_count": len(results)},
-        )
-
-    def _stage_wfo(self, run: BacktestRun, config: ExperimentConfig,
-                   df: pl.DataFrame, strategy_logic: Callable,
-                   em: ExecutionModel) -> StageResult:
-        """Run Walk-Forward Optimization using the ACTUAL registered strategy.
-        
-        Uses strategy_logic (the real user strategy) with a param_mutator
-        that creates parameterized variants for the grid search.
-        """
-        t0 = time.time()
-        engine = IsolatedBacktestEngine()
-
-        pg = config.parameter_grid
-        param_names = pg.param_names or ["lookback"]
-        param_values = list(pg.param_values[0]) if pg.param_values else [20]
-
-        # Build param_grid as list of dicts [{param_name: val, ...}, ...]
-        param_grid = []
-        for vals in (pg.param_values if pg.param_values else [[20]]):
-            param_dict = {name: val for name, val in zip(param_names, vals)}
-            param_grid.append(param_dict)
-
-        # FIX P0-3: Validate parameter binding before running WFO
-        # Check if strategy actually responds to parameter variations
-        param_binding_valid = False
-        if param_grid and len(param_grid) > 1:
-            try:
-                signals_base = strategy_logic(df)
-                signals_vary = None
-                test_param = param_grid[0]
-                df_test = df
-                for k, v in test_param.items():
-                    df_test = df_test.with_columns(pl.lit(v).alias(f"_param_{k}"))
-                try:
-                    signals_vary = strategy_logic(df_test)
-                except Exception:
-                    pass
-                if signals_vary is not None and "signal" in signals_vary.columns:
-                    base_sigs = signals_base["signal"].to_list()
-                    vary_sigs = signals_vary["signal"].to_list()
-                    n_different = sum(1 for a, b in zip(base_sigs, vary_sigs) if a != b)
-                    if n_different > 0:
-                        param_binding_valid = True
-            except Exception:
-                pass
-        else:
-            param_binding_valid = True  # Single param = no binding check needed
-
-        # BT-02: Strategy factory — explicit parameter injection, NO fallback
-        # If strategy ignores parameters, all candidates produce identical output
-        # and WFO should detect this as INVALID (false optimization).
-        def wfo_strategy_factory(params):
-            """Create a strategy variant with given parameters.
-            
-            Injects params as _param_<name> columns.
-            If strategy fails to use them, output is identical across params
-            and param_binding_valid will be False.
-            """
-            def logic(df_inner):
-                df_with_params = df_inner
-                for k, v in params.items():
-                    df_with_params = df_with_params.with_columns(
-                        pl.lit(v).alias(f"_param_{k}")
-                    )
-                # NO fallback — if strategy fails, it fails
-                result = strategy_logic(df_with_params)
-                if 'signal' not in result.columns:
-                    raise ValueError(f'Strategy did not produce signal column with params {params}')
-                return result
-            return logic
-
-        try:
-            wfo_evidence = engine.run_walk_forward_optimization(
-                strategy_factory=wfo_strategy_factory,
-                historical_data=df,
-                param_grid=param_grid,
-                initial_capital=em.initial_capital,
-                timeframe_seconds=3600.0,
-                spread_pct=em.spread_pct,
-                slippage_pct=em.slippage_pct,
-                commission_pct=em.commission_pct,
-                train_window_bars=config.wfo_train_window_bars,
-                test_window_bars=config.wfo_test_window_bars,
-                step_bars=config.wfo_step_bars,
-                purge_bars=config.wfo_purge_bars,
-                warmup_bars=config.wfo_warmup_bars,
-            )
-
-            # Store FULL WFOEvidence as canonical object (not summary)
-            # Store canonical WFOEvidence (full object, not summary)
-            run.wfo_result = wfo_evidence.to_dict()
-            run.provenance_hash = wfo_evidence.provenance_hash
-
-            # BT-03+BT-03b: Canonical WFOEvidence persistence + fail-closed + read-back
-            wfo_dir = os.path.join(self.RUNS_DIR, run.run_id)
-            os.makedirs(wfo_dir, exist_ok=True)
-            wfo_file = os.path.join(wfo_dir, "wfo_evidence.json")
-
-            # 1. Serialize canonical evidence
-            canonical_payload = wfo_evidence.to_dict()
-
-            # 2. Write atomically (write to temp, then rename)
-            wfo_file_tmp = wfo_file + ".tmp"
-            with open(wfo_file_tmp, "w") as wf:
-                json.dump(canonical_payload, wf, indent=2, default=str)
-            os.replace(wfo_file_tmp, wfo_file)  # Atomic on POSIX/Windows
-
-            # 3. Read-back verification (FAIL-CLOSED)
-            with open(wfo_file) as rf:
-                loaded = json.load(rf)
-            loaded_hash = loaded.get('provenance_hash', '')
-            if loaded_hash != wfo_evidence.provenance_hash:
-                raise RuntimeError(
-                    f"WFOEvidence persistence FAILED: read-back hash mismatch. "
-                    f"Expected {wfo_evidence.provenance_hash[:16]}, got {loaded_hash[:16]}. "
-                    f"Run INVALID."
-                )
-
-            # 4. Persist WFOEvidence as standalone artifact file too
-            wfo_artifact = os.path.join(wfo_dir, "wfo", "evidence.json")
-            os.makedirs(os.path.dirname(wfo_artifact), exist_ok=True)
-            with open(wfo_artifact, "w") as wf:
-                json.dump(canonical_payload, wf, indent=2, default=str)
-
-            return StageResult(
-                stage="wfo", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(),
-                data={
-                    "fold_count": wfo_evidence.fold_count,
-                    "provenance": wfo_evidence.provenance_hash[:16],
-                    "param_binding_valid": param_binding_valid,
-                    "param_binding_note": "Parameters affect strategy output" if param_binding_valid else "WARNING: Parameters may not affect strategy",
-                },
-            )
-        except Exception as e:
-            return StageResult(
-                stage="wfo", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_oos(self, run: BacktestRun) -> StageResult:
-        """Extract OOS results from WFO — preserves full evidence chain."""
-        t0 = time.time()
-        if not run.wfo_result:
-            return StageResult(stage="oos", status=RunStage.SKIPPED, started_at=t0, completed_at=time.time())
-
-        # Carry forward ALL WFO evidence (not just summary)
-        run.oos_result = {
-            "pooled_sharpe": run.wfo_result.get("pooled_oos_sharpe", 0.0),
-            "pooled_return": run.wfo_result.get("pooled_oos_return", 0.0),
-            "pooled_max_dd": run.wfo_result.get("pooled_oos_max_drawdown", 0.0),
-            "fold_count": run.wfo_result.get("fold_count", 0),
-            # Preserve raw returns for independent verification
-            "pooled_oos_returns": run.wfo_result.get("pooled_oos_returns", []),
-            "effective_trial_count": run.wfo_result.get("effective_trial_count", 1),
-            "parameter_family_size": run.wfo_result.get("parameter_family_size", 1),
-            "n_obs": run.wfo_result.get("n_obs", 0),
-        }
-        return StageResult(
-            stage="oos", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(),
-            data={"n_obs": run.oos_result["n_obs"], "sharpe": run.oos_result["pooled_sharpe"]},
-        )
-
-    def _stage_statistics(self, run: BacktestRun) -> StageResult:
-        """Compile statistics with DSR/PSR/MC from REAL evidence chain.
-        
-        Evidence flow: WFOEvidence → OOS → Statistics → Gate
-        No fallbacks: missing evidence → INVALID.
-        """
-        t0 = time.time()
-        oos = run.oos_result or {}
-        wfo = run.wfo_result or {}
-
-        oos_sharpe = oos.get("pooled_sharpe", 0.0)
-        oos_returns = oos.get("pooled_oos_returns", [])
-        n_obs = oos.get("n_obs", 0)
-        effective_trials = oos.get("effective_trial_count", 0)
-
-        stats = {
-            "sharpe": oos_sharpe,
-            "return_pct": oos.get("pooled_return", 0.0) * 100,
-            "max_dd_pct": oos.get("pooled_max_dd", 0.0) * 100,
-            "wfe": wfo.get("mean_wfe", 0.0),
-            "fold_count": oos.get("fold_count", 0),
-            "n_obs": n_obs,
-            "effective_trial_count": effective_trials,
-        }
-
-        # Compute additional metrics from actual OOS returns
-        if oos_returns and len(oos_returns) > 2:
-            import math
-            returns_arr = oos_returns
-            mean_r = sum(returns_arr) / len(returns_arr)
-            var_r = sum((r - mean_r) ** 2 for r in returns_arr) / max(len(returns_arr) - 1, 1)
-            std_r = math.sqrt(var_r) if var_r > 0 else 1e-10
-            upside = [r for r in returns_arr if r > 0]
-            downside = [r for r in returns_arr if r < 0]
-            flat_count = len(returns_arr) - len(upside) - len(downside)
-            win_count = len(upside)
-            loss_count = len(downside)
-            # total_trades = actual trades (non-zero returns), not observations
-            actual_trades = win_count + loss_count
-            stats["total_trades"] = actual_trades
-            stats["total_observations"] = len(returns_arr)
-            stats["flat_observations"] = flat_count
-            stats["win_count"] = win_count
-            stats["loss_count"] = loss_count
-            stats["win_rate"] = (win_count / actual_trades * 100) if actual_trades > 0 else 0.0
-            avg_win = sum(upside) / len(upside) if upside else 0.0
-            avg_loss = abs(sum(downside) / len(downside)) if downside else 1.0
-            stats["avg_win"] = avg_win
-            stats["avg_loss"] = avg_loss
-            stats["profit_factor"] = (avg_win * win_count) / (avg_loss * loss_count) if (avg_loss * loss_count) > 0 else 0.0
-            # Cumulative return
-            cum = 1.0
-            equity_curve = [1.0]
-            peak = 1.0
-            max_dd = 0.0
-            for r in returns_arr:
-                cum *= (1 + r)
-                equity_curve.append(cum)
-                if cum > peak:
-                    peak = cum
-                dd = (peak - cum) / peak if peak > 0 else 0
-                if dd > max_dd:
-                    max_dd = dd
-            stats["total_return_pct"] = (cum - 1.0) * 100
-            stats["max_drawdown_calc"] = max_dd * 100
-        else:
-            stats["total_trades"] = 0
-            stats["win_rate"] = 0.0
-            stats["profit_factor"] = 0.0
-
-        # DSR/PSR using ACTUAL trial count from WFOEvidence
-        try:
-            from are.validation import calculate_deflated_sharpe_ratio, calculate_probabilistic_sharpe_ratio
-            if n_obs > 10 and effective_trials > 0:
-                psr = calculate_probabilistic_sharpe_ratio(oos_sharpe, 0.0, n_obs)
-                expected_max_sr, dsr_p = calculate_deflated_sharpe_ratio(oos_sharpe, effective_trials, n_obs)
-                stats["psr"] = psr
-                stats["dsr_p_value"] = dsr_p
-                stats["dsr_expected_max_sr"] = expected_max_sr
-            else:
-                stats["psr"] = 0.0
-                stats["dsr_p_value"] = 1.0
-                stats["dsr_skip_reason"] = f"n_obs={n_obs}, trials={effective_trials}"
-        except Exception as e:
-            import logging
-            logging.error(f"DSR/PSR computation failed: {e}")
-            stats["psr"] = 0.0
-            stats["dsr_p_value"] = 1.0
-
-        # Monte Carlo with block bootstrap
-        try:
-            from are.validation import monte_carlo_simulation
-            if len(oos_returns) > 10:
-                mc = monte_carlo_simulation(
-                    oos_returns,
-                    num_simulations=run.mc_simulations,
-                    initial_capital=run.initial_capital,
-                )
-                # MC returns multiple ruin metrics; use the most conservative
-                stats["mc_ruin_probability"] = mc.get(
-                    "mc_terminal_ruin_probability",
-                    mc.get("mc_probability_of_ruin", 1.0)
-                ) if isinstance(mc, dict) else 1.0
-                stats["mc_mean_equity"] = mc.get("mc_mean_final_equity", 0.0) if isinstance(mc, dict) else 0.0
-                stats["mc_95th_dd"] = mc.get("mc_95th_pct_drawdown", 0.0) if isinstance(mc, dict) else 0.0
-            else:
-                stats["mc_ruin_probability"] = 1.0
-                stats["mc_mean_equity"] = 0.0
-        except Exception:
-            stats["mc_ruin_probability"] = 1.0
-            stats["mc_mean_equity"] = 0.0
-
-        run.statistics_result = stats
-        return StageResult(
-            stage="statistics", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(), data=stats,
-        )
-
-    def _stage_crisis(self, run: BacktestRun, config: ExperimentConfig,
-                      df: pl.DataFrame, strategy_logic: Callable,
-                      em: ExecutionModel) -> StageResult:
-        """Run crisis replay."""
-        t0 = time.time()
-        try:
-            engine = IsolatedBacktestEngine()
-            crisis = engine.run_crisis_replay(
-                strategy_logic=strategy_logic,
-                initial_capital=em.initial_capital,
-                timeframe_seconds=3600.0,
-                spread_pct=em.spread_pct,
-                slippage_pct=em.slippage_pct,
-                commission_pct=em.commission_pct,
-            )
-            run.crisis_result = {
-                "survived": crisis.get("survived", False),
-                "final_equity": crisis.get("final_equity", 0.0),
-                "max_drawdown_pct": crisis.get("max_drawdown_pct", 0.0),
-            }
-            return StageResult(
-                stage="crisis", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(), data=run.crisis_result,
-            )
-        except Exception as e:
-            return StageResult(
-                stage="crisis", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_stability(self, run: BacktestRun, config: ExperimentConfig,
-                         df: pl.DataFrame, strategy_logic: Callable) -> StageResult:
-        """Parameter stability analysis using the ACTUAL registered strategy."""
-        t0 = time.time()
-        try:
-            engine = IsolatedBacktestEngine()
-            pg = config.parameter_grid
-            param_names = pg.param_names or ["lookback"]
-            values = list(pg.param_values[0]) if pg.param_values else [10, 20, 30]
-
-            if len(values) >= 2:
-                step = values[1] - values[0] if len(values) > 1 else 5
-                extended = [values[0] - step] + values + [values[-1] + step]
-            else:
-                extended = [values[0] - 5, values[0], values[0] + 5]
-
-            def mutator(df_inner, val):
-                """Apply parameter variation to the ACTUAL strategy."""
-                # Add parameter column so strategy can read it
-                param_name = param_names[0]
-                df_with_param = df_inner.with_columns(pl.lit(val).alias(f"_param_{param_name}"))
-                try:
-                    result = strategy_logic(df_with_param)
-                    if "signal" in result.columns:
-                        return result
-                except Exception as e:
-                    import logging
-                    logging.warning(f"Stability analysis: param {val} failed: {e}")
-                # Return original strategy result (param may not affect output)
-                return strategy_logic(df_inner)
-
-            stability = parameter_stability_analysis(
-                engine=engine, historical_data=df,
-                base_strategy=strategy_logic,
-                param_name=param_names[0],
-                param_values=extended,
-                param_mutator=mutator,
-            )
-            run.stability_result = stability
-            return StageResult(
-                stage="stability", status=RunStage.PASSED,
-                started_at=t0, completed_at=time.time(), data={"verdict": stability.get("verdict", "UNKNOWN")},
-            )
-        except Exception as e:
-            return StageResult(
-                stage="stability", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), error=str(e),
-            )
-
-    def _stage_gate(self, run: BacktestRun, config: ExperimentConfig) -> StageResult:
-        """Final gate decision — fail-closed, no fallbacks.
-        
-        Missing metrics = INVALID (not default values).
-        """
-        t0 = time.time()
-        oos = run.oos_result or {}
-        stats = run.statistics_result or {}
-        crisis = run.crisis_result or {}
-        stability = run.stability_result or {}
-        baseline = run.baseline_result or {}
-        holdout_evaluated = run.holdout_evaluated
-
-        # FAIL-CLOSED: if critical evidence is missing, gate is INVALID
-        n_obs = stats.get("n_obs", 0)
-        oos_sharpe = oos.get("pooled_sharpe", 0.0)
-        effective_trials = stats.get("effective_trial_count", 0)
-
-        if n_obs < 10 or effective_trials < 1:
-            gate = {
-                "decision": "INVALID",
-                "checks": [{"check": "evidence_sufficiency", "pass": False,
-                             "value": f"n_obs={n_obs}, trials={effective_trials}"}],
-                "passed": 0, "failed": 1, "total": 1,
-                "reason": "Insufficient evidence: need n_obs >= 10 and trials >= 1",
-            }
-            run.final_gate = gate
-            return StageResult(
-                stage="final_gate", status=RunStage.FAILED,
-                started_at=t0, completed_at=time.time(), data=gate,
-            )
-
-        is_sharpe = stats.get("wfe", 0.0) * oos_sharpe if stats.get("wfe", 0) > 0 else 0.0
-
-        # Get best baseline Sharpe
-        best_baseline_sharpe = max(
-            (v.get("sharpe", -999) for v in baseline.values()
-             if isinstance(v, dict) and "error" not in v),
-            default=0.0
-        )
-
-        from are.research.metrics import compute_gate_metrics
-        metrics_gate = compute_gate_metrics(
-            oos_sharpe=oos_sharpe,
-            is_sharpe=is_sharpe,
-            oos_return=oos.get("pooled_return", 0.0),
-            max_dd=oos.get("pooled_max_dd", 1.0),
-            total_trades=stats.get("total_trades", 0),
-            n_parameters=config.parameter_grid.grid_size,
-            win_rate=stats.get("win_rate", 0.0),  # NO fallback — fail closed
-            profit_factor=stats.get("profit_factor", 0.0),  # NO fallback
-        )
-
-        # Additional checks beyond core metrics
-        extra_checks = []
-
-        # Crisis survival
-        extra_checks.append({"check": "crisis_survival", "pass": crisis.get("survived", False), "value": crisis.get("survived", False)})
-
-        # Parameter stability
-        extra_checks.append({"check": "param_stability", "pass": stability.get("verdict") in ("ROBUST", "MARGINAL"), "value": stability.get("verdict", "UNKNOWN")})
-
-        # Baseline beat
-        extra_checks.append({"check": "beats_baselines", "pass": oos_sharpe > best_baseline_sharpe, "value": f"{oos_sharpe:.4f} > {best_baseline_sharpe:.4f}"})
-
-        # DSR p-value < 0.05
-        dsr_p = stats.get("dsr_p_value", 1.0)
-        extra_checks.append({"check": "dsr_significant", "pass": dsr_p < 0.05, "value": f"p={dsr_p:.4f}"})
-
-        # Monte Carlo ruin < 10%
-        mc_ruin = stats.get("mc_ruin_probability", 1.0)
-        extra_checks.append({"check": "mc_ruin_low", "pass": mc_ruin < 0.10, "value": f"{mc_ruin:.2%}"})
-
-        # BT-04: Holdout evidence check — evidence-only, no booleans
-        he = run.holdout_evidence
-        holdout_valid = False
-        holdout_detail = 'no evidence'
-        if he is not None:
-            # Validate evidence internal consistency
-            he_trades = he.get('trade_count', he.get('total_trades', 0))
-            he_return = he.get('total_return', he.get('total_return_pct', 0))
-            he_sharpe = he.get('sharpe', 0)
-            he_provenance = he.get('provenance_hash', '')
-            he_valid = he.get('valid', True)  # HoldoutEvidence always valid if created by engine
-            holdout_valid = (
-                he_valid
-                and he_trades > 0
-                and abs(he_return) < 100
-                and len(he_provenance) > 0
-            )
-            holdout_detail = {
-                'trades': he_trades,
-                'return_pct': he_return,
-                'sharpe': he_sharpe,
-                'provenance': he_provenance[:16] if he_provenance else 'missing',
-            }
-        extra_checks.append({"check": "holdout_evidence", "pass": holdout_valid, "value": holdout_detail})
-
-        # BT-04: Evidence binding check
-        eb = run.evidence_binding
-        if eb is not None:
-            eb_valid = eb.get('valid', True) if isinstance(eb, dict) else True
-            extra_checks.append({"check": "evidence_binding", "pass": eb_valid, "value": 'binding chain intact' if eb_valid else 'binding broken'})
-        else:
-            extra_checks.append({"check": "evidence_binding", "pass": False, "value": 'no binding created'})
-
-        # A8: WFE gate — Walk-Forward Efficiency must be positive
-        wfe = oos.get("mean_wfe", 0.0)
-        extra_checks.append({"check": "wfe_positive", "pass": wfe > 0.0, "value": f"{wfe:.4f}"})
-
-        # A8: Minimum fold count — need at least 3 folds for statistical validity
-        fold_count = oos.get("fold_count", 0)
-        extra_checks.append({"check": "min_folds", "pass": fold_count >= 3, "value": f"{fold_count} folds"})
-
-        # Combine all checks
-        all_checks = metrics_gate["checks"] + extra_checks
-        failed = [c for c in all_checks if not c["pass"]]
-        passed = [c for c in all_checks if c["pass"]]
-
-        # P0-8: Fail-closed decision semantics
-        # DSR failure = FAIL (never BORDERLINE)
-        # Holdout failure = FAIL
-        # Any critical failure = FAIL or INVALID
-        base_decision = metrics_gate["decision"]
-        critical_failures = [c for c in failed if c["check"] in (
-            "dsr_significant", "holdout_evidence", "evidence_sufficiency",
-            "evidence_binding",
-        )]
-        
-        if base_decision == "PASS" and len(failed) == 0:
-            decision = GateDecision.PASS
-        elif len(critical_failures) > 0:
-            # Critical check failed — FAIL, never BORDERLINE
-            decision = GateDecision.FAIL
-        elif base_decision in ("PASS", "BORDERLINE") and len(failed) <= 2:
-            decision = GateDecision.BORDERLINE
-        else:
-            decision = GateDecision.FAIL if len(failed) <= len(all_checks) // 2 else GateDecision.INVALID
-
-        gate = {
-            "decision": decision.value,
-            "checks": all_checks,
-            "passed": len(passed),
-            "failed": len(failed),
-            "total": len(all_checks),
-            "metrics_gate": metrics_gate["decision"],
-        }
-        run.final_gate = gate
-
-        return StageResult(
-            stage="final_gate", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(), data=gate,
-        )
-
-    def _stage_artifact(self, run: BacktestRun, config: ExperimentConfig,
-                        manifest: DatasetManifest) -> StageResult:
-        """Save artifact with full directory structure."""
-        t0 = time.time()
-        run_dir = os.path.join(self.RUNS_DIR, run.run_id)
-        files_manifest = {}
-
-        # Create subdirectories
-        for subdir in ["dataset", "baseline", "wfo", "oos", "statistics", "crisis", "holdout", "final_gate"]:
-            os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
-
-        def _write_and_hash(rel_path: str, data: Any):
-            """Write JSON data atomically to disk, then hash the ACTUAL bytes written."""
-            full_path = os.path.join(run_dir, rel_path)
-            atomic_write_json(full_path, data)
-            # Hash the actual bytes on disk (not in-memory object)
-            with open(full_path, "rb") as f:
-                files_manifest[rel_path] = compute_sha256(f.read())
-
-        # -- dataset/
-        _write_and_hash("dataset/manifest.json", manifest.to_dict())
-        if run.quality_report:
-            _write_and_hash("dataset/quality_report.json", run.quality_report)
-
-        # -- baseline/
-        if run.baseline_result:
-            _write_and_hash("baseline/summary.json", run.baseline_result)
-
-        # -- wfo/
-        if run.wfo_result:
-            _write_and_hash("wfo/evidence.json", run.wfo_result)
-
-        # -- oos/
-        if run.oos_result:
-            _write_and_hash("oos/summary.json", run.oos_result)
-
-        # -- statistics/
-        if run.statistics_result:
-            _write_and_hash("statistics/summary.json", run.statistics_result)
-
-        # -- crisis/
-        if run.crisis_result:
-            _write_and_hash("crisis/summary.json", run.crisis_result)
-
-        # -- final_gate/
-        if run.final_gate:
-            _write_and_hash("final_gate/decision.json", run.final_gate)
-
-        # -- holdout/
-        if run.holdout_evidence:
-            _write_and_hash("holdout/evidence.json", run.holdout_evidence)
-
-        # -- config.json (top-level)
-        _write_and_hash("config.json", config.to_dict())
-
-        # -- run.json: excluded from manifest during artifact stage.
-        # Written by _save_run() AFTER all stages complete, then hash
-        # is patched into manifest.
-
-        # Compute overall artifact hash from all file hashes
-        all_hashes = json.dumps(files_manifest, sort_keys=True)
-        artifact_hash = compute_sha256(all_hashes.encode())
-
-        artifact = ArtifactManifest(
-            run_id=run.run_id,
-            artifact_hash=artifact_hash,
-            dataset_hash=run.dataset_hash,
-            strategy_hash=config.strategy.source_hash,
-            config_hash=config.config_hash,
-            execution_model_hash=run.execution_model_hash,
-            wfo_provenance_hash=run.provenance_hash,
-            files=files_manifest,
-            created_at=time.time(),
-        )
-
-        manifest_file = os.path.join(run_dir, "manifest.json")
-        atomic_write_json(manifest_file, artifact.to_dict())
-
-        run.artifact_manifest = artifact
-
-        return StageResult(
-            stage="artifact", status=RunStage.PASSED,
-            started_at=t0, completed_at=time.time(),
-            data={"artifact_hash": artifact_hash[:16], "run_dir": run_dir, "files": len(files_manifest)},
-        )
-
-    def _save_run(self, run: BacktestRun):
-        """Save the completed run and patch run.json hash into manifest.
-        run.json is written LAST (after all stages) so it includes
-        artifact, verify, and final status. Then its hash is patched
-        into the manifest for consistent verification.
-        """
-        run_dir = os.path.join(self.RUNS_DIR, run.run_id)
-        os.makedirs(run_dir, exist_ok=True)
-        run_file = os.path.join(run_dir, "run.json")
-        atomic_write_json(run_file, run.to_dict())
-        # Patch run.json hash into artifact manifest
-        if run.artifact_manifest:
-            with open(run_file, "rb") as f:
-                run.artifact_manifest.files["run.json"] = compute_sha256(f.read())
-            # Recompute overall artifact hash
-            all_hashes = json.dumps(run.artifact_manifest.files, sort_keys=True)
-            run.artifact_manifest.artifact_hash = compute_sha256(all_hashes.encode())
-            # Update manifest file on disk (also atomic)
-            manifest_file = os.path.join(run_dir, "manifest.json")
-            atomic_write_json(manifest_file, run.artifact_manifest.to_dict())
 
     def load_run(self, run_id: str) -> BacktestRun:
         """Load a completed run."""
@@ -1412,10 +344,8 @@ class BacktestOrchestrator:
             raise FileNotFoundError(f"Run {run_id} not found")
         with open(run_file) as f:
             data = json.load(f)
-        # Reconstruct BacktestRun
         data["status"] = RunStatus(data["status"])
         data["stages"] = {k: StageResult(**v) for k, v in data.get("stages", {}).items()}
-        # Reconstruct ArtifactManifest if present
         am = data.get("artifact_manifest")
         if isinstance(am, dict):
             data["artifact_manifest"] = ArtifactManifest(**am)

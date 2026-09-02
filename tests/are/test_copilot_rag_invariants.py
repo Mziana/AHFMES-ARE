@@ -15,14 +15,14 @@ class TestCopilotRAGInvariants(unittest.TestCase):
     def test_build_evidence_context_returns_structured_string(self):
         """
         Invariant 1: Evidence context returns a structured string starting with
-        [EVIDENCE CONTEXT] and ending with [END SYSTEM INSTRUCTION].
+        [EVIDENCE CONTEXT] and containing [END] and [INSTRUCTION] delimiters.
         """
         ctx = self.copilot._build_evidence_context(event_store=None)
         self.assertIsInstance(ctx, str)
         self.assertTrue(ctx.startswith("[EVIDENCE CONTEXT"))
-        self.assertIn("[END EVIDENCE CONTEXT]", ctx)
-        self.assertIn("[SYSTEM INSTRUCTION]", ctx)
-        self.assertIn("[END SYSTEM INSTRUCTION]", ctx)
+        self.assertIn("[END]", ctx)
+        self.assertIn("[INSTRUCTION]", ctx)
+        self.assertIn("evidence-bound trading assistant", ctx)
 
     def test_build_evidence_context_truncates_to_2000_chars(self):
         """
@@ -42,16 +42,18 @@ class TestCopilotRAGInvariants(unittest.TestCase):
         idx_user = prompt.find("User:")
         self.assertLess(idx_evidence, idx_user, "Evidence context must precede user message")
 
-    def test_ollama_prompt_contains_evidence_hash(self):
+    def test_ollama_prompt_contains_evidence_context(self):
         """
-        Invariant 4: Prompt contains cryptographic Evidence Hash.
+        Invariant 4: Prompt contains evidence context section before user message.
         """
         prompt = self.copilot.build_prompt("Halo")
-        self.assertIn("Evidence Hash:", prompt)
-        # Verify hash format (64 hex characters)
-        import re
-        match = re.search(r"Evidence Hash:\s*([a-f0-9]{64})", prompt)
-        self.assertIsNotNone(match, "Evidence Hash must be a valid 64-char SHA256 hex string")
+        self.assertIn("[EVIDENCE CONTEXT]", prompt)
+        self.assertIn("[END]", prompt)
+        self.assertIn("[INSTRUCTION]", prompt)
+        # Verify prompt structure: evidence context precedes user message
+        idx_evidence = prompt.find("[EVIDENCE CONTEXT]")
+        idx_user = prompt.find("User: Halo")
+        self.assertLess(idx_evidence, idx_user, "Evidence context must precede user message")
 
     def test_hallucination_detector_exact_match_pass(self):
         """
