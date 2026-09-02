@@ -161,7 +161,7 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
         }
         result = mt5.order_send(req)
         if result is None:
-            return {'success': False, 'error': 'order_send returned None'}
+            return {'success': False, 'error': f'order_send returned None — last_error: {mt5.last_error()}'}
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             return {'success': False, 'error': result.comment, 'retcode': result.retcode}
         return {'success': True, 'ticket': result.ticket, 'price': result.price}
