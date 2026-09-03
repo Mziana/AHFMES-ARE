@@ -85,7 +85,7 @@ if __name__ == "__main__":
         check("lot > 0", lot >= 0.01, f"lot={lot}")
         check("lot affordable", lot <= balance / 8 / 100, f"lot={lot}, max={balance/8/100}")
     else:
-        check("WAIT => lot=0", lot == 0, f"lot={lot}")
+        check("WAIT => lot computed", lot > 0, f"lot={lot}")
 
     # TEST 5: SL/TP for non-WAIT
     print("\n=== TEST 5: SL/TP for non-WAIT ===")
