@@ -115,6 +115,7 @@ def get_account_data():
                 'price_current': p.price_current,
                 'profit': round(p.profit, 2), 'swap': round(p.swap, 2),
                 'sl': p.sl, 'tp': p.tp, 'comment': p.comment, 'time': p.time,
+                'magic': p.magic,
                 'pnl_pct': round(((p.price_current - p.price_open) / p.price_open * 100) * (1 if p.type == 0 else -1), 2),
             })
         
