@@ -6,7 +6,7 @@ Or: python are/bot.py --style DAY --risk 1
 
 Reads decisions from the Next.js decision engine API.
 Opens/closes positions via the MT5 bridge.
-Persists state to data/bot_state.json.
+Persists state to data/bot_state_<style>.json.
 Logs to data/bot_logs.jsonl.
 
 Handles SIGINT/SIGTERM for graceful shutdown.
@@ -23,13 +23,28 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+# ─── EXCEPTIONS ──────────────────────────────────────────────────────────────
+
+class BridgeError(Exception):
+    """Base exception for MT5 bridge communication failures."""
+
+class BridgeConnectionError(BridgeError):
+    """Bridge is unreachable (connection refused, DNS, etc.)."""
+
+class BridgeTimeoutError(BridgeError):
+    """Bridge request timed out."""
+
+class BridgeResponseError(BridgeError):
+    """Bridge returned an error response (HTTP 500, invalid JSON, etc.)."""
+
+class OrderRejected(Exception):
+    """MT5 rejected the order (insufficient margin, invalid price, etc.)."""
+
 # ─── PATHS ────────────────────────────────────────────────────────────────────
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-STATE_FILE = DATA_DIR / "bot_state.json"  # default, overridden per style
 LOG_FILE = DATA_DIR / "bot_logs.jsonl"
-PID_FILE = DATA_DIR / "bot.pid"
 
 # ─── DEFAULTS ─────────────────────────────────────────────────────────────────
 
@@ -38,6 +53,7 @@ MT5_BRIDGE = "http://127.0.0.1:18888"
 POLL_INTERVAL = 5  # seconds
 COOLDOWN_SECONDS = 30
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
+MAX_TRADES_PER_HOUR = 10  # frequency cap
 
 MIN_HOLD_SECONDS = {
     "micro": 300,       # 5 minutes
@@ -56,6 +72,15 @@ MIN_SL_PER_STYLE = {
     "position": 150,    # 150 points ($150) — very wide for long-term
 }
 
+# Per-style MT5 magic numbers for position ownership
+MAGIC_NUMBERS = {
+    "micro": 2001,
+    "scalp": 2002,
+    "day": 2003,
+    "swing": 2004,
+    "position": 2005,
+}
+
 # ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
 
 running = True
@@ -71,25 +96,64 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-# ─── HTTP HELPERS ─────────────────────────────────────────────────────────────
+# ─── PATH HELPERS ─────────────────────────────────────────────────────────────
 
-def http_get(url: str, timeout: int = 10) -> dict | None:
+def get_state_file(style: str) -> Path:
+    """Return per-style state file path."""
+    return DATA_DIR / f"bot_state_{style}.json"
+
+def get_pid_file(style: str) -> Path:
+    """Return per-style PID file path."""
+    return DATA_DIR / f"bot_{style}.pid"
+
+
+def load_state(style: str) -> dict:
+    try:
+        with open(get_state_file(style)) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(state: dict, style: str):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(get_state_file(style), "w") as f:
+        json.dump(state, f, indent=2)
+
+
+# ─── HTTP HELPERS (typed exceptions) ──────────────────────────────────────────
+
+def http_get(url: str, timeout: int = 10) -> dict:
+    """GET request. Returns parsed JSON. Raises BridgeError on failure."""
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
-    except Exception:
-        return None
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, TimeoutError):
+            raise BridgeTimeoutError(f"Timeout: {url}") from e
+        raise BridgeConnectionError(f"Connection failed: {url} — {e.reason}") from e
+    except json.JSONDecodeError as e:
+        raise BridgeResponseError(f"Invalid JSON from: {url}") from e
+    except Exception as e:
+        raise BridgeResponseError(f"Bridge error: {url} — {e}") from e
 
 
-def http_post(url: str, data: dict, timeout: int = 10) -> dict | None:
+def http_post(url: str, data: dict, timeout: int = 10) -> dict:
+    """POST request. Returns parsed JSON. Raises BridgeError on failure."""
     try:
         body = json.dumps(data).encode()
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
-    except Exception:
-        return None
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, TimeoutError):
+            raise BridgeTimeoutError(f"Timeout: {url}") from e
+        raise BridgeConnectionError(f"Connection failed: {url} — {e.reason}") from e
+    except json.JSONDecodeError as e:
+        raise BridgeResponseError(f"Invalid JSON from: {url}") from e
+    except Exception as e:
+        raise BridgeResponseError(f"Bridge error: {url} — {e}") from e
 
 
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
@@ -110,66 +174,144 @@ def log(action: str, details: str = ""):
         pass
 
 
-# ─── STATE PERSISTENCE ───────────────────────────────────────────────────────
+# ─── MT5 BRIDGE WRAPPERS (fail-closed) ────────────────────────────────────────
 
-def get_state_file(style: str = "day") -> Path:
-    """Return per-style state file path."""
-    return DATA_DIR / f"bot_state_{style}.json"
-
-def load_state(style: str = "day") -> dict:
-    try:
-        with open(get_state_file(style)) as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def save_state(state: dict, style: str = "day"):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(get_state_file(style), "w") as f:
-        json.dump(state, f, indent=2)
-
-
-def get_positions() -> list:
+def get_positions(symbol: str = "XAUUSD") -> list:
+    """Get open positions from MT5. Raises BridgeError on failure."""
     data = http_get(f"{MT5_BRIDGE}/positions")
-    return data.get("positions", []) if data else []
+    if not data or not data.get("connected"):
+        raise BridgeError("MT5 positions unavailable")
+    return data.get("positions", [])
 
 
 def get_account() -> dict:
+    """Get account data from MT5. Raises BridgeError on failure."""
     data = http_get(f"{MT5_BRIDGE}/account")
+    if not data or not data.get("connected"):
+        raise BridgeError("MT5 account unavailable")
     # Bridge returns flat JSON: { connected, balance, equity, ... }
-    if not data:
-        return {}
-    # If nested under 'account' key, use it; otherwise use top-level
     return data.get("account", data)
 
 
-def open_position(direction: str, lot: float, sl_points: float, tp_points: float, comment: str) -> dict | None:
-    return http_post(f"{MT5_BRIDGE}/order", {
-        "symbol": "XAUUSD",
+def open_position(symbol: str, direction: str, lot: float, sl_points: float,
+                  tp_points: float, magic: int, comment: str) -> dict:
+    """Open position via MT5 bridge. Raises BridgeError or OrderRejected."""
+    result = http_post(f"{MT5_BRIDGE}/order", {
+        "symbol": symbol,
         "direction": direction,
         "lot": lot,
         "sl_points": sl_points,
         "tp_points": tp_points,
+        "magic": magic,
         "comment": comment,
     })
+    if not result:
+        raise BridgeError("Order: no response from bridge")
+    if not result.get("success"):
+        raise OrderRejected(result.get("error", "order rejected"))
+    return result
 
 
-def close_position(ticket: int) -> dict | None:
-    return http_post(f"{MT5_BRIDGE}/close", {"ticket": ticket})
+def close_position(ticket: int) -> dict:
+    """Close position via MT5 bridge. Raises BridgeError on failure."""
+    result = http_post(f"{MT5_BRIDGE}/close", {"ticket": ticket})
+    if not result:
+        raise BridgeError(f"Close #{ticket}: no response from bridge")
+    if not result.get("success"):
+        raise OrderRejected(result.get("error", f"close #{ticket} rejected"))
+    return result
 
 
-def get_decision(symbol: str, style: str, risk: float) -> dict | None:
-    return http_get(f"{DECISION_API}?symbol={symbol}&style={style}&risk={risk}", timeout=30)
+def get_decision(symbol: str, style: str, risk: float) -> dict:
+    """Get trading decision from engine. Raises BridgeError on failure."""
+    data = http_get(f"{DECISION_API}?symbol={symbol}&style={style}&risk={risk}", timeout=30)
+    if not data or not data.get("success"):
+        raise BridgeError("Decision engine unavailable")
+    return data
 
 
-def modify_position(ticket: int, sl: float = None, tp: float = None) -> dict | None:
-    return http_post(f"{MT5_BRIDGE}/modify", {"ticket": ticket, "sl": sl, "tp": tp})
+def modify_position(ticket: int, sl: float = None, tp: float = None) -> dict:
+    """Modify SL/TP on existing position. Raises BridgeError on failure."""
+    result = http_post(f"{MT5_BRIDGE}/modify", {"ticket": ticket, "sl": sl, "tp": tp})
+    if not result:
+        raise BridgeError(f"Modify #{ticket}: no response from bridge")
+    if not result.get("success"):
+        # Position might have been closed — not an error, just stale
+        raise BridgeError(f"Modify #{ticket} failed: {result.get('error', 'unknown')}")
+    return result
 
 
 def get_candles(symbol: str, timeframe: str, count: int = 200) -> list:
+    """Get candle data from MT5. Raises BridgeError on failure."""
     data = http_get(f"{MT5_BRIDGE}/candles?symbol={symbol}&timeframe={timeframe}&count={count}", timeout=15)
-    return data.get("candles", []) if data else []# ─── TRAILING STOP ──────────────────────────────────────────────────────────
+    if not data or not data.get("connected"):
+        raise BridgeError(f"Candles unavailable for {symbol} {timeframe}")
+    return data.get("candles", [])
+
+
+# ─── POSITION RECONCILIATION ──────────────────────────────────────────────────
+
+def find_my_position(positions: list, style: str, symbol: str) -> dict | None:
+    """Find position owned by this bot style using magic number + comment prefix."""
+    magic = MAGIC_NUMBERS.get(style, 0)
+    prefix = f"ARE-{style.upper()}"
+    for p in positions:
+        if (p.get("symbol") == symbol
+                and p.get("magic", 0) == magic
+                and p.get("comment", "").startswith(prefix)):
+            return p
+    return None
+
+
+def reconcile_position(state: dict, positions: list, style: str, symbol: str) -> dict | None:
+    """Reconcile local state with broker state. Returns current position or None."""
+    my_pos = find_my_position(positions, style, symbol)
+
+    if my_pos:
+        ticket = my_pos["ticket"]
+        if state.get("active_ticket") != ticket:
+            state["active_ticket"] = ticket
+            state["active_direction"] = my_pos["type"]
+            log("HOLDING", f"#{ticket} {my_pos['type']} P&L: ${my_pos.get('profit', 0):.2f}")
+        state["last_known_pnl"] = my_pos.get("profit", 0)
+        return my_pos
+    else:
+        if state.get("active_ticket") is not None:
+            # Position was closed (TP/SL hit or external close)
+            last_pnl = state.get("last_known_pnl", 0)
+            state["daily_pnl"] += last_pnl
+            state["trade_count"] += 1
+            state.setdefault("trade_history", []).append({
+                "ticket": state["active_ticket"],
+                "direction": state.get("active_direction"),
+                "entry": 0, "exit": 0, "lot": 0,
+                "pnl": round(last_pnl, 2),
+                "close_reason": "tp_sl",
+                "closed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            log("TP_SL", f"Position #{state['active_ticket']} closed P&L: ${last_pnl:.2f}")
+            state["active_ticket"] = None
+            state["active_direction"] = None
+            state["last_trade_at"] = time.time()
+        return None
+
+
+# ─── TRADE FREQUENCY ──────────────────────────────────────────────────────────
+
+def check_trade_frequency(state: dict) -> bool:
+    """Check if bot has exceeded max trades per hour. Returns True if OK to trade."""
+    now = time.time()
+    hour_ago = now - 3600
+    recent = [t for t in state.get("trade_history", [])
+              if t.get("closed_at") and
+              datetime.fromisoformat(t["closed_at"]).timestamp() > hour_ago]
+    if len(recent) >= MAX_TRADES_PER_HOUR:
+        log("FREQ_LIMIT", f"{len(recent)} trades in last hour (max {MAX_TRADES_PER_HOUR})")
+        return False
+    return True
+
+
+# ─── TRAILING STOP ────────────────────────────────────────────────────────────
 
 def compute_atr(candles: list, period: int = 14) -> float:
     """Compute ATR from candle data. Returns last ATR value."""
@@ -183,21 +325,21 @@ def compute_atr(candles: list, period: int = 14) -> float:
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
     if len(trs) < period:
         return 0
-    # Simple moving average of TR
-    atr_val = sum(trs[-period:]) / period
-    return atr_val
+    return sum(trs[-period:]) / period
 
 
-def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict):
+def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict, symbol: str):
     """Move SL if price has moved favorably beyond ATR trailing distance."""
     ticket = pos["ticket"]
-    direction = pos["type"]  # 'BUY' or 'SELL'
+    direction = pos["type"]
     entry = pos["price_open"]
     current_sl = pos["sl"]
-    current_tp = pos["tp"]
 
-    # Fetch candles for ATR computation
-    candles = get_candles(pos["symbol"], "M15", 50)
+    try:
+        candles = get_candles(symbol, "M15", 50)
+    except BridgeError:
+        return
+
     if len(candles) < 20:
         return
 
@@ -210,36 +352,37 @@ def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict):
 
     new_sl = None
     if direction == "BUY":
-        # For BUY: SL moves UP. New SL = current price - trailing distance.
-        # Only move if new SL is higher than current SL (and above entry).
         candidate = round(current_price - trailing_distance, 2)
         if candidate > current_sl and candidate > entry:
             new_sl = candidate
     else:
-        # For SELL: SL moves DOWN. New SL = current price + trailing distance.
-        # Only move if new SL is lower than current SL (and below entry).
         candidate = round(current_price + trailing_distance, 2)
         if candidate < current_sl and candidate < entry:
             new_sl = candidate
 
     if new_sl is not None:
-        result = modify_position(ticket, sl=new_sl)
-        if result and result.get("success"):
-            old_sl = state.get("last_trailing_sl")
+        try:
+            modify_position(ticket, sl=new_sl)
             state["last_trailing_sl"] = new_sl
             state["last_atr"] = round(atr_val, 2)
-            log("TRAILING", f"#{ticket} SL {current_sl} -> {new_sl} (ATR={atr_val:.1f}, dist={trailing_distance:.1f})")
+            log("TRAILING", f"#{ticket} SL {current_sl} -> {new_sl} (ATR={atr_val:.1f})")
+        except (BridgeError, OrderRejected) as e:
+            log("TRAILING_FAILED", f"#{ticket}: {e}")
 
 
 # ─── MAIN BOT LOOP ───────────────────────────────────────────────────────────
+
 def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailing_atr: float = 0):
     global running
 
-    log("START", f"symbol={symbol} style={style} risk={risk}% max_daily_loss={max_daily_loss}% trailing_atr={trailing_atr}x")
+    magic = MAGIC_NUMBERS.get(style, 0)
+    pid_file = get_pid_file(style)
 
-    # Write PID
-    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(os.getpid()))
+    log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x")
+
+    # Write PID (per-style)
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
 
     # Load or initialize state
     state = load_state(style)
@@ -252,6 +395,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "symbol": symbol,
             "style": style,
             "risk": risk,
+            "magic": magic,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "active_ticket": None,
             "active_direction": None,
@@ -266,13 +410,19 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "trade_history": [],
         }
 
-    # Get starting balance
-    account = get_account()
-    state["starting_balance"] = account.get("balance", 0)
+    # Get starting balance (fail-closed)
+    try:
+        account = get_account()
+        state["starting_balance"] = account.get("balance", 0)
+    except BridgeError as e:
+        log("INIT_FAILED", f"Cannot read account: {e}")
+        state["status"] = "error"
+        save_state(state, style)
+        return
+
     state["pid"] = os.getpid()
     save_state(state, style)
-
-    log("INIT", f"Balance: ${state['starting_balance']:.2f}, PID: {os.getpid()}")
+    log("INIT", f"Balance: ${state['starting_balance']:.2f}, PID: {os.getpid()}, Magic: {magic}")
 
     while running:
         try:
@@ -281,104 +431,97 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             new_style = current_state.get("pending_style")
             if new_style and new_style != style:
                 log("STYLE_CHANGE", f"{style} -> {new_style}")
+                # Close current position before switching
+                if state.get("active_ticket"):
+                    try:
+                        close_position(state["active_ticket"])
+                        log("CLOSED", f"#{state['active_ticket']} closed for style switch")
+                    except (BridgeError, OrderRejected) as e:
+                        log("CLOSE_FAILED", f"Style switch: {e}")
                 style = new_style
+                magic = MAGIC_NUMBERS.get(style, 0)
                 state["style"] = style
+                state["magic"] = magic
+                state["active_ticket"] = None
+                state["active_direction"] = None
                 state["pending_style"] = None
                 save_state(state, style)
 
             # 1. Get decision
             dec = get_decision(symbol, style, risk)
-            if not dec or not dec.get("success"):
-                log("ERROR", "Decision engine unavailable")
-                time.sleep(POLL_INTERVAL)
-                continue
 
-            # 2. Check existing position
-            positions = get_positions()
-            my_pos = next((p for p in positions if p.get("comment", "").startswith(f"ARE-{style.upper()}")), None)
+            # 2. Get positions from broker (fail-closed)
+            positions = get_positions(symbol)
+
+            # 3. Reconcile local state with broker
+            my_pos = reconcile_position(state, positions, style, symbol)
 
             if my_pos:
                 # ── HOLDING ──
-                ticket = my_pos["ticket"]
-                direction = my_pos["type"]
                 pnl = my_pos.get("profit", 0)
 
-                if state["active_ticket"] != ticket:
-                    state["active_ticket"] = ticket
-                    state["active_direction"] = direction
-                    log("HOLDING", f"#{ticket} {direction} P&L: ${pnl:.2f}")
-                # Always track latest P&L for circuit breaker on TP/SL close
-                state["last_known_pnl"] = pnl
-
-                # Trailing stop: move SL in favor of the trade
+                # Trailing stop
                 if trailing_atr > 0:
-                    _try_trailing_stop(my_pos, trailing_atr, state)
+                    _try_trailing_stop(my_pos, trailing_atr, state, symbol)
 
                 # Check if signal reversed (with minimum hold time)
                 if (dec["decision"] != "WAIT"
-                        and dec["finalSignal"] != direction
+                        and dec["finalSignal"] != my_pos["type"]
                         and dec["mtfConfirmed"]):
                     hold_time = time.time() - state.get("last_trade_at", time.time())
                     min_hold = MIN_HOLD_SECONDS.get(style, 300)
                     if hold_time < min_hold:
-                        # Too early to reverse — wait
-                        if int(hold_time) % 60 == 0:  # log every minute
+                        if int(hold_time) % 60 == 0:
                             log("HOLD", f"Reversal blocked — held {int(hold_time)}s, min {min_hold}s")
                     else:
-                        log("REVERSAL", f"Signal reversed {direction} -> {dec['finalSignal']} (held {int(hold_time)}s)")
-                        result = close_position(ticket)
-                        if result and result.get("success"):
+                        log("REVERSAL", f"Signal reversed {my_pos['type']} -> {dec['finalSignal']}")
+                        try:
+                            close_position(my_pos["ticket"])
                             state["daily_pnl"] += pnl
                             state["trade_count"] += 1
                             state["active_ticket"] = None
                             state["active_direction"] = None
                             state["last_trade_at"] = time.time()
                             state.setdefault("trade_history", []).append({
-                                "ticket": ticket, "direction": direction,
-                                "entry": my_pos.get("price_open", 0), "exit": my_pos.get("price_current", 0),
-                                "lot": my_pos.get("volume", 0), "pnl": round(pnl, 2),
+                                "ticket": my_pos["ticket"],
+                                "direction": my_pos["type"],
+                                "entry": my_pos.get("price_open", 0),
+                                "exit": my_pos.get("price_current", 0),
+                                "lot": my_pos.get("volume", 0),
+                                "pnl": round(pnl, 2),
                                 "close_reason": "reversal",
                                 "closed_at": datetime.now(timezone.utc).isoformat(),
                             })
-                            log("CLOSED", f"#{ticket} P&L: ${pnl:.2f} daily: ${state['daily_pnl']:.2f}")
-                        else:
-                            log("CLOSE_FAILED", f"#{ticket}: {result}")
+                            log("CLOSED", f"#{my_pos['ticket']} P&L: ${pnl:.2f}")
+                        except (BridgeError, OrderRejected) as e:
+                            log("CLOSE_FAILED", f"#{my_pos['ticket']}: {e}")
 
             else:
-                # ── MONITORING ──
-                if state["active_ticket"] is not None:
-                    # Position was closed (TP/SL hit)
-                    # Capture P&L from last known state before it disappears
-                    last_pnl = state.get("last_known_pnl", 0)
-                    state["daily_pnl"] += last_pnl
-                    state["trade_count"] += 1
-                    # Record trade history
-                    state.setdefault("trade_history", []).append({
-                        "ticket": state["active_ticket"], "direction": state["active_direction"],
-                        "entry": 0, "exit": 0,
-                        "lot": 0, "pnl": round(last_pnl, 2),
-                        "close_reason": "tp_sl",
-                        "closed_at": datetime.now(timezone.utc).isoformat(),
-                    })
-                    log("TP_SL", f"Position #{state['active_ticket']} closed (TP/SL hit) P&L: ${last_pnl:.2f} daily: ${state['daily_pnl']:.2f}")
-                    state["active_ticket"] = None
-                    state["active_direction"] = None
-                    state["last_trade_at"] = time.time()
-
+                # ── MONITORING (no position) ──
                 # Check cooldown
-                if state["last_trade_at"] and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS:
+                if state.get("last_trade_at") and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS:
+                    save_state(state, style)
                     time.sleep(POLL_INTERVAL)
                     continue
 
-                # Check daily loss circuit breaker (balance-based = most reliable)
-                account = get_account()
-                current_balance = account.get("balance", state["starting_balance"])
+                # Check trade frequency
+                if not check_trade_frequency(state):
+                    save_state(state, style)
+                    time.sleep(POLL_INTERVAL)
+                    continue
+
+                # Check daily loss circuit breaker
+                try:
+                    account = get_account()
+                    current_balance = account.get("balance", state["starting_balance"])
+                except BridgeError:
+                    current_balance = state["starting_balance"]
+
                 if state["starting_balance"] > 0:
-                    # Realized loss = how much balance dropped from start
                     realized_loss = state["starting_balance"] - current_balance
                     loss_pct = (realized_loss / state["starting_balance"]) * 100
                     if loss_pct >= max_daily_loss:
-                        log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% (${realized_loss:.2f}) >= {max_daily_loss}% — stopping")
+                        log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% — stopping")
                         state["status"] = "circuit_breaker"
                         save_state(state, style)
                         break
@@ -389,30 +532,30 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                         and dec["inSession"]
                         and dec["rr"] >= 1.5
                         and dec["lotSize"] >= 0.01):
-                    # Enforce per-style minimum SL
                     style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
                     sl_pts = max(dec["slPoints"], style_min_sl)
                     tp_pts = max(dec["tpPoints"], style_min_sl)
                     log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
-                    result = open_position(
-                        dec["decision"],
-                        dec["lotSize"],
-                        sl_pts,
-                        tp_pts,
-                        f"ARE-{style.upper()}",
-                    )
-                    if result and result.get("success"):
+                    try:
+                        result = open_position(
+                            symbol, dec["decision"], dec["lotSize"],
+                            sl_pts, tp_pts, magic, f"ARE-{style.upper()}",
+                        )
                         state["active_ticket"] = result.get("ticket")
                         state["active_direction"] = dec["decision"]
                         state["last_trade_at"] = time.time()
-                        log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots")
-                    else:
-                        err = result.get("error", result.get("message", "unknown")) if result else "no response"
-                        log("OPEN_FAILED", err)
-                        state["last_trade_at"] = time.time()  # cooldown after failure
+                        log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots (magic={magic})")
+                    except OrderRejected as e:
+                        log("OPEN_FAILED", f"{e}")
+                        state["last_trade_at"] = time.time()
+                    except BridgeError as e:
+                        log("OPEN_FAILED", f"Bridge: {e}")
+                        state["last_trade_at"] = time.time()
 
             save_state(state, style)
 
+        except BridgeError as e:
+            log("BRIDGE_ERROR", str(e))
         except Exception as e:
             log("ERROR", str(e))
 
@@ -422,7 +565,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     state["status"] = "stopped"
     state["pid"] = None
     save_state(state, style)
-    PID_FILE.unlink(missing_ok=True)
+    pid_file.unlink(missing_ok=True)
     log("STOPPED", f"Final P&L: ${state['daily_pnl']:.2f}, Trades: {state['trade_count']}")
 
 

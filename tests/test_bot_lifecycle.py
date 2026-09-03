@@ -47,7 +47,7 @@ def cleanup():
     api_post(f"{BASE}/api/are/bot/stop?style=day")
     # Remove all per-style state files + legacy default
     import glob
-    for pattern in ['bot_state*.json', 'bot.pid', 'bot_logs.jsonl']:
+    for pattern in ['bot_state*.json', 'bot_*.pid', 'bot.pid', 'bot_logs.jsonl']:
         for f in glob.glob(os.path.join(DATA_DIR, pattern)):
             try: os.remove(f)
             except: pass
@@ -172,9 +172,8 @@ else:
 
 # ─── TEST 12: PID file cleaned up ────────────────────────────────────────────
 print("\n=== TEST 12: PID file cleanup ===")
-pid_file = os.path.join(DATA_DIR, 'bot.pid')
-# PID file may or may not exist depending on whether bot was running via API
-check("no stale PID for day bot", True, "(informational)")
+pid_file = os.path.join(DATA_DIR, 'bot_day.pid')
+check("PID file cleaned up", not os.path.exists(pid_file), f"{pid_file} still exists")
 
 # ─── TEST 13: bot.py runs standalone ──────────────────────────────────────────
 print("\n=== TEST 13: bot.py runs standalone ===")

@@ -131,7 +131,7 @@ def get_account_data():
     except Exception as e:
         return {'connected': False, 'error': str(e)}
 
-def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, comment="ARE"):
+def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, comment="ARE", magic=0):
     if not MT5_CONNECTED or not mt5:
         return {'success': False, 'error': 'MT5 not connected'}
     try:
@@ -156,6 +156,7 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
             'type': mt5.ORDER_TYPE_BUY if direction == 'BUY' else mt5.ORDER_TYPE_SELL,
             'price': price,
             'comment': comment,
+            'magic': magic,
             'type_time': mt5.ORDER_TIME_GTC,
             'type_filling': mt5.ORDER_FILLING_IOC,
         }
@@ -325,6 +326,7 @@ class MT5Handler(BaseHTTPRequestHandler):
                 body.get('sl_points', 0),
                 body.get('tp_points', 0),
                 body.get('comment', 'ARE'),
+                body.get('magic', 0),
             )
         elif path == '/close':
             ticket = body.get('ticket', 0)
