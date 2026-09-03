@@ -27,7 +27,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-STATE_FILE = DATA_DIR / "bot_state.json"
+STATE_FILE = DATA_DIR / "bot_state.json"  # default, overridden per style
 LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 PID_FILE = DATA_DIR / "bot.pid"
 
@@ -95,17 +95,21 @@ def log(action: str, details: str = ""):
 
 # ─── STATE PERSISTENCE ───────────────────────────────────────────────────────
 
-def load_state() -> dict:
+def get_state_file(style: str = "day") -> Path:
+    """Return per-style state file path."""
+    return DATA_DIR / f"bot_state_{style}.json"
+
+def load_state(style: str = "day") -> dict:
     try:
-        with open(STATE_FILE) as f:
+        with open(get_state_file(style)) as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def save_state(state: dict):
+def save_state(state: dict, style: str = "day"):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, "w") as f:
+    with open(get_state_file(style), "w") as f:
         json.dump(state, f, indent=2)
 
 
@@ -245,7 +249,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     account = get_account()
     state["starting_balance"] = account.get("balance", 0)
     state["pid"] = os.getpid()
-    save_state(state)
+    save_state(state, style)
 
     log("INIT", f"Balance: ${state['starting_balance']:.2f}, PID: {os.getpid()}")
 
@@ -279,12 +283,19 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 if trailing_atr > 0:
                     _try_trailing_stop(my_pos, trailing_atr, state)
 
-                # Check if signal reversed
+                # Check if signal reversed (with minimum hold time)
                 if (dec["decision"] != "WAIT"
                         and dec["finalSignal"] != direction
                         and dec["mtfConfirmed"]):
-                    log("REVERSAL", f"Signal reversed {direction} -> {dec['finalSignal']}")
-                    result = close_position(ticket)
+                    hold_time = time.time() - state.get("last_trade_at", time.time())
+                    min_hold = MIN_HOLD_SECONDS.get(style, 300)
+                    if hold_time < min_hold:
+                        # Too early to reverse — wait
+                        if int(hold_time) % 60 == 0:  # log every minute
+                            log("HOLD", f"Reversal blocked — held {int(hold_time)}s, min {min_hold}s")
+                    else:
+                        log("REVERSAL", f"Signal reversed {direction} -> {dec['finalSignal']} (held {int(hold_time)}s)")
+                        result = close_position(ticket)
                     if result and result.get("success"):
                         state["daily_pnl"] += pnl
                         state["trade_count"] += 1
@@ -339,7 +350,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     if loss_pct >= max_daily_loss:
                         log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% (${realized_loss:.2f}) >= {max_daily_loss}% — stopping")
                         state["status"] = "circuit_breaker"
-                        save_state(state)
+                        save_state(state, style)
                         break
 
                 # Check entry conditions
@@ -370,7 +381,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                         log("OPEN_FAILED", err)
                         state["last_trade_at"] = time.time()  # cooldown after failure
 
-            save_state(state)
+            save_state(state, style)
 
         except Exception as e:
             log("ERROR", str(e))
@@ -380,7 +391,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     # Cleanup
     state["status"] = "stopped"
     state["pid"] = None
-    save_state(state)
+    save_state(state, style)
     PID_FILE.unlink(missing_ok=True)
     log("STOPPED", f"Final P&L: ${state['daily_pnl']:.2f}, Trades: {state['trade_count']}")
 
