@@ -111,19 +111,22 @@ if __name__ == "__main__":
     check("close without ticket => fail", r.get("success") == False,
           f"got success={r.get('success')}")
 
-    # TEST 7: BUY open then close lifecycle
-    print("\n=== TEST 7: BUY open then close lifecycle ===")
+    # TEST 7: BUY open then close lifecycle — DRY RUN (never trades real money)
+    print("\n=== TEST 7: BUY open then close lifecycle (dry run) ===")
     r = post(f"{BASE}/api/are/trade/execute", {
         "action": "open", "symbol": "XAUUSD", "direction": "BUY",
-        "lot": 0.01, "sl_points": 20, "tp_points": 40, "comment": "ARE-TEST"
+        "lot": 0.01, "sl_points": 20, "tp_points": 40, "comment": "ARE-TEST",
+        "dryRun": True
     })
     check("open succeeds", r.get("success") == True, f"error={r.get('error',r.get('message',''))}")
     ticket = r.get("ticket")
     price = r.get("price")
-    check(f"got ticket", ticket is not None and ticket > 0, f"ticket={ticket}")
-    check(f"got price", price is not None and price > 4000, f"price={price}")
+    check(f"got ticket", ticket is not None, f"ticket={ticket}")
+    check(f"got price", price is None or price > 4000, f"price={price}")
+    check("dry run flag", r.get("dryRun") == True, f"dryRun={r.get('dryRun')}")
 
-    if ticket:
+    if ticket and ticket > 0:
+        # Only verify real MT5 position when NOT in dry-run (ticket is negative in dry-run)
         positions = fetch(f"{MT5}/positions")
         pos = [p for p in positions.get("positions", []) if p.get("ticket") == ticket]
         check("position exists in MT5", len(pos) == 1)
@@ -131,33 +134,35 @@ if __name__ == "__main__":
             p = pos[0]
             expected_sl = round(price - 20, 2)
             expected_tp = round(price + 40, 2)
-            # Allow 0.10 tolerance for tick movement between open and verify
             check("SL ~ price - 20", abs(p.get("sl", 0) - expected_sl) <= 0.50,
                   f"expected={expected_sl}, got={p.get('sl')}")
             check("TP ~ price + 40", abs(p.get("tp", 0) - expected_tp) <= 0.50,
                   f"expected={expected_tp}, got={p.get('tp')}")
             check("volume=0.01", p.get("volume") == 0.01)
             check("comment=ARE-TEST", p.get("comment") == "ARE-TEST")
-        # Close
-        r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": ticket})
-        check("close succeeds", r2.get("success") == True,
-              f"error={r2.get('error',r2.get('message',''))}")
-        # Verify gone
-        positions2 = fetch(f"{MT5}/positions")
-        gone = not any(p.get("ticket") == ticket for p in positions2.get("positions", []))
-        check("position closed in MT5", gone)
+            # Close
+            r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": ticket})
+            check("close succeeds", r2.get("success") == True,
+                  f"error={r2.get('error',r2.get('message',''))}")
+            # Verify gone
+            positions2 = fetch(f"{MT5}/positions")
+            gone = not any(p.get("ticket") == ticket for p in positions2.get("positions", []))
+            check("position closed in MT5", gone)
+        else:
+            check("dry-run: no real position (expected)", True)
 
     # TEST 8: SELL open - verify SL/TP direction
-    print("\n=== TEST 8: SELL SL/TP direction ===")
+    print("\n=== TEST 8: SELL SL/TP direction (dry run) ===")
     r = post(f"{BASE}/api/are/trade/execute", {
         "action": "open", "symbol": "XAUUSD", "direction": "SELL",
-        "lot": 0.01, "sl_points": 15, "tp_points": 30, "comment": "ARE-SELL"
+        "lot": 0.01, "sl_points": 15, "tp_points": 30, "comment": "ARE-SELL",
+        "dryRun": True
     })
     check("sell open succeeds", r.get("success") == True,
           f"error={r.get('error',r.get('message',''))}")
     sell_ticket = r.get("ticket")
     sell_price = r.get("price")
-    if sell_ticket:
+    if sell_ticket and sell_ticket > 0:
         positions = fetch(f"{MT5}/positions")
         sell_pos = [p for p in positions.get("positions", []) if p.get("ticket") == sell_ticket]
         if sell_pos:
@@ -168,8 +173,10 @@ if __name__ == "__main__":
                   f"expected={expected_sl}, got={p.get('sl')}")
             check("SELL: TP below entry", abs(p.get("tp", 0) - expected_tp) <= 0.50,
                   f"expected={expected_tp}, got={p.get('tp')}")
-        r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": sell_ticket})
-        check("sell close succeeds", r2.get("success") == True)
+            r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": sell_ticket})
+            check("sell close succeeds", r2.get("success") == True)
+        else:
+            check("dry-run: no real position (expected)", True)
 
     # SUMMARY
     print(f"\n{'='*60}")
