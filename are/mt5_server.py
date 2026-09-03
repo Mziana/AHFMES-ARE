@@ -147,24 +147,29 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
             tp = (price + tp_points) if direction == 'BUY' else (price - tp_points)
 
         # Round to 2 decimals for XAUUSD
-        sl = round(sl, 2) if sl else 0
-        tp = round(tp, 2) if tp else 0
+        sl = round(sl, 2) if sl and sl > 0 else 0
+        tp = round(tp, 2) if tp and tp > 0 else 0
 
         req = {
             'action': mt5.TRADE_ACTION_DEAL,
             'symbol': symbol, 'volume': lot,
             'type': mt5.ORDER_TYPE_BUY if direction == 'BUY' else mt5.ORDER_TYPE_SELL,
-            'price': price, 'sl': sl, 'tp': tp,
+            'price': price,
             'comment': comment,
             'type_time': mt5.ORDER_TIME_GTC,
             'type_filling': mt5.ORDER_FILLING_IOC,
         }
+        # Only include SL/TP if > 0 — MT5 rejects sl=0 as invalid
+        if sl > 0:
+            req['sl'] = sl
+        if tp > 0:
+            req['tp'] = tp
         result = mt5.order_send(req)
         if result is None:
             return {'success': False, 'error': f'order_send returned None — last_error: {mt5.last_error()}'}
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             return {'success': False, 'error': result.comment, 'retcode': result.retcode}
-        return {'success': True, 'ticket': result.ticket, 'price': result.price}
+        return {'success': True, 'ticket': result.order, 'deal': result.deal, 'price': result.price}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
@@ -196,7 +201,7 @@ def close_position(ticket):
             return {'success': False, 'error': 'close_order returned None'}
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             return {'success': False, 'error': result.comment, 'retcode': result.retcode}
-        return {'success': True, 'ticket': result.ticket, 'message': f'position {ticket} closed'}
+        return {'success': True, 'ticket': result.order, 'deal': result.deal, 'message': f'position {ticket} closed'}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
