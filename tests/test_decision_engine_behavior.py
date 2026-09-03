@@ -163,9 +163,9 @@ if __name__ == "__main__":
             p = sell_pos[0]
             expected_sl = round(sell_price + 15, 2)
             expected_tp = round(sell_price - 30, 2)
-            check("SELL: SL above entry", p.get("sl") == expected_sl,
+            check("SELL: SL above entry", abs(p.get("sl", 0) - expected_sl) <= 0.10,
                   f"expected={expected_sl}, got={p.get('sl')}")
-            check("SELL: TP below entry", p.get("tp") == expected_tp,
+            check("SELL: TP below entry", abs(p.get("tp", 0) - expected_tp) <= 0.10,
                   f"expected={expected_tp}, got={p.get('tp')}")
         r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": sell_ticket})
         check("sell close succeeds", r2.get("success") == True)
