@@ -51,7 +51,7 @@ LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 DECISION_API = "http://localhost:4028/api/are/decision"
 MT5_BRIDGE = "http://127.0.0.1:18888"
 POLL_INTERVAL = 5  # seconds
-COOLDOWN_SECONDS = 30
+COOLDOWN_SECONDS = 60  # jeda antar entri (multi-entry) — 1 menit
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
 
 MIN_HOLD_SECONDS = {
@@ -78,6 +78,16 @@ MAGIC_NUMBERS = {
     "day": 2003,
     "swing": 2004,
     "position": 2005,
+}
+
+# Maksimum posisi terbuka bersamaan per style (multi-entry).
+# Scalp: 5 posisi — untuk uji akurasi metode. Style lain tetap 1.
+MAX_POSITIONS = {
+    "micro": 1,
+    "scalp": 5,
+    "day": 1,
+    "swing": 1,
+    "position": 1,
 }
 
 # ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
@@ -280,51 +290,111 @@ def get_candles(symbol: str, timeframe: str, count: int = 200) -> list:
     return data.get("candles", [])
 
 
-# ─── POSITION RECONCILIATION ──────────────────────────────────────────────────
+# ─── POSITION RECONCILIATION (multi-entry aware) ──────────────────────────────
 
-def find_my_position(positions: list, style: str, symbol: str) -> dict | None:
-    """Find position owned by this bot style using magic number + comment prefix."""
+def my_positions_from(positions: list, style: str, symbol: str) -> list:
+    """All broker positions owned by this bot style (magic + comment prefix)."""
     magic = MAGIC_NUMBERS.get(style, 0)
     prefix = f"ARE-{style.upper()}"
-    for p in positions:
-        if (p.get("symbol") == symbol
-                and p.get("magic", 0) == magic
-                and p.get("comment", "").startswith(prefix)):
-            return p
-    return None
+    return [p for p in positions
+            if p.get("symbol") == symbol
+            and p.get("magic", 0) == magic
+            and p.get("comment", "").startswith(prefix)]
 
 
-def reconcile_position(state: dict, positions: list, style: str, symbol: str) -> dict | None:
-    """Reconcile local state with broker state. Returns current position or None."""
-    my_pos = find_my_position(positions, style, symbol)
+def pos_to_record(p: dict) -> dict:
+    """Convert a broker position dict to a tracked-state record."""
+    return {
+        "ticket": p.get("ticket"),
+        "direction": p.get("type"),
+        "entry": p.get("price_open", 0),
+        "lot": p.get("volume", 0),
+        "sl": p.get("sl", 0),
+        "tp": p.get("tp", 0),
+        "opened_at": time.time(),  # unknown for adopted positions — conservative
+        "last_pnl": p.get("profit", 0),
+    }
 
-    if my_pos:
-        ticket = my_pos["ticket"]
-        if state.get("active_ticket") != ticket:
-            state["active_ticket"] = ticket
-            state["active_direction"] = my_pos["type"]
-            log("HOLDING", f"#{ticket} {my_pos['type']} P&L: ${my_pos.get('profit', 0):.2f}")
-        state["last_known_pnl"] = my_pos.get("profit", 0)
-        return my_pos
-    else:
-        if state.get("active_ticket") is not None:
-            # Position was closed (TP/SL hit or external close)
-            last_pnl = state.get("last_known_pnl", 0)
-            state["daily_pnl"] += last_pnl
-            state["trade_count"] += 1
-            state.setdefault("trade_history", []).append({
-                "ticket": state["active_ticket"],
-                "direction": state.get("active_direction"),
-                "entry": 0, "exit": 0, "lot": 0,
-                "pnl": round(last_pnl, 2),
-                "close_reason": "tp_sl",
-                "closed_at": datetime.now(timezone.utc).isoformat(),
+
+def reconcile_positions(state: dict, positions: list, style: str, symbol: str):
+    """
+    Reconcile tracked positions with broker truth (multi-position).
+
+    Returns (open_records, closed_list):
+      open_records — records still open at the broker (kept in state["positions"])
+      closed_list  — tracked records no longer at the broker (closed by TP/SL
+                     or externally) with their last known P&L.
+    """
+    broker = my_positions_from(positions, style, symbol)
+    broker_by_ticket = {p["ticket"]: p for p in broker}
+
+    tracked = state.get("positions") or []
+    open_records: list = []
+    closed_list: list = []
+    seen = set()
+
+    for rec in tracked:
+        ticket = rec.get("ticket")
+        bp = broker_by_ticket.get(ticket)
+        if bp is None:
+            # Gone from broker — TP/SL hit or closed externally.
+            closed_list.append({
+                "ticket": ticket,
+                "direction": rec.get("direction"),
+                "entry": rec.get("entry", 0),
+                "exit": 0,
+                "lot": rec.get("lot", 0),
+                "pnl": rec.get("last_pnl", 0),
             })
-            log("TP_SL", f"Position #{state['active_ticket']} closed P&L: ${last_pnl:.2f}")
-            state["active_ticket"] = None
-            state["active_direction"] = None
-            state["last_trade_at"] = time.time()
-        return None
+            continue
+        # Still open — refresh live fields.
+        rec["entry"] = bp.get("price_open", rec.get("entry", 0))
+        rec["lot"] = bp.get("volume", rec.get("lot", 0))
+        rec["sl"] = bp.get("sl", rec.get("sl", 0))
+        rec["tp"] = bp.get("tp", rec.get("tp", 0))
+        rec["last_pnl"] = bp.get("profit", rec.get("last_pnl", 0))
+        open_records.append(rec)
+        seen.add(ticket)
+
+    # Adopt broker positions not yet tracked (bot restarted while holding,
+    # or opened externally with our magic).
+    for p in broker:
+        if p["ticket"] not in seen:
+            rec = pos_to_record(p)
+            log("ADOPT", f"#{rec['ticket']} {rec['direction']} {rec['lot']} lots (untracked)")
+            open_records.append(rec)
+
+    state["positions"] = open_records
+
+    # Backward-compatible single-position mirrors.
+    if open_records:
+        last = open_records[-1]
+        state["active_ticket"] = last["ticket"]
+        state["active_direction"] = last["direction"]
+        state["last_known_pnl"] = last["last_pnl"]
+    else:
+        state["active_ticket"] = None
+        state["active_direction"] = None
+        state["last_known_pnl"] = 0.0
+
+    return open_records, closed_list
+
+
+def record_closed_trade(state: dict, ticket, direction, entry, exit_, lot, pnl, reason):
+    """Update counters + history for a closed position."""
+    state["daily_pnl"] += pnl
+    state["trade_count"] += 1
+    state.setdefault("trade_history", []).append({
+        "ticket": ticket,
+        "direction": direction,
+        "entry": entry,
+        "exit": exit_,
+        "lot": lot,
+        "pnl": round(pnl, 2),
+        "close_reason": reason,
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+    })
+    state["last_trade_at"] = time.time()
 
 
 # ─── TRAILING STOP ────────────────────────────────────────────────────────────
@@ -416,6 +486,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "started_at": datetime.now(timezone.utc).isoformat(),
             "active_ticket": None,
             "active_direction": None,
+            "positions": [],
             "trade_count": 0,
             "daily_pnl": 0.0,
             "starting_balance": 0.0,
@@ -448,17 +519,18 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             new_style = current_state.get("pending_style")
             if new_style and new_style != style:
                 log("STYLE_CHANGE", f"{style} -> {new_style}")
-                # Close current position before switching
-                if state.get("active_ticket"):
+                # Close all positions of this style before switching
+                for rec in list(state.get("positions") or []):
                     try:
-                        close_position(state["active_ticket"])
-                        log("CLOSED", f"#{state['active_ticket']} closed for style switch")
+                        close_position(rec["ticket"])
+                        log("CLOSED", f"#{rec['ticket']} closed for style switch")
                     except (BridgeError, OrderRejected) as e:
-                        log("CLOSE_FAILED", f"Style switch: {e}")
+                        log("CLOSE_FAILED", f"Style switch #{rec['ticket']}: {e}")
                 style = new_style
                 magic = MAGIC_NUMBERS.get(style, 0)
                 state["style"] = style
                 state["magic"] = magic
+                state["positions"] = []
                 state["active_ticket"] = None
                 state["active_direction"] = None
                 state["pending_style"] = None
@@ -488,98 +560,113 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             # 2. Get positions from broker (fail-closed)
             positions = get_positions(symbol)
 
-            # 3. Reconcile local state with broker
-            my_pos = reconcile_position(state, positions, style, symbol)
+            # 3. Reconcile local state with broker (multi-position)
+            open_pos, closed_list = reconcile_positions(state, positions, style, symbol)
 
-            if my_pos:
-                # ── HOLDING ──
-                pnl = my_pos.get("profit", 0)
+            # 3b. Positions that vanished → TP/SL hit or external close
+            for c in closed_list:
+                record_closed_trade(state, c["ticket"], c["direction"], c["entry"], c["exit"],
+                                    c["lot"], c["pnl"], "tp_sl")
+                log("TP_SL", f"Position #{c['ticket']} closed P&L: ${c['pnl']:.2f}")
 
-                # Trailing stop
+            # 4. Manage each open position: trailing stop + reversal exit
+            remaining: list = []
+            broker_map = {p["ticket"]: p for p in my_positions_from(positions, style, symbol)}
+            for rec in open_pos:
+                p = broker_map.get(rec["ticket"])
+                if p is None:
+                    continue  # vanished mid-cycle — next poll records it
+                pnl = p.get("profit", 0)
+                rec["last_pnl"] = pnl
+
                 if trailing_atr > 0:
-                    _try_trailing_stop(my_pos, trailing_atr, state, symbol)
+                    _try_trailing_stop(p, trailing_atr, state, symbol)
 
-                # Check if signal reversed (with minimum hold time)
+                # Reversal exit (per position, respect per-position minimum hold)
                 if (dec["decision"] != "WAIT"
-                        and dec["finalSignal"] != my_pos["type"]
+                        and dec["finalSignal"] != rec["direction"]
                         and dec["mtfConfirmed"]):
-                    hold_time = time.time() - state.get("last_trade_at", time.time())
+                    hold_time = time.time() - rec.get("opened_at", time.time())
                     min_hold = MIN_HOLD_SECONDS.get(style, 300)
                     if hold_time < min_hold:
                         if int(hold_time) % 60 == 0:
-                            log("HOLD", f"Reversal blocked — held {int(hold_time)}s, min {min_hold}s")
-                    else:
-                        log("REVERSAL", f"Signal reversed {my_pos['type']} -> {dec['finalSignal']}")
-                        try:
-                            close_position(my_pos["ticket"])
-                            state["daily_pnl"] += pnl
-                            state["trade_count"] += 1
-                            state["active_ticket"] = None
-                            state["active_direction"] = None
-                            state["last_trade_at"] = time.time()
-                            state.setdefault("trade_history", []).append({
-                                "ticket": my_pos["ticket"],
-                                "direction": my_pos["type"],
-                                "entry": my_pos.get("price_open", 0),
-                                "exit": my_pos.get("price_current", 0),
-                                "lot": my_pos.get("volume", 0),
-                                "pnl": round(pnl, 2),
-                                "close_reason": "reversal",
-                                "closed_at": datetime.now(timezone.utc).isoformat(),
-                            })
-                            log("CLOSED", f"#{my_pos['ticket']} P&L: ${pnl:.2f}")
-                        except (BridgeError, OrderRejected) as e:
-                            log("CLOSE_FAILED", f"#{my_pos['ticket']}: {e}")
-
-            else:
-                # ── MONITORING (no position) ──
-                # Check cooldown
-                if state.get("last_trade_at") and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS:
-                    save_state(state, style)
-                    time.sleep(POLL_INTERVAL)
-                    continue
-
-                # Check daily loss circuit breaker
-                try:
-                    account = get_account()
-                    current_balance = account.get("balance", state["starting_balance"])
-                except BridgeError:
-                    current_balance = state["starting_balance"]
-
-                if state["starting_balance"] > 0:
-                    realized_loss = state["starting_balance"] - current_balance
-                    loss_pct = (realized_loss / state["starting_balance"]) * 100
-                    if loss_pct >= max_daily_loss:
-                        log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% — stopping")
-                        state["status"] = "circuit_breaker"
-                        save_state(state, style)
-                        break
-
-                # Check entry conditions
-                if (dec["decision"] != "WAIT"
-                        and dec["mtfConfirmed"]
-                        and dec["inSession"]
-                        and dec["rr"] >= 1.5
-                        and dec["lotSize"] >= 0.01):
-                    style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
-                    sl_pts = max(dec["slPoints"], style_min_sl)
-                    tp_pts = max(dec["tpPoints"], style_min_sl)
-                    log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
+                            log("HOLD", f"#{rec['ticket']} reversal blocked — held {int(hold_time)}s, min {min_hold}s")
+                        remaining.append(rec)
+                        continue
+                    log("REVERSAL", f"#{rec['ticket']} {rec['direction']} -> {dec['finalSignal']}")
                     try:
-                        result = open_position(
-                            symbol, dec["decision"], dec["lotSize"],
-                            sl_pts, tp_pts, magic, f"ARE-{style.upper()}",
-                        )
-                        state["active_ticket"] = result.get("ticket")
-                        state["active_direction"] = dec["decision"]
-                        state["last_trade_at"] = time.time()
-                        log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots (magic={magic})")
-                    except OrderRejected as e:
-                        log("OPEN_FAILED", f"{e}")
-                        state["last_trade_at"] = time.time()
-                    except BridgeError as e:
-                        log("OPEN_FAILED", f"Bridge: {e}")
-                        state["last_trade_at"] = time.time()
+                        close_position(rec["ticket"])
+                        record_closed_trade(state, rec["ticket"], rec["direction"],
+                                            rec.get("entry", 0), p.get("price_current", 0),
+                                            rec.get("lot", 0), pnl, "reversal")
+                        log("CLOSED", f"#{rec['ticket']} P&L: ${pnl:.2f}")
+                    except (BridgeError, OrderRejected) as e:
+                        log("CLOSE_FAILED", f"#{rec['ticket']}: {e}")
+                        remaining.append(rec)
+                else:
+                    remaining.append(rec)
+
+            state["positions"] = remaining
+            state["active_ticket"] = remaining[-1]["ticket"] if remaining else None
+            state["active_direction"] = remaining[-1]["direction"] if remaining else None
+            state["last_known_pnl"] = remaining[-1]["last_pnl"] if remaining else 0.0
+
+            # 5. ENTRY — only if slots remain for this style (multi-entry)
+            if len(remaining) < MAX_POSITIONS.get(style, 1):
+                # Cooldown between trade actions (entry/exit) — 1 menit
+                if not (state.get("last_trade_at")
+                        and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS):
+                    # Daily loss circuit breaker
+                    try:
+                        account = get_account()
+                        current_balance = account.get("balance", state["starting_balance"])
+                    except BridgeError:
+                        current_balance = state["starting_balance"]
+
+                    if state["starting_balance"] > 0:
+                        realized_loss = state["starting_balance"] - current_balance
+                        loss_pct = (realized_loss / state["starting_balance"]) * 100
+                        if loss_pct >= max_daily_loss:
+                            log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% — stopping")
+                            state["status"] = "circuit_breaker"
+                            save_state(state, style)
+                            break
+
+                    # Check entry conditions
+                    if (dec["decision"] != "WAIT"
+                            and dec["mtfConfirmed"]
+                            and dec["inSession"]
+                            and dec["rr"] >= 1.5
+                            and dec["lotSize"] >= 0.01):
+                        style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
+                        sl_pts = max(dec["slPoints"], style_min_sl)
+                        tp_pts = max(dec["tpPoints"], style_min_sl)
+                        log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
+                        try:
+                            result = open_position(
+                                symbol, dec["decision"], dec["lotSize"],
+                                sl_pts, tp_pts, magic, f"ARE-{style.upper()}",
+                            )
+                            new_rec = {
+                                "ticket": result.get("ticket"),
+                                "direction": dec["decision"],
+                                "entry": result.get("price", dec.get("entry", 0)),
+                                "lot": dec["lotSize"],
+                                "sl": sl_pts, "tp": tp_pts,
+                                "opened_at": time.time(),
+                                "last_pnl": 0.0,
+                            }
+                            state["positions"].append(new_rec)
+                            state["active_ticket"] = new_rec["ticket"]
+                            state["active_direction"] = dec["decision"]
+                            state["last_trade_at"] = time.time()
+                            log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots (magic={magic})")
+                        except OrderRejected as e:
+                            log("OPEN_FAILED", f"{e}")
+                            state["last_trade_at"] = time.time()
+                        except BridgeError as e:
+                            log("OPEN_FAILED", f"Bridge: {e}")
+                            state["last_trade_at"] = time.time()
 
             save_state(state, style)
 

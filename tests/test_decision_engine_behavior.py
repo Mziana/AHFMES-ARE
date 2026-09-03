@@ -67,14 +67,14 @@ if __name__ == "__main__":
             check(f"{style}: mtfConfirmed=false", d.get("mtfConfirmed") == False,
                   f"{agree_count}<{min_req} should not be confirmed")
 
-    # TEST 3: Session filter
-    print("\n=== TEST 3: Session filter ===")
-    d = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style=day&risk=1")
-    from datetime import datetime, timezone
-    utc_hour = datetime.now(timezone.utc).hour
-    in_session = 7 <= utc_hour < 20
-    check("day: session matches UTC", d.get("inSession") == in_session,
-          f"hour={utc_hour}, expected_in_session={in_session}")
+    # TEST 3: Session filter — semua style kini 24 jam (design decision), jadi inSession
+    # selalu True. Guard market tutup ditangani flag dataFresh, bukan jendela jam.
+    print("\n=== TEST 3: Session filter (24h design) ===")
+    for style in ["micro", "scalp", "day", "swing", "position"]:
+        d = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style={style}&risk=1")
+        check(f"{style}: inSession true (24h)", d.get("inSession") == True,
+              f"got inSession={d.get('inSession')}")
+        check(f"{style}: dataFresh present", "dataFresh" in d)
 
     # TEST 4: Lot sizing
     print("\n=== TEST 4: Lot sizing ===")
