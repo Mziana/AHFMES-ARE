@@ -283,6 +283,23 @@ class MT5Handler(BaseHTTPRequestHandler):
             data = get_candles(symbol, timeframe_str, count)
         elif path == '/health':
             data = {'status': 'ok', 'mt5_connected': MT5_CONNECTED}
+        elif path == '/deals':
+            days = int(parse_qs(parsed.query).get('days', ['7'])[0])
+            try:
+                from datetime import datetime, timedelta
+                since = datetime.now() - timedelta(days=days)
+                deals = mt5.history_deals_get(since, datetime.now())
+                data = {'deals': [
+                    {
+                        'ticket': d.ticket, 'order': d.order, 'time': d.time,
+                        'type': d.type, 'entry': d.entry, 'magic': d.magic,
+                        'volume': d.volume, 'price': d.price,
+                        'profit': d.profit, 'swap': d.swap, 'commission': d.commission,
+                        'symbol': d.symbol, 'comment': d.comment,
+                    } for d in (deals or [])
+                ]} if deals else {'deals': []}
+            except Exception as e:
+                data = {'deals': [], 'error': str(e)}
         else:
             data = {'error': 'unknown endpoint'}
         
