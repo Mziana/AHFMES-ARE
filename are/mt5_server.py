@@ -141,15 +141,20 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
             return {'success': False, 'error': f'no tick for {symbol}'}
         price = tick.ask if direction == 'BUY' else tick.bid
 
+        # Konversi offset POIN ke harga: 1 poin = point symbol (XAUUSD 0.01)
+        si = mt5.symbol_info(symbol)
+        point = si.point if si else 0.01
+        digits = si.digits if si else 2
+
         # Calculate SL/TP from live price using points offsets
         if sl_points and sl_points > 0:
-            sl = (price - sl_points) if direction == 'BUY' else (price + sl_points)
+            sl = (price - sl_points * point) if direction == 'BUY' else (price + sl_points * point)
         if tp_points and tp_points > 0:
-            tp = (price + tp_points) if direction == 'BUY' else (price - tp_points)
+            tp = (price + tp_points * point) if direction == 'BUY' else (price - tp_points * point)
 
-        # Round to 2 decimals for XAUUSD
-        sl = round(sl, 2) if sl and sl > 0 else 0
-        tp = round(tp, 2) if tp and tp > 0 else 0
+        # Round ke digits symbol
+        sl = round(sl, digits) if sl and sl > 0 else 0
+        tp = round(tp, digits) if tp and tp > 0 else 0
 
         req = {
             'action': mt5.TRADE_ACTION_DEAL,
