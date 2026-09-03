@@ -138,12 +138,79 @@ def get_decision(symbol: str, style: str, risk: float) -> dict | None:
     return http_get(f"{DECISION_API}?symbol={symbol}&style={style}&risk={risk}", timeout=30)
 
 
-# ─── MAIN BOT LOOP ───────────────────────────────────────────────────────────
+def modify_position(ticket: int, sl: float = None, tp: float = None) -> dict | None:
+    return http_post(f"{MT5_BRIDGE}/modify", {"ticket": ticket, "sl": sl, "tp": tp})
 
-def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float):
+
+def get_candles(symbol: str, timeframe: str, count: int = 200) -> list:
+    data = http_get(f"{MT5_BRIDGE}/candles?symbol={symbol}&timeframe={timeframe}&count={count}", timeout=15)
+    return data.get("candles", []) if data else []# ─── TRAILING STOP ──────────────────────────────────────────────────────────
+
+def compute_atr(candles: list, period: int = 14) -> float:
+    """Compute ATR from candle data. Returns last ATR value."""
+    if len(candles) < period + 1:
+        return 0
+    trs = []
+    for i in range(1, len(candles)):
+        h = candles[i]["high"]
+        l = candles[i]["low"]
+        pc = candles[i - 1]["close"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    if len(trs) < period:
+        return 0
+    # Simple moving average of TR
+    atr_val = sum(trs[-period:]) / period
+    return atr_val
+
+
+def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict):
+    """Move SL if price has moved favorably beyond ATR trailing distance."""
+    ticket = pos["ticket"]
+    direction = pos["type"]  # 'BUY' or 'SELL'
+    entry = pos["price_open"]
+    current_sl = pos["sl"]
+    current_tp = pos["tp"]
+
+    # Fetch candles for ATR computation
+    candles = get_candles(pos["symbol"], "M15", 50)
+    if len(candles) < 20:
+        return
+
+    atr_val = compute_atr(candles)
+    if atr_val <= 0:
+        return
+
+    trailing_distance = atr_val * atr_multiplier
+    current_price = candles[-1]["close"]
+
+    new_sl = None
+    if direction == "BUY":
+        # For BUY: SL moves UP. New SL = current price - trailing distance.
+        # Only move if new SL is higher than current SL (and above entry).
+        candidate = round(current_price - trailing_distance, 2)
+        if candidate > current_sl and candidate > entry:
+            new_sl = candidate
+    else:
+        # For SELL: SL moves DOWN. New SL = current price + trailing distance.
+        # Only move if new SL is lower than current SL (and below entry).
+        candidate = round(current_price + trailing_distance, 2)
+        if candidate < current_sl and candidate < entry:
+            new_sl = candidate
+
+    if new_sl is not None:
+        result = modify_position(ticket, sl=new_sl)
+        if result and result.get("success"):
+            old_sl = state.get("last_trailing_sl")
+            state["last_trailing_sl"] = new_sl
+            state["last_atr"] = round(atr_val, 2)
+            log("TRAILING", f"#{ticket} SL {current_sl} -> {new_sl} (ATR={atr_val:.1f}, dist={trailing_distance:.1f})")
+
+
+# ─── MAIN BOT LOOP ───────────────────────────────────────────────────────────
+def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailing_atr: float = 0):
     global running
 
-    log("START", f"symbol={symbol} style={style} risk={risk}% max_daily_loss={max_daily_loss}%")
+    log("START", f"symbol={symbol} style={style} risk={risk}% max_daily_loss={max_daily_loss}% trailing_atr={trailing_atr}x")
 
     # Write PID
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +234,9 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float):
             "daily_pnl": 0.0,
             "starting_balance": 0.0,
             "last_trade_at": None,
+            "trailing_atr": trailing_atr,
+            "last_trailing_sl": None,
+            "last_atr": None,
         }
 
     # Get starting balance
@@ -200,6 +270,10 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float):
                     state["active_ticket"] = ticket
                     state["active_direction"] = direction
                     log("HOLDING", f"#{ticket} {direction} P&L: ${pnl:.2f}")
+
+                # Trailing stop: move SL in favor of the trade
+                if trailing_atr > 0:
+                    _try_trailing_stop(my_pos, trailing_atr, state)
 
                 # Check if signal reversed
                 if (dec["decision"] != "WAIT"
@@ -291,9 +365,11 @@ def main():
     parser.add_argument("--risk", type=float, default=1.0, help="Risk percent per trade (default: 1)")
     parser.add_argument("--max-daily-loss", type=float, default=DAILY_LOSS_PCT,
                         help=f"Max daily loss %% of balance (default: {DAILY_LOSS_PCT})")
+    parser.add_argument("--trailing-atr", type=float, default=0,
+                        help="Trailing stop as ATR multiplier (0=disabled, 1.5=recommended)")
     args = parser.parse_args()
 
-    run_bot(args.symbol, args.style, args.risk, args.max_daily_loss)
+    run_bot(args.symbol, args.style, args.risk, args.max_daily_loss, args.trailing_atr)
 
 
 if __name__ == "__main__":

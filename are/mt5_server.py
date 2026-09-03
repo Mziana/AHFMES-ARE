@@ -225,6 +225,32 @@ def close_all_positions(symbol=None):
         return {'success': False, 'error': str(e)}
 
 
+def modify_position(ticket, sl=None, tp=None):
+    """Modify SL/TP on an existing open position."""
+    if not MT5_CONNECTED or not mt5:
+        return {'success': False, 'error': 'MT5 not connected'}
+    try:
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions or len(positions) == 0:
+            return {'success': False, 'error': f'position {ticket} not found'}
+        pos = positions[0]
+        req = {
+            'action': mt5.TRADE_ACTION_SLTP,
+            'symbol': pos.symbol,
+            'position': ticket,
+            'sl': sl if sl is not None else pos.sl,
+            'tp': tp if tp is not None else pos.tp,
+        }
+        result = mt5.order_send(req)
+        if result is None:
+            return {'success': False, 'error': 'modify returned None'}
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            return {'success': False, 'error': result.comment, 'retcode': result.retcode}
+        return {'success': True, 'ticket': ticket, 'sl': req['sl'], 'tp': req['tp']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 class MT5Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # suppress logs
@@ -289,6 +315,11 @@ class MT5Handler(BaseHTTPRequestHandler):
         elif path == '/close_all':
             symbol = body.get('symbol')
             data = close_all_positions(symbol)
+        elif path == '/modify':
+            ticket = body.get('ticket', 0)
+            sl = body.get('sl')
+            tp = body.get('tp')
+            data = modify_position(int(ticket), sl=sl, tp=tp) if ticket else {'success': False, 'error': 'missing ticket'}
         elif path == '/connect':
             ok, msg = connect_mt5()
             data = {'success': ok, 'message': msg}
