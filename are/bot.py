@@ -264,7 +264,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
 
             # 2. Check existing position
             positions = get_positions()
-            my_pos = next((p for p in positions if p.get("comment", "").startswith("ARE-")), None)
+            my_pos = next((p for p in positions if p.get("comment", "").startswith(f"ARE-{style.upper()}")), None)
 
             if my_pos:
                 # ── HOLDING ──
