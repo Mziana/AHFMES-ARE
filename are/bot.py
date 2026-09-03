@@ -47,6 +47,15 @@ MIN_HOLD_SECONDS = {
     "position": 7200,   # 2 hours
 }
 
+# Per-style minimum SL in points (enforced by bot when sending order)
+MIN_SL_PER_STYLE = {
+    "micro": 3,         # 3 points ($3) — tight for M1 scalping
+    "scalp": 8,         # 8 points ($8) — moderate for M5
+    "day": 20,          # 20 points ($20) — wide for H1 intraday
+    "swing": 60,        # 60 points ($60) — wide for multi-day
+    "position": 150,    # 150 points ($150) — very wide for long-term
+}
+
 # ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
 
 running = True
@@ -267,6 +276,16 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
 
     while running:
         try:
+            # 0. Check for style change from UI
+            current_state = load_state(style)
+            new_style = current_state.get("pending_style")
+            if new_style and new_style != style:
+                log("STYLE_CHANGE", f"{style} -> {new_style}")
+                style = new_style
+                state["style"] = style
+                state["pending_style"] = None
+                save_state(state, style)
+
             # 1. Get decision
             dec = get_decision(symbol, style, risk)
             if not dec or not dec.get("success"):
@@ -370,10 +389,10 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                         and dec["inSession"]
                         and dec["rr"] >= 1.5
                         and dec["lotSize"] >= 0.01):
-                    # Enforce minimum SL (must be > 2x spread = 10 points for XAUUSD)
-                    MIN_SL = 10
-                    sl_pts = max(dec["slPoints"], MIN_SL)
-                    tp_pts = max(dec["tpPoints"], MIN_SL)
+                    # Enforce per-style minimum SL
+                    style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
+                    sl_pts = max(dec["slPoints"], style_min_sl)
+                    tp_pts = max(dec["tpPoints"], style_min_sl)
                     log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
                     result = open_position(
                         dec["decision"],
