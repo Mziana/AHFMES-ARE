@@ -237,6 +237,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "trailing_atr": trailing_atr,
             "last_trailing_sl": None,
             "last_atr": None,
+            "last_known_pnl": 0.0,
         }
 
     # Get starting balance
@@ -270,6 +271,8 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     state["active_ticket"] = ticket
                     state["active_direction"] = direction
                     log("HOLDING", f"#{ticket} {direction} P&L: ${pnl:.2f}")
+                # Always track latest P&L for circuit breaker on TP/SL close
+                state["last_known_pnl"] = pnl
 
                 # Trailing stop: move SL in favor of the trade
                 if trailing_atr > 0:
@@ -295,8 +298,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 # ── MONITORING ──
                 if state["active_ticket"] is not None:
                     # Position was closed (TP/SL hit)
+                    # Capture P&L from last known state before it disappears
+                    last_pnl = state.get("last_known_pnl", 0)
+                    state["daily_pnl"] += last_pnl
                     state["trade_count"] += 1
-                    log("TP_SL", f"Position #{state['active_ticket']} closed (TP/SL hit)")
+                    log("TP_SL", f"Position #{state['active_ticket']} closed (TP/SL hit) P&L: ${last_pnl:.2f} daily: ${state['daily_pnl']:.2f}")
                     state["active_ticket"] = None
                     state["active_direction"] = None
                     state["last_trade_at"] = time.time()
@@ -306,12 +312,15 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     time.sleep(POLL_INTERVAL)
                     continue
 
-                # Check daily loss circuit breaker
-                balance = get_account().get("balance", state["starting_balance"])
+                # Check daily loss circuit breaker (balance-based = most reliable)
+                account = get_account()
+                current_balance = account.get("balance", state["starting_balance"])
                 if state["starting_balance"] > 0:
-                    loss_pct = abs(min(0, state["daily_pnl"])) / state["starting_balance"] * 100
+                    # Realized loss = how much balance dropped from start
+                    realized_loss = state["starting_balance"] - current_balance
+                    loss_pct = (realized_loss / state["starting_balance"]) * 100
                     if loss_pct >= max_daily_loss:
-                        log("CIRCUIT_BREAKER", f"Daily loss {loss_pct:.1f}% >= {max_daily_loss}% — stopping")
+                        log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% (${realized_loss:.2f}) >= {max_daily_loss}% — stopping")
                         state["status"] = "circuit_breaker"
                         save_state(state)
                         break
