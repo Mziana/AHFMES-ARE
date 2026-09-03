@@ -53,7 +53,6 @@ MT5_BRIDGE = "http://127.0.0.1:18888"
 POLL_INTERVAL = 5  # seconds
 COOLDOWN_SECONDS = 30
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
-MAX_TRADES_PER_HOUR = 10  # frequency cap
 
 MIN_HOLD_SECONDS = {
     "micro": 300,       # 5 minutes
@@ -328,21 +327,6 @@ def reconcile_position(state: dict, positions: list, style: str, symbol: str) ->
         return None
 
 
-# ─── TRADE FREQUENCY ──────────────────────────────────────────────────────────
-
-def check_trade_frequency(state: dict) -> bool:
-    """Check if bot has exceeded max trades per hour. Returns True if OK to trade."""
-    now = time.time()
-    hour_ago = now - 3600
-    recent = [t for t in state.get("trade_history", [])
-              if t.get("closed_at") and
-              datetime.fromisoformat(t["closed_at"]).timestamp() > hour_ago]
-    if len(recent) >= MAX_TRADES_PER_HOUR:
-        log("FREQ_LIMIT", f"{len(recent)} trades in last hour (max {MAX_TRADES_PER_HOUR})")
-        return False
-    return True
-
-
 # ─── TRAILING STOP ────────────────────────────────────────────────────────────
 
 def compute_atr(candles: list, period: int = 14) -> float:
@@ -483,6 +467,24 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             # 1. Get decision
             dec = get_decision(symbol, style, risk)
 
+            # 1b. Persist the latest decision snapshot so the UI can show
+            #     per-timeframe votes without polling the engine again.
+            state["last_decision"] = {
+                "decision": dec.get("decision"),
+                "decisionReason": dec.get("decisionReason"),
+                "finalSignal": dec.get("finalSignal"),
+                "totalConfirmations": dec.get("totalConfirmations", 0),
+                "minRequired": dec.get("minRequired", 0),
+                "mtfConfirmed": dec.get("mtfConfirmed", False),
+                "inSession": dec.get("inSession", False),
+                "dataFresh": dec.get("dataFresh", True),
+                "rr": dec.get("rr", 0),
+                "slPoints": dec.get("slPoints", 0),
+                "tpPoints": dec.get("tpPoints", 0),
+                "lotSize": dec.get("lotSize", 0),
+                "timeframeSignals": dec.get("timeframeSignals") or {},
+            }
+
             # 2. Get positions from broker (fail-closed)
             positions = get_positions(symbol)
 
@@ -533,12 +535,6 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 # ── MONITORING (no position) ──
                 # Check cooldown
                 if state.get("last_trade_at") and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS:
-                    save_state(state, style)
-                    time.sleep(POLL_INTERVAL)
-                    continue
-
-                # Check trade frequency
-                if not check_trade_frequency(state):
                     save_state(state, style)
                     time.sleep(POLL_INTERVAL)
                     continue
