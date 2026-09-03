@@ -51,7 +51,7 @@ LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 DECISION_API = "http://localhost:4028/api/are/decision"
 MT5_BRIDGE = "http://127.0.0.1:18888"
 POLL_INTERVAL = 5  # seconds
-COOLDOWN_SECONDS = 60  # jeda antar entri (multi-entry) — 1 menit
+COOLDOWN_SECONDS = 60  # default jeda antar entri (multi-entry) — bisa diubah dari UI
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
 
 MIN_HOLD_SECONDS = {
@@ -96,7 +96,7 @@ RUNTIME_CONFIG_FILE = DATA_DIR / "bot_config.json"
 DEFAULT_RUNTIME_CONFIG = {
     "multi_trading": True,            # False → semua style dibatasi 1 posisi
     "max_positions": MAX_POSITIONS,   # maks posisi per style (multi-entry)
-    "max_hold_seconds": 0,            # 0 = off; >0 → tutup di pasar setelah X detik
+    "entry_interval_seconds": COOLDOWN_SECONDS,  # jeda antar entri multi-entry
     "min_hold_seconds": MIN_HOLD_SECONDS,  # hold minimal sebelum reversal close
 }
 
@@ -107,7 +107,7 @@ def load_runtime_config() -> dict:
     try:
         with open(RUNTIME_CONFIG_FILE) as f:
             disk = json.load(f)
-        for k in ("multi_trading", "max_hold_seconds"):
+        for k in ("multi_trading", "entry_interval_seconds"):
             if k in disk:
                 cfg[k] = disk[k]
         for k in ("max_positions", "min_hold_seconds"):
@@ -333,6 +333,12 @@ def my_positions_from(positions: list, style: str, symbol: str) -> list:
 
 def pos_to_record(p: dict) -> dict:
     """Convert a broker position dict to a tracked-state record."""
+    # Waktu buka asli dari broker dipakai bila masuk akal (masa lalu).
+    # Beberapa terminal MT5 mengembalikan position.time dengan offset +3 jam
+    # (waktu server tanpa konversi UTC) — nilai masa depan dipakai utk menghindari
+    # hold_time negatif yang memblokir reversal close selamanya.
+    pt = p.get("time") or 0
+    opened_at = pt if 0 < pt <= time.time() + 60 else time.time()
     return {
         "ticket": p.get("ticket"),
         "direction": p.get("type"),
@@ -340,7 +346,7 @@ def pos_to_record(p: dict) -> dict:
         "lot": p.get("volume", 0),
         "sl": p.get("sl", 0),
         "tp": p.get("tp", 0),
-        "opened_at": time.time(),  # unknown for adopted positions — conservative
+        "opened_at": opened_at,
         "last_pnl": p.get("profit", 0),
     }
 
@@ -501,7 +507,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     cfg0 = load_runtime_config()
     log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x "
         f"multi={cfg0.get('multi_trading')} max_pos={cfg0.get('max_positions', {}).get(style)} "
-        f"max_hold={cfg0.get('max_hold_seconds')}s")
+        f"entry_interval={cfg0.get('entry_interval_seconds')}s")
 
     # Load or initialize state
     state = load_state(style)
@@ -615,23 +621,6 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 if trailing_atr > 0:
                     _try_trailing_stop(p, trailing_atr, state, symbol)
 
-                # Time-based exit (max hold) — tutup di pasar jika TP belum tercapai
-                max_hold = cfg.get("max_hold_seconds", 0) or 0
-                if max_hold > 0:
-                    held_time = time.time() - rec.get("opened_at", time.time())
-                    if held_time >= max_hold:
-                        log("MAX_HOLD", f"#{rec['ticket']} held {int(held_time)}s — closing at market")
-                        try:
-                            close_position(rec["ticket"])
-                            record_closed_trade(state, rec["ticket"], rec["direction"],
-                                                rec.get("entry", 0), p.get("price_current", 0),
-                                                rec.get("lot", 0), pnl, "max_hold")
-                            log("CLOSED", f"#{rec['ticket']} P&L: ${pnl:.2f}")
-                        except (BridgeError, OrderRejected) as e:
-                            log("CLOSE_FAILED", f"#{rec['ticket']}: {e}")
-                            remaining.append(rec)
-                        continue
-
                 # Reversal exit (per position, respect per-position minimum hold)
                 if (dec["decision"] != "WAIT"
                         and dec["finalSignal"] != rec["direction"]
@@ -670,9 +659,10 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             else:
                 max_pos = 1
             if len(remaining) < max_pos:
-                # Cooldown between trade actions (entry/exit) — 1 menit
+                # Jeda antar entri multi-entry (default 60 dtk, bisa diubah dari UI)
+                entry_interval = cfg.get("entry_interval_seconds") or COOLDOWN_SECONDS
                 if not (state.get("last_trade_at")
-                        and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS):
+                        and (time.time() - state["last_trade_at"]) < entry_interval):
                     # Daily loss circuit breaker
                     try:
                         account = get_account()
