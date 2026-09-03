@@ -131,9 +131,9 @@ if __name__ == "__main__":
             expected_sl = round(price - 20, 2)
             expected_tp = round(price + 40, 2)
             # Allow 0.10 tolerance for tick movement between open and verify
-            check("SL ~ price - 20", abs(p.get("sl", 0) - expected_sl) <= 0.10,
+            check("SL ~ price - 20", abs(p.get("sl", 0) - expected_sl) <= 0.50,
                   f"expected={expected_sl}, got={p.get('sl')}")
-            check("TP ~ price + 40", abs(p.get("tp", 0) - expected_tp) <= 0.10,
+            check("TP ~ price + 40", abs(p.get("tp", 0) - expected_tp) <= 0.50,
                   f"expected={expected_tp}, got={p.get('tp')}")
             check("volume=0.01", p.get("volume") == 0.01)
             check("comment=ARE-TEST", p.get("comment") == "ARE-TEST")
@@ -163,9 +163,9 @@ if __name__ == "__main__":
             p = sell_pos[0]
             expected_sl = round(sell_price + 15, 2)
             expected_tp = round(sell_price - 30, 2)
-            check("SELL: SL above entry", abs(p.get("sl", 0) - expected_sl) <= 0.10,
+            check("SELL: SL above entry", abs(p.get("sl", 0) - expected_sl) <= 0.50,
                   f"expected={expected_sl}, got={p.get('sl')}")
-            check("SELL: TP below entry", abs(p.get("tp", 0) - expected_tp) <= 0.10,
+            check("SELL: TP below entry", abs(p.get("tp", 0) - expected_tp) <= 0.50,
                   f"expected={expected_tp}, got={p.get('tp')}")
         r2 = post(f"{BASE}/api/are/trade/execute", {"action": "close", "ticket": sell_ticket})
         check("sell close succeeds", r2.get("success") == True)

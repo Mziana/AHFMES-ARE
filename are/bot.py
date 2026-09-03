@@ -331,12 +331,16 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                         and dec["inSession"]
                         and dec["rr"] >= 1.5
                         and dec["lotSize"] >= 0.01):
-                    log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} R:R={dec['rr']}")
+                    # Enforce minimum SL (must be > 2x spread = 10 points for XAUUSD)
+                    MIN_SL = 10
+                    sl_pts = max(dec["slPoints"], MIN_SL)
+                    tp_pts = max(dec["tpPoints"], MIN_SL)
+                    log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
                     result = open_position(
                         dec["decision"],
                         dec["lotSize"],
-                        dec["slPoints"],
-                        dec["tpPoints"],
+                        sl_pts,
+                        tp_pts,
                         f"ARE-{style.upper()}",
                     )
                     if result and result.get("success"):
