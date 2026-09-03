@@ -39,6 +39,14 @@ POLL_INTERVAL = 5  # seconds
 COOLDOWN_SECONDS = 30
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
 
+MIN_HOLD_SECONDS = {
+    "micro": 300,       # 5 minutes
+    "scalp": 600,       # 10 minutes
+    "day": 1800,        # 30 minutes
+    "swing": 3600,      # 1 hour
+    "position": 7200,   # 2 hours
+}
+
 # ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
 
 running = True
@@ -120,7 +128,11 @@ def get_positions() -> list:
 
 def get_account() -> dict:
     data = http_get(f"{MT5_BRIDGE}/account")
-    return data.get("account", {}) if data else {}
+    # Bridge returns flat JSON: { connected, balance, equity, ... }
+    if not data:
+        return {}
+    # If nested under 'account' key, use it; otherwise use top-level
+    return data.get("account", data)
 
 
 def open_position(direction: str, lot: float, sl_points: float, tp_points: float, comment: str) -> dict | None:
@@ -221,7 +233,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     PID_FILE.write_text(str(os.getpid()))
 
     # Load or initialize state
-    state = load_state()
+    state = load_state(style)
     if state.get("status") == "running":
         log("ALREADY_RUNNING", f"Bot already running (PID {state.get('pid')}). Taking over.")
     else:
@@ -296,23 +308,22 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     else:
                         log("REVERSAL", f"Signal reversed {direction} -> {dec['finalSignal']} (held {int(hold_time)}s)")
                         result = close_position(ticket)
-                    if result and result.get("success"):
-                        state["daily_pnl"] += pnl
-                        state["trade_count"] += 1
-                        state["active_ticket"] = None
-                        state["active_direction"] = None
-                        state["last_trade_at"] = time.time()
-                        # Record trade history
-                        state.setdefault("trade_history", []).append({
-                            "ticket": ticket, "direction": direction,
-                            "entry": my_pos.get("price_open", 0), "exit": my_pos.get("price_current", 0),
-                            "lot": my_pos.get("volume", 0), "pnl": round(pnl, 2),
-                            "close_reason": "reversal",
-                            "closed_at": datetime.now(timezone.utc).isoformat(),
-                        })
-                        log("CLOSED", f"#{ticket} P&L: ${pnl:.2f} daily: ${state['daily_pnl']:.2f}")
-                    else:
-                        log("CLOSE_FAILED", f"#{ticket}: {result}")
+                        if result and result.get("success"):
+                            state["daily_pnl"] += pnl
+                            state["trade_count"] += 1
+                            state["active_ticket"] = None
+                            state["active_direction"] = None
+                            state["last_trade_at"] = time.time()
+                            state.setdefault("trade_history", []).append({
+                                "ticket": ticket, "direction": direction,
+                                "entry": my_pos.get("price_open", 0), "exit": my_pos.get("price_current", 0),
+                                "lot": my_pos.get("volume", 0), "pnl": round(pnl, 2),
+                                "close_reason": "reversal",
+                                "closed_at": datetime.now(timezone.utc).isoformat(),
+                            })
+                            log("CLOSED", f"#{ticket} P&L: ${pnl:.2f} daily: ${state['daily_pnl']:.2f}")
+                        else:
+                            log("CLOSE_FAILED", f"#{ticket}: {result}")
 
             else:
                 # ── MONITORING ──
