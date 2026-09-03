@@ -90,6 +90,35 @@ MAX_POSITIONS = {
     "position": 1,
 }
 
+# ─── RUNTIME CONFIG (diubah dari UI overview, tanpa restart bot) ──────────────
+RUNTIME_CONFIG_FILE = DATA_DIR / "bot_config.json"
+
+DEFAULT_RUNTIME_CONFIG = {
+    "multi_trading": True,            # False → semua style dibatasi 1 posisi
+    "max_positions": MAX_POSITIONS,   # maks posisi per style (multi-entry)
+    "max_hold_seconds": 0,            # 0 = off; >0 → tutup di pasar setelah X detik
+    "min_hold_seconds": MIN_HOLD_SECONDS,  # hold minimal sebelum reversal close
+}
+
+
+def load_runtime_config() -> dict:
+    """Baca data/bot_config.json; fallback ke default bila rusak/absent."""
+    cfg = json.loads(json.dumps(DEFAULT_RUNTIME_CONFIG))
+    try:
+        with open(RUNTIME_CONFIG_FILE) as f:
+            disk = json.load(f)
+        for k in ("multi_trading", "max_hold_seconds"):
+            if k in disk:
+                cfg[k] = disk[k]
+        for k in ("max_positions", "min_hold_seconds"):
+            if isinstance(disk.get(k), dict):
+                cfg[k] = {**cfg[k],
+                          **{s: v for s, v in disk[k].items() if isinstance(v, int) and v > 0}}
+    except Exception:
+        pass
+    return cfg
+
+
 # ─── GLOBAL STATE ─────────────────────────────────────────────────────────────
 
 running = True
@@ -469,7 +498,10 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
         log("EXIT", f"Duplicate bot for style={style} — exiting")
         return
 
-    log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x")
+    cfg0 = load_runtime_config()
+    log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x "
+        f"multi={cfg0.get('multi_trading')} max_pos={cfg0.get('max_positions', {}).get(style)} "
+        f"max_hold={cfg0.get('max_hold_seconds')}s")
 
     # Load or initialize state
     state = load_state(style)
@@ -514,8 +546,9 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
 
     while running:
         try:
-            # 0. Check for style change from UI
+            # 0. Check for style change from UI + baca konfigurasi runtime
             current_state = load_state(style)
+            cfg = load_runtime_config()
             new_style = current_state.get("pending_style")
             if new_style and new_style != style:
                 log("STYLE_CHANGE", f"{style} -> {new_style}")
@@ -582,12 +615,30 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 if trailing_atr > 0:
                     _try_trailing_stop(p, trailing_atr, state, symbol)
 
+                # Time-based exit (max hold) — tutup di pasar jika TP belum tercapai
+                max_hold = cfg.get("max_hold_seconds", 0) or 0
+                if max_hold > 0:
+                    held_time = time.time() - rec.get("opened_at", time.time())
+                    if held_time >= max_hold:
+                        log("MAX_HOLD", f"#{rec['ticket']} held {int(held_time)}s — closing at market")
+                        try:
+                            close_position(rec["ticket"])
+                            record_closed_trade(state, rec["ticket"], rec["direction"],
+                                                rec.get("entry", 0), p.get("price_current", 0),
+                                                rec.get("lot", 0), pnl, "max_hold")
+                            log("CLOSED", f"#{rec['ticket']} P&L: ${pnl:.2f}")
+                        except (BridgeError, OrderRejected) as e:
+                            log("CLOSE_FAILED", f"#{rec['ticket']}: {e}")
+                            remaining.append(rec)
+                        continue
+
                 # Reversal exit (per position, respect per-position minimum hold)
                 if (dec["decision"] != "WAIT"
                         and dec["finalSignal"] != rec["direction"]
                         and dec["mtfConfirmed"]):
                     hold_time = time.time() - rec.get("opened_at", time.time())
-                    min_hold = MIN_HOLD_SECONDS.get(style, 300)
+                    min_hold = (cfg.get("min_hold_seconds") or {}).get(
+                        style, MIN_HOLD_SECONDS.get(style, 300))
                     if hold_time < min_hold:
                         if int(hold_time) % 60 == 0:
                             log("HOLD", f"#{rec['ticket']} reversal blocked — held {int(hold_time)}s, min {min_hold}s")
@@ -611,8 +662,14 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             state["active_direction"] = remaining[-1]["direction"] if remaining else None
             state["last_known_pnl"] = remaining[-1]["last_pnl"] if remaining else 0.0
 
-            # 5. ENTRY — only if slots remain for this style (multi-entry)
-            if len(remaining) < MAX_POSITIONS.get(style, 1):
+            # 5. ENTRY — only if slots remain (multi-trading configurable dari UI)
+            multi_enabled = cfg.get("multi_trading", True)
+            if multi_enabled:
+                max_pos = (cfg.get("max_positions") or {}).get(
+                    style, MAX_POSITIONS.get(style, 1))
+            else:
+                max_pos = 1
+            if len(remaining) < max_pos:
                 # Cooldown between trade actions (entry/exit) — 1 menit
                 if not (state.get("last_trade_at")
                         and (time.time() - state["last_trade_at"]) < COOLDOWN_SECONDS):

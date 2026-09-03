@@ -61,12 +61,36 @@ TIMEFRAME_MAP = {
     'H1': 16385, 'H4': 16388, 'D1': 16408, 'W1': 32769, 'MN1': 49153,
 }
 
-def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200):
+# Durasi 1 bar per timeframe (menit) untuk jendela copy_rates_range.
+TF_MINUTES = {
+    'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30,
+    'H1': 60, 'H4': 240, 'D1': 1440, 'W1': 10080, 'MN1': 43200,
+}
+
+def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200,
+                frm: int = 0, to: int = 0):
+    """
+    Candle data. Tanpa frm/to: count bar terakhir (termasuk bar forming),
+    sama seperti sebelumnya. Dengan frm/to (epoch detik): rentang historis
+    via copy_rates_range — untuk backtest. Read-only.
+    """
     if not MT5_CONNECTED or not mt5:
         return {'connected': False, 'error': 'not connected'}
     try:
         tf = TIMEFRAME_MAP.get(timeframe_str.upper(), 16385)
-        rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+        from datetime import datetime, timedelta
+        if frm and to:
+            rates = mt5.copy_rates_range(symbol, tf,
+                                         datetime.fromtimestamp(frm),
+                                         datetime.fromtimestamp(to))
+        else:
+            # copy_rates_from_pos(0) pada terminal ini mengembalikan bar dengan
+            # epoch meleset (+3 jam) — sinyal engine jadi dihitung dari data basi.
+            # Pakai jendela waktu absolut agar selalu data terbaru yang benar.
+            to_dt = datetime.now()
+            mins = TF_MINUTES.get(timeframe_str.upper(), 5)
+            frm_dt = to_dt - timedelta(minutes=count * mins + mins)
+            rates = mt5.copy_rates_range(symbol, tf, frm_dt, to_dt)
         if rates is None or len(rates) == 0:
             return {'connected': True, 'symbol': symbol, 'candles': [], 'error': 'no data'}
         candles = []
@@ -287,7 +311,9 @@ class MT5Handler(BaseHTTPRequestHandler):
             symbol = params.get('symbol', ['XAUUSD'])[0]
             timeframe_str = params.get('timeframe', ['H1'])[0]
             count = int(params.get('count', ['200'])[0])
-            data = get_candles(symbol, timeframe_str, count)
+            frm = int(params.get('from', ['0'])[0])
+            to = int(params.get('to', ['0'])[0])
+            data = get_candles(symbol, timeframe_str, count, frm, to)
         elif path == '/health':
             data = {'status': 'ok', 'mt5_connected': MT5_CONNECTED}
         elif path == '/deals':
