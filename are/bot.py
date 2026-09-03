@@ -238,6 +238,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "last_trailing_sl": None,
             "last_atr": None,
             "last_known_pnl": 0.0,
+            "trade_history": [],
         }
 
     # Get starting balance
@@ -290,6 +291,14 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                         state["active_ticket"] = None
                         state["active_direction"] = None
                         state["last_trade_at"] = time.time()
+                        # Record trade history
+                        state.setdefault("trade_history", []).append({
+                            "ticket": ticket, "direction": direction,
+                            "entry": my_pos.get("price_open", 0), "exit": my_pos.get("price_current", 0),
+                            "lot": my_pos.get("volume", 0), "pnl": round(pnl, 2),
+                            "close_reason": "reversal",
+                            "closed_at": datetime.now(timezone.utc).isoformat(),
+                        })
                         log("CLOSED", f"#{ticket} P&L: ${pnl:.2f} daily: ${state['daily_pnl']:.2f}")
                     else:
                         log("CLOSE_FAILED", f"#{ticket}: {result}")
@@ -302,6 +311,14 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     last_pnl = state.get("last_known_pnl", 0)
                     state["daily_pnl"] += last_pnl
                     state["trade_count"] += 1
+                    # Record trade history
+                    state.setdefault("trade_history", []).append({
+                        "ticket": state["active_ticket"], "direction": state["active_direction"],
+                        "entry": 0, "exit": 0,
+                        "lot": 0, "pnl": round(last_pnl, 2),
+                        "close_reason": "tp_sl",
+                        "closed_at": datetime.now(timezone.utc).isoformat(),
+                    })
                     log("TP_SL", f"Position #{state['active_ticket']} closed (TP/SL hit) P&L: ${last_pnl:.2f} daily: ${state['daily_pnl']:.2f}")
                     state["active_ticket"] = None
                     state["active_direction"] = None
