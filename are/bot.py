@@ -174,6 +174,38 @@ def log(action: str, details: str = ""):
         pass
 
 
+# ─── PROCESS LOCK (single instance per style) ─────────────────────────────────
+
+def is_process_alive(pid: int) -> bool:
+    """Check if a process is alive (works on Windows via os.kill(pid, 0))."""
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_single_instance_lock(style: str) -> bool:
+    """
+    Ensure only ONE bot process runs per style.
+    Returns True if this process owns the style, False if another bot is alive.
+    """
+    pid_file = get_pid_file(style)
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text().strip() or 0)
+        except ValueError:
+            old_pid = 0
+        if old_pid and old_pid != os.getpid() and is_process_alive(old_pid):
+            log("ALREADY_RUNNING", f"Bot [{style}] already running (PID {old_pid}) — refusing duplicate instance")
+            return False
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
+    return True
+
+
 # ─── MT5 BRIDGE WRAPPERS (fail-closed) ────────────────────────────────────────
 
 def get_positions(symbol: str = "XAUUSD") -> list:
@@ -378,11 +410,12 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     magic = MAGIC_NUMBERS.get(style, 0)
     pid_file = get_pid_file(style)
 
-    log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x")
+    # Single-instance lock: refuse to run if another bot for this style is alive.
+    if not acquire_single_instance_lock(style):
+        log("EXIT", f"Duplicate bot for style={style} — exiting")
+        return
 
-    # Write PID (per-style)
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(os.getpid()))
+    log("START", f"symbol={symbol} style={style} risk={risk}% magic={magic} trailing_atr={trailing_atr}x")
 
     # Load or initialize state
     state = load_state(style)
