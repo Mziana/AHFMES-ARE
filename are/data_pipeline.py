@@ -220,7 +220,9 @@ class DataPurifier:
             data_end_ts=float(ts_arr[-1]) if ts_arr else 0.0,
         )
 
-        return df.select([
+        # P0-2: pertahankan OHLC bila tersedia — next_bar_open membutuhkan open(t+1).
+        # Kolom sintetis (bid/ask/volume/spread) tetap diberi label di quality report.
+        _out_cols = [
             "timestamp",
             "bid",
             "ask",
@@ -229,4 +231,8 @@ class DataPurifier:
             "spread",
             "is_toxic_spread",
             "is_market_closed",
-        ])
+        ]
+        for _ohlc in ("open", "high", "low", "close"):
+            if _ohlc in df.columns:
+                _out_cols.append(_ohlc)
+        return df.select(_out_cols)

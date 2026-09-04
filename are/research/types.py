@@ -112,6 +112,7 @@ class BacktestRun:
 
     # Evidence chain
     holdout_evidence: Optional[Dict[str, Any]] = None  # HoldoutEvidence.to_dict()
+    holdout_invalid_reason: Optional[str] = None  # WFO tanpa winner (param dideklarasikan) -> holdout INVALID
     evidence_binding: Optional[Dict[str, Any]] = None  # EvidenceBinding.to_dict()
 
     # Artifact

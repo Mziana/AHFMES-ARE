@@ -92,6 +92,7 @@ class WFOStage:
                 spread_pct=em.spread_pct,
                 slippage_pct=em.slippage_pct,
                 commission_pct=em.commission_pct,
+                execution_model=em,
                 train_window_bars=config.wfo_train_window_bars,
                 test_window_bars=config.wfo_test_window_bars,
                 step_bars=config.wfo_step_bars,

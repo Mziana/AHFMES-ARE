@@ -35,6 +35,7 @@ from are.research.integrity import (
     LeakageFirewall,
     HoldoutManager,
     HoldoutEvaluationEngine,
+    resolve_holdout_selected_params,
     EvidenceBinding,
     compute_canonical_dataset_hash,
 )
@@ -265,48 +266,58 @@ class BacktestOrchestrator:
             # Stage 9b: HOLDOUT EVALUATION (before gate)
             holdout_evidence = None
             if split_id:
-                selected_params = {}
-                if run.wfo_result:
-                    folds = run.wfo_result.get('folds', [])
-                    if folds:
-                        last_fold = folds[-1] if isinstance(folds[-1], dict) else {}
-                        selected_params = last_fold.get('winner_params', {})
-                if not selected_params:
-                    selected_params = {'lookback': 20}
-
-                holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
-                holdout_split_obj = holdout_mgr.get_split(split_id)
-                split_hash_val = holdout_split_obj.holdout_hash if holdout_split_obj else ""
-
-                holdout_evidence = HoldoutEvaluationEngine.evaluate(
-                    strategy_logic=strategy_logic,
-                    holdout_df=holdout_df,
-                    selected_params=selected_params,
-                    initial_capital=em.initial_capital,
-                    timeframe_seconds=3600.0,
-                    spread_pct=em.spread_pct,
-                    slippage_pct=em.slippage_pct,
-                    commission_pct=em.commission_pct,
-                    run_id=run.run_id,
-                    split_id=split_id,
-                    dataset_hash=run.dataset_hash,
-                    split_hash=split_hash_val,
-                    strategy_hash=config.strategy.source_hash,
-                    wfo_provenance_hash=run.provenance_hash,
+                # P0-1: parameter holdout = winner WFO (fold terakhir). TIDAK ada
+                # fallback rekaan. Bila parameter dideklarasikan tapi WFO tidak
+                # menghasilkan winner, holdout TIDAK dievaluasi -> INVALID.
+                has_params = bool(
+                    config.parameter_grid
+                    and config.parameter_grid.param_names
                 )
+                selected_params = resolve_holdout_selected_params(run.wfo_result, has_params)
 
-                run.holdout_evaluated = True
-                holdout_mgr.evaluate_holdout(split_id)
+                if selected_params is None:
+                    run.holdout_evaluated = False
+                    run.holdout_evidence = None
+                    run.holdout_invalid_reason = (
+                        "HOLDOUT_INVALID: WFO tidak menghasilkan fold winner "
+                        "(wfo_result kosong / winner_params hilang) padahal parameter "
+                        "dideklarasikan -- holdout TIDAK dievaluasi dengan parameter rekaan."
+                    )
+                else:
+                    holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
+                    holdout_split_obj = holdout_mgr.get_split(split_id)
+                    split_hash_val = holdout_split_obj.holdout_hash if holdout_split_obj else ""
 
-                param_hash = compute_sha256(json.dumps(sorted(selected_params.items())).encode())
-                run.evidence_binding = EvidenceBinding(
-                    run_id=run.run_id,
-                    dataset_hash=run.dataset_hash,
-                    strategy_hash=config.strategy.source_hash,
-                    parameter_hash=param_hash,
-                    wfo_provenance_hash=run.provenance_hash,
-                    holdout_provenance_hash=holdout_evidence.provenance_hash,
-                )
+                    holdout_evidence = HoldoutEvaluationEngine.evaluate(
+                        strategy_logic=strategy_logic,
+                        holdout_df=holdout_df,
+                        selected_params=selected_params,
+                        initial_capital=em.initial_capital,
+                        timeframe_seconds=3600.0,
+                        spread_pct=em.spread_pct,
+                        slippage_pct=em.slippage_pct,
+                        commission_pct=em.commission_pct,
+                        execution_model=em,
+                        run_id=run.run_id,
+                        split_id=split_id,
+                        dataset_hash=run.dataset_hash,
+                        split_hash=split_hash_val,
+                        strategy_hash=config.strategy.source_hash,
+                        wfo_provenance_hash=run.provenance_hash,
+                    )
+
+                    run.holdout_evaluated = True
+                    holdout_mgr.evaluate_holdout(split_id)
+
+                    param_hash = compute_sha256(json.dumps(sorted(selected_params.items())).encode())
+                    run.evidence_binding = EvidenceBinding(
+                        run_id=run.run_id,
+                        dataset_hash=run.dataset_hash,
+                        strategy_hash=config.strategy.source_hash,
+                        parameter_hash=param_hash,
+                        wfo_provenance_hash=run.provenance_hash,
+                        holdout_provenance_hash=holdout_evidence.provenance_hash,
+                    )
 
             run.holdout_evidence = holdout_evidence.to_dict() if holdout_evidence is not None else None
 

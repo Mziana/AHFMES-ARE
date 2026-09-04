@@ -23,6 +23,24 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from are.learning import (
+        record_open as learning_record_open,
+        record_close as learning_record_close,
+        fingerprint_from_decision as learning_fp_from_dec,
+    )
+except ImportError:
+    from learning import (  # bila dijalankan: python are/bot.py
+        record_open as learning_record_open,
+        record_close as learning_record_close,
+        fingerprint_from_decision as learning_fp_from_dec,
+    )
+
+try:
+    from are.shadow_ab import tick as shadow_tick
+except ImportError:
+    from shadow_ab import tick as shadow_tick
+
 # ─── EXCEPTIONS ──────────────────────────────────────────────────────────────
 
 class BridgeError(Exception):
@@ -50,7 +68,7 @@ LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 
 DECISION_API = "http://localhost:4028/api/are/decision"
 MT5_BRIDGE = "http://127.0.0.1:18888"
-POLL_INTERVAL = 5  # seconds
+POLL_INTERVAL = 1  # seconds — engine dipanggil tiap detik (analyzeMarket punya cache 2 detik)
 COOLDOWN_SECONDS = 60  # default jeda antar entri (multi-entry) — bisa diubah dari UI
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
 
@@ -431,6 +449,12 @@ def record_closed_trade(state: dict, ticket, direction, entry, exit_, lot, pnl, 
     })
     state["last_trade_at"] = time.time()
 
+    # Learning Memory (Fase 1): catat outcome ke trade_memory.jsonl + bucket agregat.
+    try:
+        learning_record_close(state.get("style") or "?", ticket, pnl, reason)
+    except Exception:
+        pass
+
 
 # ─── TRAILING STOP ────────────────────────────────────────────────────────────
 
@@ -493,6 +517,46 @@ def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict, symbol: st
 
 # ─── MAIN BOT LOOP ───────────────────────────────────────────────────────────
 
+def classify_entry_rejection(reason: str) -> str:
+    """Kategorikan alasan WAIT dari engine menjadi key ringkas utk riwayat penolakan."""
+    r = (reason or "").lower()
+    if "risk:reward" in r or "terlalu rendah" in r:
+        return "rr"
+    if "konfirmasi" in r:
+        return "mtf"
+    if "sesi" in r:
+        return "session"
+    if "melawan" in r:  # "melawan trend ..." (lama) / "melawan bias ..." (baru)
+        return "trend"
+    if "memori" in r:
+        return "memory"
+    if "pola:" in r:
+        return "candle"
+    if "basi" in r:
+        return "stale"
+    if "signal" in r:
+        return "neutral"
+    # Alasan skor arah TA ("TA: master ... skor 1/5 (butuh >= 3 ...)") -
+    # beri kategori tersendiri, jangan jatuh ke 'other' ('lain' di panel).
+    if "skor" in r or "butuh" in r or r.startswith("ta:"):
+        return "ta"
+    return "other"
+
+
+def record_entry_rejection(state: dict, key: str, detail: str, dec: dict):
+    """Catat satu penolakan entry ke state (sumber kebenaran yang ditampilkan UI)."""
+    rej = state.setdefault("rejections", {"total": 0, "by_reason": {}, "last": None})
+    rej["total"] = rej.get("total", 0) + 1
+    by = rej.setdefault("by_reason", {})
+    by[key] = by.get(key, 0) + 1
+    rej["last"] = {
+        "at": time.time(),
+        "key": key,
+        "detail": detail,
+        "signal": dec.get("finalSignal"),
+    }
+
+
 def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailing_atr: float = 0):
     global running
 
@@ -534,7 +598,24 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "last_atr": None,
             "last_known_pnl": 0.0,
             "trade_history": [],
+            "rejections": {"total": 0, "by_reason": {}, "last": None},
+            "next_check_at": None,
         }
+
+    # Key riwayat/telemetri aman bila state lama (take-over / versi sebelumnya)
+    state.setdefault("rejections", {"total": 0, "by_reason": {}, "last": None})
+    state.setdefault("next_check_at", None)
+
+    # P0: counter penolakan PER-SESI. Angka historis lintas sesi menyesatkan
+    # (mis. 862x "lot kecil" dari minggu lalu). Total sesi sebelumnya disimpan
+    # utk audit (rejections_prev), lalu di-reset.
+    _prev_rej = state.get("rejections") or {"total": 0, "by_reason": {}, "last": None}
+    state["rejections_prev"] = {
+        "total": _prev_rej.get("total", 0),
+        "by_reason": dict(_prev_rej.get("by_reason") or {}),
+    }
+    state["rejections"] = {"total": 0, "by_reason": {}, "last": None}
+    state["rejections_reset_at"] = datetime.now(timezone.utc).isoformat()
 
     # Get starting balance (fail-closed)
     try:
@@ -593,8 +674,16 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 "slPoints": dec.get("slPoints", 0),
                 "tpPoints": dec.get("tpPoints", 0),
                 "lotSize": dec.get("lotSize", 0),
+                "slTpSource": dec.get("slTpSource", "auto"),
                 "timeframeSignals": dec.get("timeframeSignals") or {},
+                "taSnapshot": dec.get("taSnapshot") or None,
             }
+
+            # 1c. Shadow A/B: lacak 'seandainya tanpa gate candle' (paper, micro & scalp)
+            try:
+                shadow_tick(style, dec, time.time())
+            except Exception:
+                pass  # shadow tidak boleh mengganggu loop utama
 
             # 2. Get positions from broker (fail-closed)
             positions = get_positions(symbol)
@@ -680,12 +769,33 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                             break
 
                     # Check entry conditions
-                    min_rr = dec.get("minRR") or 1.5  # micro: 0.4 (TP cepat tetap)
-                    if (dec["decision"] != "WAIT"
-                            and dec["mtfConfirmed"]
-                            and dec["inSession"]
-                            and dec["rr"] >= min_rr
-                            and dec["lotSize"] >= 0.01):
+                    # minRR 0 (micro) = tanpa ambang R:R — TP tetap 150, SL 1.0xATR
+                    min_rr = dec.get("minRR")
+                    if min_rr is None:
+                        min_rr = 1.5
+                    can_enter = (dec["decision"] != "WAIT"
+                                 and dec["mtfConfirmed"]
+                                 and dec["inSession"]
+                                 and dec["rr"] >= min_rr
+                                 and dec["lotSize"] >= 0.01)
+                    if not can_enter:
+                        # Riwayat penolakan entry (sumber kebenaran: state bot, ditampilkan UI)
+                        if dec["decision"] == "WAIT":
+                            _reason = str(dec.get("decisionReason") or "Tidak ada alasan")
+                            record_entry_rejection(state, classify_entry_rejection(_reason), _reason, dec)
+                        elif dec["rr"] < min_rr:
+                            record_entry_rejection(state, "rr",
+                                                   f"R:R {dec.get('rr', 0):.2f} < min {min_rr} (gate bot)", dec)
+                        elif not dec.get("mtfConfirmed"):
+                            record_entry_rejection(state, "mtf",
+                                                   "MTF belum konfirmasi (gate bot)", dec)
+                        elif not dec.get("inSession"):
+                            record_entry_rejection(state, "session",
+                                                   "di luar sesi trading (gate bot)", dec)
+                        else:
+                            record_entry_rejection(state, "lot",
+                                                   f"lotSize {dec.get('lotSize', 0)} < 0.01", dec)
+                    if can_enter:
                         style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
                         sl_pts = max(dec["slPoints"], style_min_sl)
                         tp_pts = max(dec["tpPoints"], style_min_sl)
@@ -709,6 +819,15 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                             state["active_direction"] = dec["decision"]
                             state["last_trade_at"] = time.time()
                             log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots (magic={magic})")
+                            # Learning Memory (Fase 1): simpan fingerprint kondisi entri.
+                            try:
+                                _fp = learning_fp_from_dec(style, dec)
+                                learning_record_open(
+                                    style, result.get("ticket"), dec["decision"], _fp,
+                                    entry=result.get("price", dec.get("entry", 0)),
+                                    lot=dec["lotSize"], sl_points=sl_pts, tp_points=tp_pts)
+                            except Exception as _e:
+                                log("MEMORY_ERR", f"open: {_e}")
                         except OrderRejected as e:
                             log("OPEN_FAILED", f"{e}")
                             state["last_trade_at"] = time.time()
@@ -722,6 +841,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             log("BRIDGE_ERROR", str(e))
         except Exception as e:
             log("ERROR", str(e))
+
+        # Heartbeat telemetri: kapan bot akan minta keputusan/cek entry berikutnya
+        # (poll 5 dtk). Ditulis tiap akhir iterasi — UI hitung mundur dari sini.
+        state["next_check_at"] = time.time() + POLL_INTERVAL
+        save_state(state, style)
 
         time.sleep(POLL_INTERVAL)
 
