@@ -680,10 +680,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                             break
 
                     # Check entry conditions
+                    min_rr = dec.get("minRR") or 1.5  # micro: 0.4 (TP cepat tetap)
                     if (dec["decision"] != "WAIT"
                             and dec["mtfConfirmed"]
                             and dec["inSession"]
-                            and dec["rr"] >= 1.5
+                            and dec["rr"] >= min_rr
                             and dec["lotSize"] >= 0.01):
                         style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
                         sl_pts = max(dec["slPoints"], style_min_sl)
