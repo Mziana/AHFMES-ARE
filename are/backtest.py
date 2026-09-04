@@ -62,6 +62,7 @@ class IsolatedBacktestEngine:
         slippage_pct: float = 0.00005,   # 0.5 bps default execution slippage (0.005%)
         commission_pct: float = 0.00005, # 0.5 bps default broker fee (0.005%)
         synthetic: bool = False,          # Explicit opt-in for synthetic test data
+        execution_model: Optional[Any] = None,  # P0-2: ExecutionModel duck-typed. None = legacy close-to-close.
     ) -> BacktestResult:
         """
         Executes a vectorized backtest computation over historical market data.
@@ -214,13 +215,55 @@ class IsolatedBacktestEngine:
                 pl.when(blocked_cond).then(pl.lit(0.0)).otherwise(pl.col("signal")).alias("signal")
             )
 
-        # 2. Vectorized P&L, Turnover, and Microstructure Friction (RES-RED-10)
-        unit_friction = (0.5 * spread_pct) + slippage_pct + commission_pct
+        # 2. Vectorized P&L - EXECUTION MODEL DRIVEN (P0-2)
+        #    execution_model=None (legacy): return close[t-1] -> close[t] (pct_change + shift),
+        #    friction dari argumen konstanta.
+        #    execution_model.signal_timing='next_bar_open': sinyal di close(t), order di-fill
+        #    di OPEN(t+1) - bar entry r = prev_signal*(close/open - 1), bar lanjutan
+        #    r = prev_signal*(close/prev_close - 1). Spread/slippage/commission DIAMBIL dari model.
+        use_next_bar_open = bool(
+            execution_model is not None
+            and str(getattr(execution_model, "signal_timing", "")).lower() == "next_bar_open"
+        )
+        eff_spread = float(getattr(execution_model, "spread_pct", spread_pct)) if execution_model is not None else spread_pct
+        eff_slippage = float(getattr(execution_model, "slippage_pct", slippage_pct)) if execution_model is not None else slippage_pct
+        eff_commission = float(getattr(execution_model, "commission_pct", commission_pct)) if execution_model is not None else commission_pct
+
+        if use_next_bar_open and "open" not in df.columns:
+            raise ValueError(
+                "EXECUTION_CONTRACT_VIOLATION: execution_model.signal_timing='next_bar_open' "
+                "but purified data has no 'open' column - cannot fill at open(t+1). "
+                "Provide OHLC data or declare signal_timing='same_bar_close'."
+            )
+
+        unit_friction = (0.5 * eff_spread) + eff_slippage + eff_commission
 
         df = df.with_columns([
-            (pl.col("price").pct_change()).fill_null(0.0).alias("price_return"),
             pl.col("signal").shift(1).fill_null(0.0).alias("prev_signal"),
-        ]).with_columns([
+            pl.col("price").alias("fill_price"),
+            pl.col("price").alias("_open_next"),  # default: harga close (legacy). Model menimpanya dgn open(t+1).
+        ])
+
+        if use_next_bar_open:
+            df = df.with_columns([
+                (pl.col("prev_signal") != 0.0).alias("_active"),
+            ]).with_columns([
+                (pl.col("_active") & (~pl.col("_active").shift(1).fill_null(False))).alias("_entry_bar"),
+            ]).with_columns([
+                pl.col("open").shift(-1).alias("_open_next_bar"),
+            ]).with_columns([
+                pl.when(pl.col("_entry_bar")).then(pl.col("open")).otherwise(pl.col("price").shift(1)).alias("_base_price"),
+                pl.when(pl.col("_entry_bar")).then(pl.col("open")).otherwise(pl.col("fill_price")).alias("fill_price"),
+                pl.col("_open_next_bar").fill_null(pl.col("_open_next")).alias("_open_next"),
+            ]).with_columns([
+                ((pl.col("price") / pl.col("_base_price")) - 1.0).fill_null(0.0).alias("price_return"),
+            ])
+        else:
+            df = df.with_columns([
+                (pl.col("price").pct_change()).fill_null(0.0).alias("price_return"),
+            ])
+
+        df = df.with_columns([
             (pl.col("signal") - pl.col("prev_signal")).abs().alias("turnover"),
             (pl.col("prev_signal") * pl.col("price_return")).alias("gross_strategy_return"),
         ]).with_columns([
@@ -228,7 +271,6 @@ class IsolatedBacktestEngine:
         ]).with_columns([
             (pl.col("gross_strategy_return") - pl.col("friction_penalty")).alias("strategy_return")
         ])
-
         # 3. Cumulative Equity Curve (Net of Frictions)
         df = df.with_columns([
             (pl.lit(initial_capital) * (1.0 + pl.col("strategy_return")).cum_prod()).alias("equity")
@@ -247,7 +289,7 @@ class IsolatedBacktestEngine:
         ).select([
             pl.col("timestamp"),
             pl.when(pl.col("signal") > 0).then(pl.lit("BUY")).otherwise(pl.lit("SELL")).alias("action"),
-            pl.col("price"),
+            pl.when(pl.col("_open_next").is_not_null()).then(pl.col("_open_next")).otherwise(pl.col("fill_price")).alias("price"),
             (pl.col("equity") - pl.col("equity").shift(1)).fill_null(0.0).alias("pnl"),
             pl.col("equity"),
         ])
@@ -293,9 +335,9 @@ class IsolatedBacktestEngine:
             "gross_return_pct": gross_return_pct,
             "total_turnover_count": total_turnover_count,
             "total_friction_cost_pct": total_friction_cost_pct,
-            "spread_pct": spread_pct,
-            "slippage_pct": slippage_pct,
-            "commission_pct": commission_pct,
+            "spread_pct": eff_spread,
+            "slippage_pct": eff_slippage,
+            "commission_pct": eff_commission,
             "max_drawdown": round(max_drawdown_pct, 4),
             "max_drawdown_pct": round(max_drawdown_pct * 100.0, 2),
             "sharpe_ratio": round(sharpe_ratio, 4),
@@ -309,12 +351,32 @@ class IsolatedBacktestEngine:
             "purified_dataset_hash": purified_dataset_hash,
             # P0-1: Purification audit trail
             "purification_report": purification_report,
-            # P0-4: Execution semantics
-            "signal_timing": "next_bar_close",  # Signal at close[t], return measured close[t] to close[t+1]
-            "entry_price": "close",  # P&L based on close-to-close returns
-            "position_model": "continuous",
-            "fill_guarantee": "guaranteed",
+            # P0-2: Execution semantics - selalu mengikuti model yang dipakai.
+            #   execution_model=None  -> jalur legacy close-to-close (label jujur).
+            #   execution_model set    -> atribut model (signal_timing, entry/exit price type, dst).
+            "signal_timing": (str(getattr(execution_model, "signal_timing", "same_bar_close"))
+                              if execution_model is not None else "same_bar_close (close-to-close legacy)"),
+            "entry_price": (str(getattr(execution_model, "entry_price_type", "close"))
+                            if execution_model is not None else "close"),
+            "exit_price": (str(getattr(execution_model, "exit_price_type", "close"))
+                           if execution_model is not None else "close"),
+            "position_model": (str(getattr(execution_model, "position_model", "continuous"))
+                               if execution_model is not None else "continuous"),
+            "order_type": (str(getattr(execution_model, "order_type", "market"))
+                           if execution_model is not None else "market"),
+            "fill_guarantee": (str(getattr(execution_model, "fill_guarantee", "guaranteed"))
+                               if execution_model is not None else "guaranteed"),
+            "spread_model": (str(getattr(execution_model, "spread_model", "synthetic_fixed"))
+                             if execution_model is not None else "synthetic_fixed"),
+            "slippage_model": (str(getattr(execution_model, "slippage_model", "fixed_pct"))
+                               if execution_model is not None else "fixed_pct"),
+            "commission_model": (str(getattr(execution_model, "commission_model", "fixed_pct"))
+                                 if execution_model is not None else "fixed_pct"),
+            "execution_model_id": (str(getattr(execution_model, "model_id", "legacy"))
+                                   if execution_model is not None else "legacy_close_to_close"),
+            "filled_at_open_next_bar": use_next_bar_open,
         }
+
 
         equity_curve = df.select(["timestamp", "price", "signal", "equity", "drawdown", "strategy_return"])
         return BacktestResult(equity_curve=equity_curve, trade_log=trade_df, metrics=metrics)
@@ -542,6 +604,7 @@ class IsolatedBacktestEngine:
         spread_pct: float = 0.0001,
         slippage_pct: float = 0.00005,
         commission_pct: float = 0.00005,
+        execution_model: Optional[Any] = None,  # P0-2: forwarded ke run_backtest per fold.
     ) -> WFOEvidence:
         """
         True Walk-Forward Optimization (WFO) with in-sample parameter fitting,
@@ -596,6 +659,7 @@ class IsolatedBacktestEngine:
                     spread_pct=spread_pct,
                     slippage_pct=slippage_pct,
                     commission_pct=commission_pct,
+                    execution_model=execution_model,
                 )
                 
                 is_sharpe = float(is_res.metrics.get("sharpe_ratio", 0.0))
@@ -650,6 +714,7 @@ class IsolatedBacktestEngine:
                 spread_pct=spread_pct,
                 slippage_pct=slippage_pct,
                 commission_pct=commission_pct,
+                execution_model=execution_model,
             )
 
             # Score strict OOS portion only (excluding warmup bars)

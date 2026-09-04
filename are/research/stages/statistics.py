@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from typing import Any
 
 from are.research.types import RunStage, StageResult, BacktestRun

@@ -374,6 +374,44 @@ class HoldoutEvidence:
             issues.append('Provenance hash mismatch — evidence tampered')
         return {'valid': len(issues) == 0, 'issues': issues}
 
+# =============================================================================
+# SELECTED-PARAM RESOLUTION (P0-1)
+# =============================================================================
+
+def resolve_holdout_selected_params(
+    wfo_result: Optional[Dict[str, Any]],
+    has_params: bool,
+) -> Optional[Dict[str, Any]]:
+    """Resolve parameter yang sah untuk evaluasi holdout.
+
+    Kontrak P0-1: holdout WAJIB mengevaluasi strategi DENGAN parameter yang sama
+    persis seperti yang dipilih WFO (winner fold terakhir). Parameter TIDAK boleh
+    hanya menjadi metadata/provenance.
+
+    Returns:
+      dict  → parameter pemenang (boleh kosong utk strategi tanpa parameter).
+      None  → parameter dideklarasikan tapi WFO tidak menghasilkan fold winner;
+              holdout TIDAK boleh dievaluasi (pemanggil harus menandai INVALID),
+              dan TIDAK boleh memakai parameter rekaan seperti {'lookback': 20}.
+    """
+    if wfo_result:
+        folds = wfo_result.get('folds') or []
+        if folds:
+            last_fold = folds[-1] if isinstance(folds[-1], dict) else {}
+            wp = last_fold.get('winner_params')
+            if isinstance(wp, dict):
+                return dict(wp)
+            # winner_params hilang/None padahal fold ada:
+            #  - strategi tanpa parameter → sah dievaluasi tanpa parameter.
+            #  - parameter dideklarasikan → bukan winner sah → INVALID.
+            if not has_params:
+                return {}
+            return None
+    # Tidak ada wfo_result / fold sama sekali.
+    if not has_params:
+        return {}
+    return None
+
 
 class HoldoutEvaluationEngine:
     """Evaluates strategy on holdout data AFTER WFO selection."""
@@ -388,6 +426,7 @@ class HoldoutEvaluationEngine:
         spread_pct: float = 0.0001,
         slippage_pct: float = 0.00005,
         commission_pct: float = 0.00005,
+        execution_model: Any = None,  # P0-2: ExecutionModel duck-typed -> engine.
         run_id: str = "",
         split_id: str = "",
         dataset_hash: str = "",
@@ -399,7 +438,15 @@ class HoldoutEvaluationEngine:
         from are.backtest import IsolatedBacktestEngine
 
         def parametrized_strategy(df: pl.DataFrame) -> pl.DataFrame:
-            result = strategy_logic(df)
+            # P0-1: parameter terpilih WAJIB benar-benar membentuk strategi yang
+            # dievaluasi (bukan sekadar metadata). Injeksi identik dengan WFO:
+            # kolom `_param_<name>` berisi nilai parameter.
+            df_with_params = df
+            for k, v in (selected_params or {}).items():
+                df_with_params = df_with_params.with_columns(
+                    pl.lit(v).alias(f"_param_{k}")
+                )
+            result = strategy_logic(df_with_params)
             if 'signal' not in result.columns:
                 raise ValueError('Strategy did not produce signal column on holdout data')
             return result
@@ -413,6 +460,7 @@ class HoldoutEvaluationEngine:
             spread_pct=spread_pct,
             slippage_pct=slippage_pct,
             commission_pct=commission_pct,
+            execution_model=execution_model,
         )
 
         metrics = result.metrics

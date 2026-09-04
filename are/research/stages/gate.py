@@ -51,6 +51,23 @@ class GateStage:
                 started_at=t0, completed_at=time.time(), data=gate,
             )
 
+        # P0-1: WFO tidak menghasilkan winner (parameter dideklarasikan) -> holdout
+        # tidak dievaluasi dengan parameter rekaan. Gate = INVALID, bukan FAIL/BORDERLINE.
+        invalid_reason = getattr(run, "holdout_invalid_reason", None)
+        if invalid_reason:
+            gate = {
+                "decision": "INVALID",
+                "checks": [{"check": "holdout_wfo_winner", "pass": False,
+                             "value": "no wfo winner -> holdout skipped (no fabricated params)"}],
+                "passed": 0, "failed": 1, "total": 1,
+                "reason": invalid_reason,
+            }
+            run.final_gate = gate
+            return StageResult(
+                stage="final_gate", status=RunStage.FAILED,
+                started_at=t0, completed_at=time.time(), data=gate,
+            )
+
         is_sharpe = stats.get("wfe", 0.0) * oos_sharpe if stats.get("wfe", 0) > 0 else 0.0
 
         best_baseline_sharpe = max(
