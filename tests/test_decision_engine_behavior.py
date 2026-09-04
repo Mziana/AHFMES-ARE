@@ -96,11 +96,13 @@ if __name__ == "__main__":
             check(f"{style}: slPoints > 0", d.get("slPoints", 0) > 0)
             check(f"{style}: tpPoints > 0", d.get("tpPoints", 0) > 0)
             check(f"{style}: rr >= 1.0", d.get("rr", 0) >= 1.0)
-    # Micro has tiny ATR on M1 — slPoints can legitimately be 0
+    # Micro kini entri M5+M15 seperti scalp, SL 1.0xATR(M5), TP TETAP 150 poin,
+    # minRR 0.4 (TP cepat — bukan 2.0xATR lagi, jadi rr bisa < 1.0)
     d_micro = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style=micro&risk=1")
     if d_micro.get("decision") not in ("WAIT", "NEUTRAL"):
-        check("micro: tpPoints > 0", d_micro.get("tpPoints", 0) > 0)
-        check("micro: rr >= 1.0", d_micro.get("rr", 0) >= 1.0)
+        check("micro: tpPoints == 150 (fixed TP)", d_micro.get("tpPoints", 0) == 150)
+        check("micro: slPoints > 0", d_micro.get("slPoints", 0) > 0)
+        check("micro: rr >= 0.4 (minRR micro)", d_micro.get("rr", 0) >= 0.4)
 
     # TEST 6: Validation
     print("\n=== TEST 6: Trade execute validation ===")
