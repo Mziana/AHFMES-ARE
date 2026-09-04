@@ -79,24 +79,28 @@ def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200,
     try:
         tf = TIMEFRAME_MAP.get(timeframe_str.upper(), 16385)
         from datetime import datetime, timedelta
+        import time as _time
+        offset = 0  # selisih jam server (epoch bar) vs UTC real — dinormalisasi
         if frm and to:
             rates = mt5.copy_rates_range(symbol, tf,
                                          datetime.fromtimestamp(frm),
                                          datetime.fromtimestamp(to))
         else:
-            # copy_rates_from_pos(0) pada terminal ini mengembalikan bar dengan
-            # epoch meleset (+3 jam) — sinyal engine jadi dihitung dari data basi.
-            # Pakai jendela waktu absolut agar selalu data terbaru yang benar.
-            to_dt = datetime.now()
-            mins = TF_MINUTES.get(timeframe_str.upper(), 5)
-            frm_dt = to_dt - timedelta(minutes=count * mins + mins)
-            rates = mt5.copy_rates_range(symbol, tf, frm_dt, to_dt)
+            # Jalur DEFAULT: copy_rates_from_pos. Pada terminal ini (Finex demo)
+            # copy_rates_range TERBUKTI beku (history berhenti walau tick hidup),
+            # sedangkan copy_rates_from_pos selalu segar. Epoch bar dari jalur ini
+            # memakai jam server (UTC+3) — dinormalisasi ke UTC real agar
+            # freshness engine (Date.now) dan sumbu waktu chart tetap benar.
+            rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is not None:
+                offset = int(tick.time - _time.time())
         if rates is None or len(rates) == 0:
             return {'connected': True, 'symbol': symbol, 'candles': [], 'error': 'no data'}
         candles = []
         for r in rates:
             candles.append({
-                'time': int(r['time']),
+                'time': int(r['time']) - offset,
                 'open': round(r['open'], 5),
                 'high': round(r['high'], 5),
                 'low': round(r['low'], 5),
