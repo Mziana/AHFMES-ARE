@@ -433,7 +433,7 @@ def handle_dashboard(args: argparse.Namespace) -> int:
 def handle_backtest(args: argparse.Namespace) -> int:
     """Run backtest or WFO analysis."""
     import json as _json
-    from are.backtest_enhanced import EnhancedBacktestEngine
+    from are.backtest_enhanced import EnhancedBacktestEngine, CumulativeTrialTracker
     engine = EnhancedBacktestEngine()
 
     if args.bt_command == "run":
@@ -516,6 +516,11 @@ def handle_backtest(args: argparse.Namespace) -> int:
         import math, time as _time
         from are.strategy_engine import load_strategy_from_config
 
+        # P3-20: CumulativeTrialTracker — lapisan pelaporan lintas-sesi untuk
+        # DSR jujur. Instantiate di awal branch; catat SATU sesi di titik
+        # sukses (write-once, bukan per-fold, bukan double-count).
+        tracker = CumulativeTrialTracker()
+
         # Load real OHLC data
         try:
             df = ensure_data_loaded(args.symbol, args.timeframe, args.start, args.end)
@@ -587,6 +592,16 @@ def handle_backtest(args: argparse.Namespace) -> int:
             label_horizon_bars=1,
             initial_capital=args.capital,
             timeframe_seconds=3600.0,
+        )
+
+        # P3-20: catat sesi WFO ke tracker (multiple-testing honesty lintas
+        # sesi). Write-once di titik sukses. effective_trial_count per-run
+        # (== parameter_family_size) TIDAK diubah — tracker hanya menambah
+        # lapisan pelaporan; perhitungan DSR tetap di evaluate_dsr_from_evidence.
+        tracker.record_session(
+            args.symbol,
+            wfo_result.effective_trial_count,
+            wfo_result.pooled_oos_sharpe,
         )
         print(f"\nWFO COMPLETE -- {strategy_id}, {args.folds} folds, {len(param_grid)} combos")
         print(f"  Pooled OOS Sharpe : {wfo_result.pooled_oos_sharpe:.3f}")
