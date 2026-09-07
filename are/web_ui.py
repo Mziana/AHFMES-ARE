@@ -229,6 +229,27 @@ _GLOBAL_SERVER_STATE: Optional[AREServerState] = None
 class AREAPIHandler(http.server.BaseHTTPRequestHandler):
     """HTTP Request Handler routing REST API endpoints and static assets."""
 
+    # P2-13: guard komputasi berat — maksimal SATU heavy op (run-cycle /
+    # backtest / WFO) pada satu waktu; request lain dapat 503 (fail-fast,
+    # bukan antrean yang memakan memori). Input WFO di-clamp ketat.
+    _HEAVY_SEMAPHORE = threading.Semaphore(1)
+    _MAX_PAYLOAD_BYTES = 1_000_000  # 1 MB
+
+    def _heavy_guard(self):
+        """Coba klaim slot heavy. False = server sibuk (caller kirim 503)."""
+        return self._HEAVY_SEMAPHORE.acquire(blocking=False)
+
+    def _read_payload(self, max_bytes=None):
+        max_bytes = max_bytes or self._MAX_PAYLOAD_BYTES
+        content_len = int(self.headers.get("Content-Length", 0))
+        if content_len > max_bytes:
+            raise ValueError(f"payload too large: {content_len} > {max_bytes}")
+        post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
+        try:
+            return json.loads(post_data.decode("utf-8")) if post_data else {}
+        except Exception:
+            return {}
+
     def _is_authorized(self) -> bool:
         """Verifies access token using constant-time comparison (ACC-721)."""
         import hmac as _hmac
@@ -381,20 +402,26 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
 
         clean_path = urllib.parse.urlparse(self.path).path
 
-        content_len = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_len) if content_len > 0 else b"{}"
+        # P2-13: payload size limit + tolerant JSON parse
         try:
-            payload = json.loads(post_data.decode("utf-8")) if post_data else {}
-        except Exception:
-            payload = {}
+            payload = self._read_payload()
+        except ValueError as e:
+            self._send_json(413, {"error": str(e)})
+            return
 
         if clean_path == "/api/run-cycle":
-            symbol = payload.get("symbol", "BTCUSD")
+            # P2-13: heavy guard
+            if not self._heavy_guard():
+                self._send_json(503, {"error": "server busy: heavy operation already running"})
+                return
+            symbol = str(payload.get("symbol", "BTCUSD"))[:16]
             try:
                 res = state.run_autonomous_cycle(symbol)
                 self._send_json(200, res)
             except Exception as e:
                 self._send_json(200, {"status": "error", "message": str(e)})
+            finally:
+                self._HEAVY_SEMAPHORE.release()
 
         elif clean_path == "/api/kill-switch":
             active = bool(payload.get("active", True))
@@ -422,11 +449,11 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 from are.artifacts import build_backtest_artifact, save_backtest_artifact
                 import polars as pl, time as _bt_t
                 engine = EnhancedBacktestEngine()
-                symbol = payload.get("symbol", "XAUUSD")
-                timeframe = payload.get("timeframe", "H1")
+                symbol = str(payload.get("symbol", "XAUUSD"))[:16]
+                timeframe = str(payload.get("timeframe", "H1"))[:8]
                 capital = float(payload.get("capital", 100000))
-                start_date = payload.get("start", "2025-01-01")
-                end_date = payload.get("end", "2026-08-01")
+                start_date = str(payload.get("start", "2025-01-01"))[:32]
+                end_date = str(payload.get("end", "2026-08-01"))[:32]
                 # Load REAL parquet data
                 df = load_ohlc_data(symbol, timeframe, start_date, end_date)
                 if len(df) == 0:
@@ -508,14 +535,18 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(e)})
 
         elif clean_path == "/api/backtest/wfo":
+            # P2-13: heavy guard — WFO = komputasi paling mahal
+            if not self._heavy_guard():
+                self._send_json(503, {"error": "server busy: heavy operation already running"})
+                return
             try:
                 from are.backtest_enhanced import EnhancedBacktestEngine
                 from are.data_loader import load_ohlc_data
                 from are.strategy_engine import load_strategy_from_config
                 import polars as pl, time as _wfo_t
                 engine = EnhancedBacktestEngine()
-                symbol = payload.get("symbol", "XAUUSD")
-                timeframe = payload.get("timeframe", "H1")
+                symbol = str(payload.get("symbol", "XAUUSD"))[:16]
+                timeframe = str(payload.get("timeframe", "H1"))[:8]
                 n_folds = int(payload.get("folds", 5))
                 start_date = payload.get("start", "2025-01-01")
                 end_date = payload.get("end", "2026-08-01")
@@ -554,13 +585,16 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                             pl.when(pl.col("_mom") > 0.02).then(1.0).when(pl.col("_mom") < -0.02).then(-1.0).otherwise(0.0).alias("signal")
                         )
                     return _strat
-                # Configurable param_grid from request body
+                # P2-13: clamp param_grid (maks 20 kandidat, tiap kandidat
+                # maks 8 key) — mencegah grid explosion dari payload.
                 raw_grid = payload.get("param_grid")
                 if isinstance(raw_grid, list) and len(raw_grid) > 0:
-                    param_grid = raw_grid
+                    param_grid = [dict(list(g.items())[:8]) for g in raw_grid[:20]
+                                  if isinstance(g, dict)]
                 else:
                     param_grid = [{"lookback": lb} for lb in range(10, 50, 5)]
-                # Configurable WFO windows from request body
+                # Configurable WFO windows from request body (P2-13: clamp)
+                n_folds = max(2, min(int(payload.get("folds", 5)), 12))
                 train_window = int(payload.get("train_window_bars", max(200, n // (n_folds * 2))))
                 test_window = int(payload.get("test_window_bars", max(50, n // (n_folds * 4))))
                 step_window = int(payload.get("step_bars", max(50, n // (n_folds * 4))))
@@ -593,6 +627,8 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._send_json(500, {"error": str(e)})
+            finally:
+                self._HEAVY_SEMAPHORE.release()  # P2-13
 
         else:
             self._send_json(404, {"error": f"Endpoint '{clean_path}' not found"})
