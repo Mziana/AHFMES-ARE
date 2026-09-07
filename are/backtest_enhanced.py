@@ -53,12 +53,18 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
     def run_backtest(self, strategy_logic=None, historical_data=None, initial_capital=100000.0,
                      timeframe_seconds=3600.0, symbol='XAUUSD', sl_pct=None, tp_pct=None,
                      benchmark_data=None, spread_pct=None, slippage_pct=None, commission_pct=None,
-                     execution_model=None):
+                     execution_model=None, pre_purified=False, **_extra):
         if execution_model is not None:
             raise NotImplementedError(
                 "EnhancedBacktestEngine tidak mengimplementasikan execution_model "
                 "(P0-2). Gunakan IsolatedBacktestEngine utk backtest model-driven."
             )
+        # P2-12 fix (ditemukan empiris saat P2-18): WFO memanggil run_backtest
+        # dgn pre_purified=True. Override ini harus meneruskannya — TANPA
+        # purifier lagi di dalam Enhanced (data slice sudah dipurifikasi di
+        # WFO). Bila pre_purified=False (jalur CLI backtest run), purifier
+        # tetap jalan seperti semula.
+        self._pre_purified = bool(pre_purified)
 
         spec = INSTRUMENT_SPREADS.get(symbol, INSTRUMENT_SPREADS['XAUUSD'])
         if spread_pct is None:
@@ -103,9 +109,15 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
 
         raw_dataset_hash = _v2_dataset_hash(historical_data)
 
-        purifier = DataPurifier()
-        df = purifier.purify_tick_data(historical_data, symbol=symbol, timeframe_seconds=timeframe_seconds or 3600.0)
-        purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
+        # P2-12 fix: bila pre_purified (dari WFO), JANGAN purify ulang —
+        # slice sudah dipurifikasi di run_walk_forward_optimization.
+        if getattr(self, '_pre_purified', False):
+            df = historical_data
+            purification_report = {}
+        else:
+            purifier = DataPurifier()
+            df = purifier.purify_tick_data(historical_data, symbol=symbol, timeframe_seconds=timeframe_seconds or 3600.0)
+            purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
 
         purified_dataset_hash = _v2_dataset_hash(df)
 
