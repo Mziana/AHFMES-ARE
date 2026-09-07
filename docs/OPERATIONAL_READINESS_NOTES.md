@@ -64,3 +64,35 @@ patch besar di wave ini; setiap butir berisi rekomendasi tindak lanjut.
 - P2-16: decision engine TS tanpa versi/hash + tanpa golden-vector test.
 - P2-17: heuristik offset epoch candle bridge (tick-time).
 - P2-18: lapisan idempotensi EventStore (receipts/nonce) belum terpakai.
+
+
+---
+
+# Update Gelombang P2 (2026-09-07)
+
+## Patched (P2 batch)
+- **P2-12**: WFO memurifikasi data sekali (`pre_purified` jalur) — `5350cc9`.
+- **P2-15**: data_loader UTC + pemilihan file by cakupan — `713b8dd`.
+- **P2-17**: offset epoch candle dikuantisasi batas bar — `458f37b`.
+- **P2-16**: decision engine provenance (engineVersion + strategyConfigHash) — UI `c8ca389`.
+- **P2-13**: web_ui heavy-guard (503 fail-fast), payload 1MB, clamp WFO — `0f137bf`.
+- **P2-14**: deklarasi batas model portofolio di kedua engine — `ec7bdfb`.
+
+## Ditemukan & diperbaiki EMPIRIS (bukti nilai audit-jalan)
+- **P2-12 fix empiris** (`f62dc0d`): CLI `backtest wfo` crash 100% (TypeError
+  pre_purified) — lolos dari 646 test hijau karena tak ada test kontrak antar
+  engine. Sekarang ada `test_engine_wfo_compat_p2_18.py`.
+- **P3-20 dikonfirmasi**: CumulativeTrialTracker TIDAK ter-wire ke CLI
+  `backtest wfo` (trials tetap 100 sebelum/sesudah run). Masih terbuka.
+
+## Ditutup tanpa patch (sudah benar / status bukan cacat)
+- **P2-18**: mesin idempotensi EventStore teruji menyeluruh di unit/e2e
+  (test_storage.py, 32 referensi). Tabel receipts/nonce kosong di DB produksi
+  = belum dipakai runtime, bukan bug. Rekomendasi: wire saat ada jalur
+  order-state-event (Wave C lanjutan).
+- **E-2/E-6 dst.**: tetap terbuka sesuai catatan awal.
+
+## Sisa backlog setelah P2
+- P3-20 wiring trial tracker ke WFO (bukti empiris ada).
+- E-1 integration test men-trade demo riil (butuh keputusan).
+- E-3 pin interpreter; E-4 rotasi log; E-6 reset harian breaker.
