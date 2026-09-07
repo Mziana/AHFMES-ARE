@@ -696,6 +696,8 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "trade_count": 0,
             "daily_pnl": 0.0,
             "starting_balance": 0.0,
+            "session_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "daily_start_balance": 0.0,
             "last_trade_at": None,
             "last_reject_at": None,
             "trailing_atr": trailing_atr,
@@ -711,6 +713,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     # Key riwayat/telemetri aman bila state lama (take-over / versi sebelumnya)
     state.setdefault("rejections", {"total": 0, "by_reason": {}, "last": None})
     state.setdefault("next_check_at", None)
+
+    # E-6: backward compat utk state lama tanpa field reset harian —
+    # daily_start_balance 0.0 => breaker fallback ke starting_balance.
+    state.setdefault("session_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    state.setdefault("daily_start_balance", 0.0)
 
     # P0: counter penolakan PER-SESI. Angka historis lintas sesi menyesatkan
     # (mis. 862x "lot kecil" dari minggu lalu). Total sesi sebelumnya disimpan
@@ -749,6 +756,30 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             # 0. Check for style change from UI + baca konfigurasi runtime
             current_state = load_state(style)
             cfg = load_runtime_config()
+
+            # Daily reset (E-6): baseline kalender UTC, bukan per-sesi. Bot yang
+            # menyeberang tengah malam membawa baseline sesi lama; di sini
+            # baseline di-reset ke balance broker HARI INI. daily_pnl/trade_count
+            # lama dipindah ke daily_pnl_prev (audit). last_trade_at/last_reject_at
+            # TIDAK direset — backoff tetap berlaku lintas hari (aman). Blok ini
+            # INLINE dan diekstrak oleh tests/are/test_daily_reset_p3_e6.py
+            # (pola blok-nyata) — jangan pindahkan baris marker ini.
+            _today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if state.get("session_date") != _today:
+                try:
+                    _acc = get_account()
+                except BridgeError:
+                    # Konservatif: bridge mati = baseline lama dipertahankan,
+                    # coba lagi iterasi berikutnya (jangan reset ke 0).
+                    log("RESET_SKIP", "bridge down — daily reset ditunda (baseline lama dipertahankan)")
+                else:
+                    state["daily_pnl_prev"] = state.get("daily_pnl", 0.0)
+                    state["daily_pnl"] = 0.0
+                    state["trade_count"] = 0
+                    state["daily_start_balance"] = float(_acc.get("balance", 0.0) or 0.0)
+                    state["session_date"] = _today
+                    log("DAILY_RESET", f"baseline ${state['daily_start_balance']:.2f} (UTC {_today})")
+
             new_style = current_state.get("pending_style")
             if new_style and new_style != style:
                 log("STYLE_CHANGE", f"{style} -> {new_style}")
@@ -887,9 +918,13 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                     if isinstance(current_equity, (int, float)) and current_equity > 0:
                         state["last_known_equity"] = current_equity
 
-                    if state["starting_balance"] > 0:
-                        loss_pct = ((state["starting_balance"] - current_equity)
-                                    / state["starting_balance"]) * 100
+                    # E-6: basis breaker = balance awal HARI INI bila terisi
+                    # (daily_start_balance); fallback starting_balance utk sesi
+                    # lama / state lama tanpa field (setdefault).
+                    _daily_basis = state.get("daily_start_balance") or state["starting_balance"]
+                    if _daily_basis > 0:
+                        loss_pct = ((_daily_basis - current_equity)
+                                    / _daily_basis) * 100
                         if loss_pct >= max_daily_loss:
                             log("CIRCUIT_BREAKER", f"Equity dropped {loss_pct:.1f}% (equity={current_equity}) — stopping")
                             state["status"] = "circuit_breaker"

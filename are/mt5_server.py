@@ -531,6 +531,29 @@ class MT5Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+def _rotate_own_log(path: str, max_bytes: int = 5_000_000, keep: int = 3) -> None:
+    """Rotasi sederhana (stdlib os saja) — E-4: mencegah log tumbuh tanpa batas.
+
+    Bila file > max_bytes: path -> .1, .1 -> .2, .2 -> .3; versi tertua
+    (> keep) dibuang. No-op bila file tak ada atau masih kecil. Gagal
+    rotasi tidak boleh menghentikan startup server.
+    """
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) <= max_bytes:
+            return
+        oldest = f"{path}.{keep}"
+        if os.path.exists(oldest):
+            os.remove(oldest)
+        for i in range(keep - 1, 0, -1):
+            src = f"{path}.{i}"
+            dst = f"{path}.{i + 1}"
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(path, f"{path}.1")
+    except Exception as e:
+        print(f"[ARE-BRIDGE] WARNING: log rotation gagal utk {path}: {e}")
+
+
 def main():
     port = 18888
     if '--port' in sys.argv:
@@ -541,6 +564,9 @@ def main():
     # otomatis saat startup pertama). Fail-closed: tanpa token, semua request
     # ditolak 401 — tidak pernah ada mode tanpa-auth.
     load_or_create_token()
+
+    # E-4: rotasi log auth sendiri saat startup (jangan tumbuh tanpa batas).
+    _rotate_own_log(os.path.join(_repo_root(), 'data', 'logs', 'bridge_auth.log'))
     ok, msg = connect_mt5()
     print(f"MT5 Server starting on port {port} (auth: token enabled)")
     print(f"MT5: {msg}")

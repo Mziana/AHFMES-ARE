@@ -56,6 +56,9 @@ echo   AHFMES-ARE // STARTING ALL SERVICES
 echo  ============================================================
 echo.
 
+rem E-4: rotasi log (data/logs/*.log) sebelum service start — gagal rotasi tidak blok startup
+python scripts/rotate_logs.py >nul 2>&1
+
 :: [1] MT5 Bridge
 echo  [1/4] Checking MT5 Bridge (port %BRIDGE_PORT%)...
 curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
