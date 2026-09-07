@@ -514,6 +514,43 @@ def apply_fdr_correction(p_values: List[float], alpha: float = 0.05) -> List[boo
     return survived
 
 
+def estimate_dsr_moments(returns):
+    """P1-08: estimasi momen DSR dari data nyata (Lopez de Prado, 2013).
+
+    Mengembalikan (skew, kurtosis_pearson, var_sharpe) dari sampel return.
+    - skew: moment coefficient g1.
+    - kurtosis: Pearson (non-excess, ~3 utk normal) — kontrak PSR.
+    - var_sharpe: varians estimator SR periodik per LdP:
+        var(SR) ~ (1 + 0.5*SR^2 - skew*SR + (kurt-3)/4 * SR^2) / (n-1)
+      dihitung pada SR periodik (tanpa annualisasi), sesuai rumus PSR.
+    Fallback konservatif ke nilai teoritis bila sampel degenerate.
+    """
+    clean = [r for r in returns if r is not None and math.isfinite(r)] if returns else []
+    n = len(clean)
+    if n < 4:
+        return 0.0, 3.0, 1.0
+
+    mean = sum(clean) / n
+    var = sum((r - mean) ** 2 for r in clean) / n
+    if var <= 1e-18:
+        return 0.0, 3.0, 1.0
+    std = math.sqrt(var)
+    sr = mean / std  # SR periodik
+
+    m3 = sum((r - mean) ** 3 for r in clean) / n
+    m4 = sum((r - mean) ** 4 for r in clean) / n
+    skew = m3 / (std ** 3)
+    kurt = m4 / (var ** 2)  # Pearson (normal ~ 3.0)
+
+    var_sharpe = (1.0 + 0.5 * sr * sr - skew * sr + ((kurt - 3.0) / 4.0) * sr * sr) / (n - 1)
+    if not math.isfinite(var_sharpe) or var_sharpe <= 0:
+        var_sharpe = 1.0
+    # Clip jendela wajar untuk menjaga stabilitas numerik
+    skew = max(-5.0, min(5.0, skew))
+    kurt = max(1.0, min(30.0, kurt))
+    return skew, kurt, var_sharpe
+
+
 def calculate_probabilistic_sharpe_ratio(
     observed_sharpe: float,
     benchmark_sharpe: float,
@@ -709,15 +746,21 @@ def evaluate_dsr_from_evidence(evidence: WFOEvidence) -> DSRResult:
     trials = evidence.effective_trial_count
     n_obs = len(evidence.pooled_oos_returns)
     if trials < 1: trials = 1
-    if n_obs < 2: 
+    if n_obs < 2:
         return DSRResult(is_valid=False, fail_reason="Not enough OOS observations", dsr_value=0.0, p_value=1.0)
-    
+
+    # P1-08: momen dari DATA NYATA, bukan asumsi normal (skew=0, kurt=3,
+    # var_sharpe=1). DSR tanpa estimasi momen menghasilkan p-value bias.
+    skew, kurt, var_sharpe = estimate_dsr_moments(evidence.pooled_oos_returns)
     dsr_val, p_val = calculate_deflated_sharpe_ratio(
         observed_sharpe=sr,
         num_trials=trials,
-        num_observations=n_obs
+        num_observations=n_obs,
+        skewness=skew,
+        kurtosis=kurt,
+        var_sharpe=var_sharpe,
     )
-    
+
     is_valid = p_val < 0.05
     fail_reason = None if is_valid else f"DSR p-value {p_val:.4f} >= 0.05"
     return DSRResult(is_valid=is_valid, fail_reason=fail_reason, dsr_value=dsr_val, p_value=p_val)
