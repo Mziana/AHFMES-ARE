@@ -670,6 +670,7 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "last_trailing_sl": None,
             "last_atr": None,
             "last_known_pnl": 0.0,
+            "last_known_equity": 0.0,
             "trade_history": [],
             "rejections": {"total": 0, "by_reason": {}, "last": None},
             "next_check_at": None,
@@ -832,18 +833,33 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 entry_interval = cfg.get("entry_interval_seconds") or COOLDOWN_SECONDS
                 if not (state.get("last_trade_at")
                         and (time.time() - state["last_trade_at"]) < entry_interval):
-                    # Daily loss circuit breaker
+                    # Daily loss circuit breaker — P0-03: basis EQUITY (balance +
+                    # floating PnL), bukan balance. Breaker lama balance-based
+                    # buta terhadap floating loss: posisi mengambang -5% tidak
+                    # pernah men-trigger stop (leverage 1:500, XAUUSD). Equity
+                    # broker = satu-satunya truth. Bila bridge tidak memberi
+                    # equity (field hilang/invalid), pakai balance dengan sifat
+                    # degraded; bila bridge gagal total, pakai last_known_equity
+                    # yang dipersist — JANGAN starting_balance (itu = deteksi
+                    # loss dimatikan).
                     try:
                         account = get_account()
+                        current_equity = account.get("equity")
                         current_balance = account.get("balance", state["starting_balance"])
+                        if not isinstance(current_equity, (int, float)) or current_equity <= 0:
+                            current_equity = current_balance
                     except BridgeError:
+                        current_equity = state.get("last_known_equity") or state["starting_balance"]
                         current_balance = state["starting_balance"]
 
+                    if isinstance(current_equity, (int, float)) and current_equity > 0:
+                        state["last_known_equity"] = current_equity
+
                     if state["starting_balance"] > 0:
-                        realized_loss = state["starting_balance"] - current_balance
-                        loss_pct = (realized_loss / state["starting_balance"]) * 100
+                        loss_pct = ((state["starting_balance"] - current_equity)
+                                    / state["starting_balance"]) * 100
                         if loss_pct >= max_daily_loss:
-                            log("CIRCUIT_BREAKER", f"Balance dropped {loss_pct:.1f}% — stopping")
+                            log("CIRCUIT_BREAKER", f"Equity dropped {loss_pct:.1f}% (equity={current_equity}) — stopping")
                             state["status"] = "circuit_breaker"
                             save_state(state, style)
                             break
@@ -995,7 +1011,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
         time.sleep(POLL_INTERVAL)
 
     # Cleanup
-    state["status"] = "stopped"
+    # P0-03: pertahankan status circuit_breaker — cleanup lama menimpanya
+    # menjadi "stopped" sehingga UI tidak bisa membedakan breaker-stop
+    # dari stop manual.
+    if state.get("status") != "circuit_breaker":
+        state["status"] = "stopped"
     state["pid"] = None
     save_state(state, style)
     pid_file.unlink(missing_ok=True)
