@@ -10,6 +10,7 @@ Modules are now split into:
 
 from are.research.holdout import (  # noqa: F401
     HoldoutManager,
+    resolve_holdout_selected_params,
     HoldoutEvaluationEngine,
     HoldoutEvidence,
     TemporalContract,

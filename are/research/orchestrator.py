@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from are.atomic_io import atomic_write_json
@@ -35,6 +36,7 @@ from are.research.integrity import (
     LeakageFirewall,
     HoldoutManager,
     HoldoutEvaluationEngine,
+    resolve_holdout_selected_params,
     EvidenceBinding,
     compute_canonical_dataset_hash,
 )
@@ -60,10 +62,45 @@ from are.research.stages.gate import GateStage, VerifyStage
 from are.research.stages.artifact import ArtifactStage, save_run
 
 
+@dataclass
+class StageContext:
+    """P1-4: konteks timeout nyata yang di-cek stage secara kooperatif.
+
+    Stage yang menerima `stage_ctx` wajib memanggil `check_cancelled()` di
+    titik-titik iterasi (mis. per fold / per kandidat WFO). Bila deadline
+    terlampaui, `check_cancelled()` melempar TimeoutError sehingga stage
+    berhenti — bukan menunggu selesai lalu ditandai FAILED secara post-hoc.
+    """
+    stage_name: str
+    deadline: float
+    cancel_event: Any
+
+    def check_cancelled(self) -> None:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise TimeoutError(
+                f"STAGE_TIMEOUT: {self.stage_name} dibatalkan oleh timer "
+                f"(deadline {self.deadline:.1f}s) — cooperative cancellation"
+            )
+        if time.time() > self.deadline:
+            raise TimeoutError(
+                f"STAGE_TIMEOUT: {self.stage_name} melewati deadline {self.deadline:.1f}s "
+                f"di titik cek kooperatif"
+            )
+
+
 class BacktestOrchestrator:
     """
     Full research backtest orchestrator.
     Controls the lifecycle: DATA -> STRATEGY -> BASELINE -> WFO -> OOS -> STATISTICS -> CRISIS -> GATE -> ARTIFACT
+
+    Timeout model (P1-4): cooperative cancellation. `_run_stage` membuat
+    StageContext (deadline + cancel_event) dan meneruskannya ke stage yang
+    signature-nya menerima `stage_ctx`. Stage CPU-heavy (WFO) memeriksa
+    cancellation per fold/kandidat, sehingga stall terbatas satu fold —
+    timeout NYATA, bukan post-hoc detection. Subprocess isolation untuk WFO
+    sengaja TIDAK dipilih pada fase ini: strategy closures + polars frames
+    tidak trivial untuk di-pickle lintas proses, dan cek kooperatif per fold
+    sudah membatasi stall; ini didokumentasikan sebagai trade-off yang sadar.
     """
 
     RUNS_DIR = "data/backtest_runs"
@@ -176,8 +213,16 @@ class BacktestOrchestrator:
         split_id = None
 
         def _run_stage(name, stage_func, *args, **kwargs):
-            """Run a stage with timeout enforcement via cooperative abort."""
+            """Run a stage with REAL timeout enforcement via cooperative cancellation.
+
+            Stage yang signature-nya menerima `stage_ctx` mendapatkan StageContext
+            (deadline + cancel_event) dan diharapkan memanggil check_cancelled()
+            di titik iterasi. Stage yang TIDAK menerima stage_ctx tetap dijaga oleh
+            backstop post-hoc — tetapi pesannya jujur bahwa stage tsb tidak
+            menerapkan cooperative cancellation.
+            """
             import threading
+            import inspect
             timeout = self.STAGE_TIMEOUTS.get(name, self.DEFAULT_STAGE_TIMEOUT)
             stage_deadline = time.time() + timeout
             if time.time() > deadline:
@@ -191,14 +236,28 @@ class BacktestOrchestrator:
             timer.daemon = True
             timer.start()
             try:
-                result = stage_func(*args, **kwargs)
+                try:
+                    sig = inspect.signature(stage_func).parameters
+                except (TypeError, ValueError):
+                    sig = {}
+                if "stage_ctx" in sig:
+                    stage_ctx = StageContext(name, stage_deadline, abort_flag)
+                    result = stage_func(*args, stage_ctx=stage_ctx, **kwargs)
+                else:
+                    result = stage_func(*args, **kwargs)
             finally:
                 timer.cancel()
 
             if isinstance(result, StageResult):
                 if time.time() > stage_deadline:
                     result.status = RunStage.FAILED
-                    result.error = f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit (hard)"
+                    if "stage_ctx" in sig:
+                        result.error = f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit (cooperative cancellation)"
+                    else:
+                        result.error = (
+                            f"STAGE_TIMEOUT: {name} exceeded {timeout}s limit "
+                            f"(BACKSTOP post-hoc: stage tidak menerapkan cooperative cancellation)"
+                        )
                 if result.status == RunStage.PASSED:
                     run_state_mgr.mark_stage_completed(name)
             else:
@@ -207,7 +266,10 @@ class BacktestOrchestrator:
 
         try:
             # Stage 1: DATA
-            run.stages["data"] = _run_stage("data", self._data_stage.run, run, df, dataset_manifest)
+            run.stages["data"] = _run_stage(
+                "data", self._data_stage.run, run, df, dataset_manifest,
+                qualification_policy=config.qualification_policy,
+            )
             if callback: callback("data", run.stages["data"])
             if run.stages["data"].status == RunStage.FAILED:
                 run.status = RunStatus.FAILED
@@ -265,48 +327,58 @@ class BacktestOrchestrator:
             # Stage 9b: HOLDOUT EVALUATION (before gate)
             holdout_evidence = None
             if split_id:
-                selected_params = {}
-                if run.wfo_result:
-                    folds = run.wfo_result.get('folds', [])
-                    if folds:
-                        last_fold = folds[-1] if isinstance(folds[-1], dict) else {}
-                        selected_params = last_fold.get('winner_params', {})
-                if not selected_params:
-                    selected_params = {'lookback': 20}
-
-                holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
-                holdout_split_obj = holdout_mgr.get_split(split_id)
-                split_hash_val = holdout_split_obj.holdout_hash if holdout_split_obj else ""
-
-                holdout_evidence = HoldoutEvaluationEngine.evaluate(
-                    strategy_logic=strategy_logic,
-                    holdout_df=holdout_df,
-                    selected_params=selected_params,
-                    initial_capital=em.initial_capital,
-                    timeframe_seconds=3600.0,
-                    spread_pct=em.spread_pct,
-                    slippage_pct=em.slippage_pct,
-                    commission_pct=em.commission_pct,
-                    run_id=run.run_id,
-                    split_id=split_id,
-                    dataset_hash=run.dataset_hash,
-                    split_hash=split_hash_val,
-                    strategy_hash=config.strategy.source_hash,
-                    wfo_provenance_hash=run.provenance_hash,
+                # P0-1: parameter holdout = winner WFO (fold terakhir). TIDAK ada
+                # fallback rekaan. Bila parameter dideklarasikan tapi WFO tidak
+                # menghasilkan winner, holdout TIDAK dievaluasi -> INVALID.
+                has_params = bool(
+                    config.parameter_grid
+                    and config.parameter_grid.param_names
                 )
+                selected_params = resolve_holdout_selected_params(run.wfo_result, has_params)
 
-                run.holdout_evaluated = True
-                holdout_mgr.evaluate_holdout(split_id)
+                if selected_params is None:
+                    run.holdout_evaluated = False
+                    run.holdout_evidence = None
+                    run.holdout_invalid_reason = (
+                        "HOLDOUT_INVALID: WFO tidak menghasilkan fold winner "
+                        "(wfo_result kosong / winner_params hilang) padahal parameter "
+                        "dideklarasikan -- holdout TIDAK dievaluasi dengan parameter rekaan."
+                    )
+                else:
+                    holdout_df = holdout_mgr.evaluate_access(split_id, df, caller="orchestrator")
+                    holdout_split_obj = holdout_mgr.get_split(split_id)
+                    split_hash_val = holdout_split_obj.holdout_hash if holdout_split_obj else ""
 
-                param_hash = compute_sha256(json.dumps(sorted(selected_params.items())).encode())
-                run.evidence_binding = EvidenceBinding(
-                    run_id=run.run_id,
-                    dataset_hash=run.dataset_hash,
-                    strategy_hash=config.strategy.source_hash,
-                    parameter_hash=param_hash,
-                    wfo_provenance_hash=run.provenance_hash,
-                    holdout_provenance_hash=holdout_evidence.provenance_hash,
-                )
+                    holdout_evidence = HoldoutEvaluationEngine.evaluate(
+                        strategy_logic=strategy_logic,
+                        holdout_df=holdout_df,
+                        selected_params=selected_params,
+                        initial_capital=em.initial_capital,
+                        timeframe_seconds=3600.0,
+                        spread_pct=em.spread_pct,
+                        slippage_pct=em.slippage_pct,
+                        commission_pct=em.commission_pct,
+                        execution_model=em,
+                        run_id=run.run_id,
+                        split_id=split_id,
+                        dataset_hash=run.dataset_hash,
+                        split_hash=split_hash_val,
+                        strategy_hash=config.strategy.source_hash,
+                        wfo_provenance_hash=run.provenance_hash,
+                    )
+
+                    run.holdout_evaluated = True
+                    holdout_mgr.evaluate_holdout(split_id)
+
+                    param_hash = compute_sha256(json.dumps(sorted(selected_params.items())).encode())
+                    run.evidence_binding = EvidenceBinding(
+                        run_id=run.run_id,
+                        dataset_hash=run.dataset_hash,
+                        strategy_hash=config.strategy.source_hash,
+                        parameter_hash=param_hash,
+                        wfo_provenance_hash=run.provenance_hash,
+                        holdout_provenance_hash=holdout_evidence.provenance_hash,
+                    )
 
             run.holdout_evidence = holdout_evidence.to_dict() if holdout_evidence is not None else None
 

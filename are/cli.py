@@ -155,6 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
     res_run.add_argument("--lookback", type=int, default=20, help="Strategy lookback period")
     res_run.add_argument("--capital", type=float, default=100000, help="Initial capital")
     res_run.add_argument("--folds", type=int, default=5, help="WFO folds")
+    res_run.add_argument("--qualification-policy", default="STRICT",
+                         choices=["STRICT", "BAR_APPROXIMATION"],
+                         help="STRICT: data dengan bid/ask/volume sintetis membuat experiment INVALID. "
+                              "BAR_APPROXIMATION: opt-in eksplisit utk data OHLCV-only (microstructure "
+                              "sintetis dilabeli, bukan diklaim historical).")
     res_subs.add_parser("list", help="List all research runs")
     res_inspect = res_subs.add_parser("inspect", help="Inspect a research run")
     res_inspect.add_argument("run_id", help="Run ID to inspect")
@@ -794,6 +799,7 @@ def _research_run(args: argparse.Namespace) -> int:
     config = build_experiment_config(
         strategy=identity, execution_model=em, parameter_grid=pg,
         wfo_n_folds=args.folds,
+        qualification_policy=args.qualification_policy,
     )
     print(f"  Config: {config.experiment_id}")
     print(f"  Config hash: {config.config_hash[:16]}...")

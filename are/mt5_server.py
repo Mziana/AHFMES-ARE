@@ -19,10 +19,11 @@ Endpoints:
 """
 from __future__ import annotations
 import json
+import math
 import sys
 import time
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 try:
@@ -130,6 +131,15 @@ def get_account_data():
                         'ask': round(t.ask, decimals),
                         'spread': round((t.ask - t.bid) * (100 if 'JPY' in sym else 10000), 1)
                     }
+                    # Jarak minimum SL/TP broker (poin simbol) — dipakai bot utk clamp
+                    # supaya tidak kena retcode 10016 'Invalid stops' (spread+5 saja kurang).
+                    _sl = 0
+                    try:
+                        _si = mt5.symbol_info(sym)
+                        _sl = int(_si.trade_stops_level) if (_si and _si.trade_stops_level) else 0
+                    except Exception:
+                        _sl = 0
+                    ticks[sym]['stops_level'] = _sl
             except Exception as e:
                 import logging
                 logging.warning(f"MT5 tick error for {sym}: {e}")
@@ -173,6 +183,22 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
         si = mt5.symbol_info(symbol)
         point = si.point if si else 0.01
         digits = si.digits if si else 2
+
+        # Clamp broker-minimum dengan TICK LIVE saat eksekusi (bukan tick stale
+        # dari /account). MT5 mengukur jarak SL/TP dari harga pasar (Bid utk
+        # BUY), sedangkan entry = Ask, jadi minimum dari entry =
+        # spread_live + stops_level + margin. Spread XAUUSD bisa melebar cepat
+        # (17 -> 25+ poin saat volatil) antara pembacaan /account dan eksekusi
+        # order; margin +10 memberi ruang aman. Bukti 2026-09-07: SL 32 (spread
+        # 17 + 5) ditolak saat spread live 24; formula ini menaikkan lagi.
+        stops_level = int(si.trade_stops_level) if si and si.trade_stops_level else 0
+        spread_pts = (tick.ask - tick.bid) / point
+        min_stop_pts = max(0, int(math.ceil(spread_pts)) + stops_level + 10)
+        if min_stop_pts > 0:
+            if sl_points and sl_points > 0:
+                sl_points = max(sl_points, min_stop_pts)
+            if tp_points and tp_points > 0:
+                tp_points = max(tp_points, min_stop_pts)
 
         # Calculate SL/TP from live price using points offsets
         if sl_points and sl_points > 0:
@@ -408,7 +434,7 @@ def main():
     print(f"MT5 Server starting on port {port}")
     print(f"MT5: {msg}")
     
-    server = HTTPServer(('127.0.0.1', port), MT5Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', port), MT5Handler)
     print(f"Listening on http://127.0.0.1:{port}")
     try:
         server.serve_forever()

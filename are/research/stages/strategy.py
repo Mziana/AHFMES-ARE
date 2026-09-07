@@ -127,6 +127,7 @@ class BaselineStage:
                     timeframe_seconds=3600.0,
                     spread_pct=em.spread_pct, slippage_pct=em.slippage_pct,
                     commission_pct=em.commission_pct,
+                    execution_model=em,
                 )
                 results[name] = {
                     "sharpe": r.metrics.get("sharpe_ratio", 0.0),

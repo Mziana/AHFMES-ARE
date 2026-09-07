@@ -341,7 +341,54 @@ class IndependentVerifier:
         else:
             results["max_drawdown"] = {"valid": False, "reason": "No equity data"}
 
-        if oos_returns and len(oos_returns) > 2:
+        pooled_trades = oos.get("pooled_trades", []) or []
+        if pooled_trades:
+            # P1-9: verifikasi independent dari pooled_trades (bukan dari stats).
+            # Verifier menghitung ulang metric dari data mentah — basis turnover-event log.
+            pnls = []
+            for t in pooled_trades:
+                p = t.get("pnl", t.get("net_pnl", 0.0))
+                try:
+                    pnls.append(float(p))
+                except (TypeError, ValueError):
+                    continue
+            n_total = len(pnls)
+            if n_total >= 2:
+                wins = [p for p in pnls if p > 0]
+                losses = [p for p in pnls if p < 0]
+                recomputed_wr = (len(wins) / n_total * 100) if n_total > 0 else 0.0
+                gross_profit = sum(wins)
+                gross_loss = abs(sum(losses))
+                if gross_loss > 1e-10 and gross_profit > 0:
+                    recomputed_pf = gross_profit / gross_loss
+                elif gross_profit == 0 and gross_loss == 0:
+                    recomputed_pf = 0.0
+                else:
+                    recomputed_pf = 0.0
+                claimed_wr = stats.get("win_rate", 0.0)
+                claimed_pf = stats.get("profit_factor", 0.0)
+                wr_match = abs(recomputed_wr - claimed_wr) < (0.05 * 100)
+                if claimed_pf == 0 and recomputed_pf == 0:
+                    pf_match = True
+                elif claimed_pf == 0 and len(wins) == 0:
+                    pf_match = True
+                else:
+                    pf_match = abs(recomputed_pf - claimed_pf) < (0.05 * 10)
+                cum = 1.0
+                for r in oos_returns:
+                    cum *= (1 + r)
+                recomputed_return = (cum - 1.0) * 100
+                ret_match = abs(recomputed_return - stats.get("return_pct", 0.0)) < 0.1
+                results["trade_metrics"] = {
+                    "valid": wr_match and pf_match and ret_match,
+                    "basis": "turnover_event_log (pooled_trades)",
+                    "win_rate": {"claimed": round(claimed_wr, 2), "recomputed": round(recomputed_wr, 2), "match": wr_match},
+                    "profit_factor": {"claimed": round(claimed_pf, 4), "recomputed": round(recomputed_pf, 4), "match": pf_match},
+                    "total_return_pct": {"claimed": round(stats.get("return_pct", 0.0), 4), "recomputed": round(recomputed_return, 4), "match": ret_match},
+                }
+            else:
+                results["trade_metrics"] = {"valid": False, "reason": f"Insufficient pooled trades ({n_total})"}
+        elif oos_returns and len(oos_returns) > 2:
             results["trade_metrics"] = IndependentVerifier.verify_trade_metrics(
                 returns=oos_returns,
                 claimed_win_rate=stats.get("win_rate", 0.0),

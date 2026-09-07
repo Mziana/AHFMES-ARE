@@ -49,9 +49,22 @@ if __name__ == "__main__":
         check(f"{style}: timeframeSignals", "timeframeSignals" in d)
         check(f"{style}: reasoning", "reasoning" in d and len(d["reasoning"]) > 0)
 
-    # TEST 2: MTF confirmation gate is correct
-    print("\n=== TEST 2: MTF confirmation gate ===")
-    for style in ["micro", "scalp", "day", "swing", "position"]:
+    # TEST 2: Gate per style — legacy (day/swing/position) = MTF internal
+    # consistency; micro/scalp (V2) = gate TA dari tab analisa (|taScore| >= 3).
+    print("\n=== TEST 2: Gate consistency (MTF utk legacy, TA utk micro/scalp) ===")
+    for style in ["micro", "scalp"]:
+        d = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style={style}&risk=1")
+        check(f"{style}: taSnapshot present", "taSnapshot" in d)
+        check(f"{style}: mtfConfirmed reported", "mtfConfirmed" in d)
+        snap = d.get("taSnapshot") or {}
+        if d.get("decision") in ("BUY", "SELL") and snap.get("available"):
+            sc = snap.get("score", 0)
+            check(f"{style}: TA entry |score| >= 3", abs(sc) >= 3,
+                  f"score={sc}, decision={d.get('decision')}")
+        else:
+            check(f"{style}: tidak entry => WAIT", d.get("decision") == "WAIT",
+                  f"decision={d.get('decision')}")
+    for style in ["day", "swing", "position"]:
         d = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style={style}&risk=1")
         tf = d.get("timeframeSignals", {})
         primary = d.get("finalSignal")
@@ -96,13 +109,61 @@ if __name__ == "__main__":
             check(f"{style}: slPoints > 0", d.get("slPoints", 0) > 0)
             check(f"{style}: tpPoints > 0", d.get("tpPoints", 0) > 0)
             check(f"{style}: rr >= 1.0", d.get("rr", 0) >= 1.0)
-    # Micro kini entri M5+M15 seperti scalp, SL 1.0xATR(M5), TP TETAP 150 poin,
-    # minRR 0.4 (TP cepat — bukan 2.0xATR lagi, jadi rr bisa < 1.0)
+    # Micro kini entri M5+M15 seperti scalp, SL 1.0xATR(M5), TP TETAP 150 poin.
+    # minRR 0 = tanpa ambang R:R khusus micro (TP cepat tetap — rr boleh < 0.4)
     d_micro = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style=micro&risk=1")
+    check("micro: minRR 0 (tanpa ambang R:R)", d_micro.get("minRR") == 0)
     if d_micro.get("decision") not in ("WAIT", "NEUTRAL"):
-        check("micro: tpPoints == 150 (fixed TP)", d_micro.get("tpPoints", 0) == 150)
+        # Hormati override manual SL/TP dari menu ATUR SL/TP ENTRY (bila aktif)
+        _tp_manual = 0
+        try:
+            import os as _os
+            _cfg_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "data", "bot_config.json")
+            _ov = (json.load(open(_cfg_path, encoding="utf-8")).get("sl_tp") or {}).get("micro") or {}
+            _tp_manual = int(_ov.get("tp_points") or 0)
+        except Exception:
+            _tp_manual = 0
+        if _tp_manual > 0:
+            check("micro: tpPoints == override manual", d_micro.get("tpPoints", 0) == _tp_manual,
+                  f"manual tp={_tp_manual}, got {d_micro.get('tpPoints')}")
+        else:
+            check("micro: tpPoints == 150 (TP tetap)", d_micro.get("tpPoints", 0) == 150)
         check("micro: slPoints > 0", d_micro.get("slPoints", 0) > 0)
-        check("micro: rr >= 0.4 (minRR micro)", d_micro.get("rr", 0) >= 0.4)
+
+    # scalp: TP adaptif = max(150, 2xATR M5) — floor 150 + ikut ATR
+    d_scalp = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style=scalp&risk=1")
+    if d_scalp.get("decision") not in ("WAIT", "NEUTRAL"):
+        m5_atr = (d_scalp.get("timeframeSignals") or {}).get("M5", {}).get("atr", 0)
+        exp_tp = max(150, round(m5_atr * 2 * 100))
+        check("scalp: tpPoints adaptif = max(150, 2xATR M5)", d_scalp.get("tpPoints", 0) == exp_tp,
+              f"expected {exp_tp}, got {d_scalp.get('tpPoints')} (ATR {m5_atr})")
+        check("scalp: slPoints > 0", d_scalp.get("slPoints", 0) > 0)
+
+    # TEST 5b: V2 — gate TA (tab analisa) utk micro & scalp. Micro tidak lagi
+    # memakai gate bias candle H4: arah datang dari master signal tab analisa.
+    print("\n=== TEST 5b: TA gate (tab analisa) utk micro & scalp ===")
+    check("h4Trend field present", "h4Trend" in d_micro)
+    for style in ["micro", "scalp"]:
+        d2 = fetch(f"{BASE}/api/are/decision?symbol=XAUUSD&style={style}&risk=1")
+        snap = d2.get("taSnapshot")
+        check(f"{style}: taSnapshot ada", isinstance(snap, dict))
+        if isinstance(snap, dict):
+            check(f"{style}: taSnapshot.available", snap.get("available") is True)
+            if snap.get("available"):
+                sc = snap.get("score", 0)
+                check(f"{style}: score dlm [-5,5]", -5 <= sc <= 5, f"score={sc}")
+                if d2.get("decision") in ("BUY", "SELL"):
+                    want_buy = d2.get("decision") == "BUY"
+                    check(f"{style}: entry searah skor",
+                          (sc >= 3) == want_buy and (sc <= -3) == (not want_buy),
+                          f"score={sc}, decision={d2.get('decision')}")
+                elif d2.get("decision") == "WAIT":
+                    r = d2.get("decisionReason") or ""
+                    ta_wait = ("TA:" in r and abs(sc) < 3)
+                    other_wait = ("basi" in r or "sesi" in r or "tidak tersedia" in r or "Risk:Reward" in r
+                                  or r.startswith("pola:") or "memori" in r)
+                    check(f"{style}: WAIT konsisten dgn skor", ta_wait or other_wait,
+                          f"score={sc}, reason={r}")
 
     # TEST 6: Validation
     print("\n=== TEST 6: Trade execute validation ===")

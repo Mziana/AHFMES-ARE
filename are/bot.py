@@ -14,6 +14,7 @@ Handles SIGINT/SIGTERM for graceful shutdown.
 
 import argparse
 import json
+import math
 import os
 import signal
 import sys
@@ -22,6 +23,24 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from are.learning import (
+        record_open as learning_record_open,
+        record_close as learning_record_close,
+        fingerprint_from_decision as learning_fp_from_dec,
+    )
+except ImportError:
+    from learning import (  # bila dijalankan: python are/bot.py
+        record_open as learning_record_open,
+        record_close as learning_record_close,
+        fingerprint_from_decision as learning_fp_from_dec,
+    )
+
+try:
+    from are.shadow_ab import tick as shadow_tick
+except ImportError:
+    from shadow_ab import tick as shadow_tick
 
 # ─── EXCEPTIONS ──────────────────────────────────────────────────────────────
 
@@ -50,8 +69,17 @@ LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 
 DECISION_API = "http://localhost:4028/api/are/decision"
 MT5_BRIDGE = "http://127.0.0.1:18888"
-POLL_INTERVAL = 5  # seconds
+POLL_INTERVAL = 1  # seconds — engine dipanggil tiap detik (analyzeMarket punya cache 2 detik)
 COOLDOWN_SECONDS = 60  # default jeda antar entri (multi-entry) — bisa diubah dari UI
+# Backoff penolakan order broker/bridge: tunggu sebelum kirim ulang order.
+# (2026-09-04: tanpa gate, engine bilang BUY/SELL tiap detik -> 1088x 'Invalid stops'
+#  dalam ~2 jam — SL/TP manual 2/2 berada di bawah minimum broker.)
+ORDER_REJECT_RETRY_S = 60
+ORDER_REJECT_STREAK_HALT = 5      # >= 5 penolakan beruntun -> jeda panjang
+ORDER_REJECT_HALT_S = 300
+# Fallback minimum stop bila broker tidak melaporkan stops_level: spread+5 saja
+# terbukti kurang (SL 23 ditolak 'Invalid stops', 29.49 diterima — 2026-09-04).
+BROKER_MIN_STOP_FALLBACK = 30
 DAILY_LOSS_PCT = 5.0  # percent of starting balance
 
 MIN_HOLD_SECONDS = {
@@ -154,9 +182,13 @@ def load_state(style: str) -> dict:
 
 
 def save_state(state: dict, style: str):
+    """Atomic write: .tmp + os.replace — crash-safe."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(get_state_file(style), "w") as f:
+    target = get_state_file(style)
+    tmp = str(target) + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(tmp, target)
 
 
 # ─── HTTP HELPERS (typed exceptions) ──────────────────────────────────────────
@@ -206,6 +238,14 @@ def log(action: str, details: str = ""):
     print(f"[{entry['timestamp'][:19]}] {action}: {details}", flush=True)
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # OPT: auto-prune bot_logs > 5MB -> rotate
+        try:
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
+                rotated = LOG_FILE.with_suffix(".log.1")
+                if rotated.exists(): rotated.unlink()
+                LOG_FILE.replace(rotated)
+        except Exception:
+            pass
         with open(LOG_FILE, "a") as f:
             f.write(line + "\n")
     except Exception:
@@ -260,7 +300,11 @@ def get_account() -> dict:
     if not data or not data.get("connected"):
         raise BridgeError("MT5 account unavailable")
     # Bridge returns flat JSON: { connected, balance, equity, ... }
-    return data.get("account", data)
+    acc = data.get("account", data)
+    if isinstance(acc, dict) and isinstance(data.get("ticks"), dict):
+        acc = dict(acc)
+        acc["ticks"] = data.get("ticks", {})  # utk spread live per simbol
+    return acc
 
 
 def open_position(symbol: str, direction: str, lot: float, sl_points: float,
@@ -348,6 +392,7 @@ def pos_to_record(p: dict) -> dict:
         "tp": p.get("tp", 0),
         "opened_at": opened_at,
         "last_pnl": p.get("profit", 0),
+        "last_price": p.get("price_current", 0),  # BUG#1: exit price
     }
 
 
@@ -377,7 +422,7 @@ def reconcile_positions(state: dict, positions: list, style: str, symbol: str):
                 "ticket": ticket,
                 "direction": rec.get("direction"),
                 "entry": rec.get("entry", 0),
-                "exit": 0,
+                "exit": rec.get("last_price", 0) or 0,  # BUG#1: last known price
                 "lot": rec.get("lot", 0),
                 "pnl": rec.get("last_pnl", 0),
             })
@@ -429,7 +474,16 @@ def record_closed_trade(state: dict, ticket, direction, entry, exit_, lot, pnl, 
         "close_reason": reason,
         "closed_at": datetime.now(timezone.utc).isoformat(),
     })
+    # RISK#5: prune max 100 — riwayat lengkap ada di trade_memory.jsonl
+    if len(state["trade_history"]) > 100:
+        state["trade_history"] = state["trade_history"][-100:]
     state["last_trade_at"] = time.time()
+
+    # Learning Memory (Fase 1): catat outcome ke trade_memory.jsonl + bucket agregat.
+    try:
+        learning_record_close(state.get("style") or "?", ticket, pnl, reason)
+    except Exception:
+        pass
 
 
 # ─── TRAILING STOP ────────────────────────────────────────────────────────────
@@ -493,6 +547,46 @@ def _try_trailing_stop(pos: dict, atr_multiplier: float, state: dict, symbol: st
 
 # ─── MAIN BOT LOOP ───────────────────────────────────────────────────────────
 
+def classify_entry_rejection(reason: str) -> str:
+    """Kategorikan alasan WAIT dari engine menjadi key ringkas utk riwayat penolakan."""
+    r = (reason or "").lower()
+    if "risk:reward" in r or "terlalu rendah" in r:
+        return "rr"
+    if "konfirmasi" in r:
+        return "mtf"
+    if "sesi" in r:
+        return "session"
+    if "melawan" in r:  # "melawan trend ..." (lama) / "melawan bias ..." (baru)
+        return "trend"
+    if "memori" in r:
+        return "memory"
+    if "pola:" in r:
+        return "candle"
+    if "basi" in r:
+        return "stale"
+    if "signal" in r:
+        return "neutral"
+    # Alasan skor arah TA ("TA: master ... skor 1/5 (butuh >= 3 ...)") -
+    # beri kategori tersendiri, jangan jatuh ke 'other' ('lain' di panel).
+    if "skor" in r or "butuh" in r or r.startswith("ta:"):
+        return "ta"
+    return "other"
+
+
+def record_entry_rejection(state: dict, key: str, detail: str, dec: dict):
+    """Catat satu penolakan entry ke state (sumber kebenaran yang ditampilkan UI)."""
+    rej = state.setdefault("rejections", {"total": 0, "by_reason": {}, "last": None})
+    rej["total"] = rej.get("total", 0) + 1
+    by = rej.setdefault("by_reason", {})
+    by[key] = by.get(key, 0) + 1
+    rej["last"] = {
+        "at": time.time(),
+        "key": key,
+        "detail": detail,
+        "signal": dec.get("finalSignal"),
+    }
+
+
 def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailing_atr: float = 0):
     global running
 
@@ -529,12 +623,37 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             "daily_pnl": 0.0,
             "starting_balance": 0.0,
             "last_trade_at": None,
+            "last_reject_at": None,
             "trailing_atr": trailing_atr,
             "last_trailing_sl": None,
             "last_atr": None,
             "last_known_pnl": 0.0,
             "trade_history": [],
+            "rejections": {"total": 0, "by_reason": {}, "last": None},
+            "next_check_at": None,
         }
+
+    # Key riwayat/telemetri aman bila state lama (take-over / versi sebelumnya)
+    state.setdefault("rejections", {"total": 0, "by_reason": {}, "last": None})
+    state.setdefault("next_check_at", None)
+
+    # P0: counter penolakan PER-SESI. Angka historis lintas sesi menyesatkan
+    # (mis. 862x "lot kecil" dari minggu lalu). Total sesi sebelumnya disimpan
+    # utk audit (rejections_prev), lalu di-reset.
+    _prev_rej = state.get("rejections") or {"total": 0, "by_reason": {}, "last": None}
+    state["rejections_prev"] = {
+        "total": _prev_rej.get("total", 0),
+        "by_reason": dict(_prev_rej.get("by_reason") or {}),
+    }
+    state["rejections"] = {"total": 0, "by_reason": {}, "last": None}
+    state["rejections_reset_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Reset interval antar trade saat SESI ini dimulai (permintaan user):
+    # cooldown/jeda tidak boleh terbawa lintas restart tanpa posisi —
+    # 'COOLDOWN hantu' sesi lama dihilangkan; jeda hanya berlaku utk trade
+    # yang benar-benar terjadi di sesi ini.
+    state["last_trade_at"] = None
+    state["last_reject_at"] = None
 
     # Get starting balance (fail-closed)
     try:
@@ -593,8 +712,16 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                 "slPoints": dec.get("slPoints", 0),
                 "tpPoints": dec.get("tpPoints", 0),
                 "lotSize": dec.get("lotSize", 0),
+                "slTpSource": dec.get("slTpSource", "auto"),
                 "timeframeSignals": dec.get("timeframeSignals") or {},
+                "taSnapshot": dec.get("taSnapshot") or None,
             }
+
+            # 1c. Shadow A/B: lacak 'seandainya tanpa gate candle' (paper, micro & scalp)
+            try:
+                shadow_tick(style, dec, time.time())
+            except Exception:
+                pass  # shadow tidak boleh mengganggu loop utama
 
             # 2. Get positions from broker (fail-closed)
             positions = get_positions(symbol)
@@ -680,15 +807,79 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                             break
 
                     # Check entry conditions
-                    min_rr = dec.get("minRR") or 1.5  # micro: 0.4 (TP cepat tetap)
-                    if (dec["decision"] != "WAIT"
-                            and dec["mtfConfirmed"]
-                            and dec["inSession"]
-                            and dec["rr"] >= min_rr
-                            and dec["lotSize"] >= 0.01):
+                    # minRR 0 (micro) = tanpa ambang R:R — TP tetap 150, SL 1.0xATR
+                    min_rr = dec.get("minRR")
+                    if min_rr is None:
+                        min_rr = 1.5
+                    can_enter = (dec["decision"] != "WAIT"
+                                 and dec["mtfConfirmed"]
+                                 and dec["inSession"]
+                                 and dec["rr"] >= min_rr
+                                 and dec["lotSize"] >= 0.01)
+                    if not can_enter:
+                        # Riwayat penolakan entry (sumber kebenaran: state bot, ditampilkan UI)
+                        if dec["decision"] == "WAIT":
+                            _reason = str(dec.get("decisionReason") or "Tidak ada alasan")
+                            record_entry_rejection(state, classify_entry_rejection(_reason), _reason, dec)
+                        elif dec["rr"] < min_rr:
+                            record_entry_rejection(state, "rr",
+                                                   f"R:R {dec.get('rr', 0):.2f} < min {min_rr} (gate bot)", dec)
+                        elif not dec.get("mtfConfirmed"):
+                            record_entry_rejection(state, "mtf",
+                                                   "MTF belum konfirmasi (gate bot)", dec)
+                        elif not dec.get("inSession"):
+                            record_entry_rejection(state, "session",
+                                                   "di luar sesi trading (gate bot)", dec)
+                        else:
+                            record_entry_rejection(state, "lot",
+                                                   f"lotSize {dec.get('lotSize', 0)} < 0.01", dec)
+                    # Backoff penolakan broker: setelah order ditolak, jangan kirim ulang
+                    # terus-menerus (engine tiap detik -> ratusan order sia-sia ke broker).
+                    _last_rej = state.get("last_reject_at")
+                    if _last_rej and (time.time() - _last_rej) < (
+                            ORDER_REJECT_HALT_S if state.get("order_reject_streak", 0) >= ORDER_REJECT_STREAK_HALT
+                            else ORDER_REJECT_RETRY_S):
+                        can_enter = False
+                    if can_enter:
                         style_min_sl = MIN_SL_PER_STYLE.get(style, 5)
                         sl_pts = max(dec["slPoints"], style_min_sl)
                         tp_pts = max(dec["tpPoints"], style_min_sl)
+                        # Broker-minimum stop distance: SL/TP TIDAK boleh di dalam
+                        # spread — MT5 menolak dgn retcode 10016 "Invalid stops".
+                        # Basis clamp: stops_level broker (poin) + margin, atau
+                        # fallback empiris BROKER_MIN_STOP_FALLBACK (spread+5 saja
+                        # terbukti kurang: SL 23 ditolak, 29.49 diterima — 2026-09-04).
+                        try:
+                            _ticks = (account or {}).get("ticks", {}) if isinstance(account, dict) else {}
+                            _tk = _ticks.get(symbol, {}) if isinstance(_ticks, dict) else {}
+                            _stops_pts = int(_tk.get("stops_level") or 0)
+                            if _tk.get("ask") and _tk.get("bid"):
+                                # MT5 mengukur jarak SL/TP dari harga pasar (Bid utk
+                                # BUY, Ask utk SELL), BUKAN dari entry. Entry BUY = Ask,
+                                # jadi jarak minimum dari entry = spread + stops_level.
+                                # Bukti 2026-09-04: SL 23 poin (spread+5) ditolak krn hanya
+                                # 6 poin di bawah Bid; SL 27.91 (spread+stops+0.91) diterima.
+                                # Margin +5 poin utk aman bila spread melebar.
+                                _spread_pts = round((_tk["ask"] - _tk["bid"]) / 0.01)  # XAUUSD point 0.01
+                                if _stops_pts > 0:
+                                    _min_stop = max(style_min_sl, _spread_pts + _stops_pts + 5)
+                                    _basis = f"spread {_spread_pts} + stops_level {_stops_pts} poin + 5"
+                                else:
+                                    # Broker tidak melaporkan stops_level: fallback empiris
+                                    # (SL 23 ditolak 'Invalid stops', 29.49 diterima — 2026-09-04).
+                                    _min_stop = max(style_min_sl, _spread_pts + 5,
+                                                    BROKER_MIN_STOP_FALLBACK)
+                                    _basis = f"fallback {BROKER_MIN_STOP_FALLBACK} poin"
+                                # RISK#7: hanya naikkan — jangan turunkan SL besar.
+                                _sl_new = max(sl_pts, _min_stop)
+                                _tp_new = max(tp_pts, _min_stop)
+                                if _sl_new != sl_pts or _tp_new != tp_pts:
+                                    log("CLAMP", f"SL/TP {sl_pts}/{tp_pts} -> {_sl_new}/{_tp_new} "
+                                                 f"(min broker: {_basis}; spread {_spread_pts:.0f} poin)")
+                                    sl_pts = _sl_new
+                                    tp_pts = _tp_new
+                        except Exception as _e:
+                            log("CLAMP_ERR", f"{_e}")
                         log("ENTRY", f"{dec['decision']} lot={dec['lotSize']} sl={sl_pts} tp={tp_pts} R:R={dec['rr']}")
                         try:
                             result = open_position(
@@ -708,13 +899,44 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                             state["active_ticket"] = new_rec["ticket"]
                             state["active_direction"] = dec["decision"]
                             state["last_trade_at"] = time.time()
+                            state["order_reject_streak"] = 0  # sukses — reset deret penolakan
                             log("OPENED", f"#{result['ticket']} {dec['decision']} {dec['lotSize']} lots (magic={magic})")
+                            # Learning Memory (Fase 1): simpan fingerprint kondisi entri.
+                            try:
+                                _fp = learning_fp_from_dec(style, dec)
+                                learning_record_open(
+                                    style, result.get("ticket"), dec["decision"], _fp,
+                                    entry=result.get("price", dec.get("entry", 0)),
+                                    lot=dec["lotSize"], sl_points=sl_pts, tp_points=tp_pts)
+                            except Exception as _e:
+                                log("MEMORY_ERR", f"open: {_e}")
                         except OrderRejected as e:
                             log("OPEN_FAILED", f"{e}")
-                            state["last_trade_at"] = time.time()
+                            # JANGAN set last_trade_at (itu jeda antar TRADE SUKSES).
+                            # Penolakan memakai backoff terpisah supaya UI tidak menampilkan
+                            # 'COOLDOWN' tanpa posisi — badge 'RETRY' + counter jujur.
+                            state["last_reject_at"] = time.time()
+                            state["order_reject_streak"] = int(state.get("order_reject_streak", 0)) + 1
+                            if state["order_reject_streak"] >= ORDER_REJECT_STREAK_HALT:
+                                log("ORDER_HALT", f"{state['order_reject_streak']}x penolakan beruntun — "
+                                                   f"jeda {ORDER_REJECT_HALT_S}s (cek SL/TP manual vs min broker)")
+                            try:
+                                record_entry_rejection(state, "order",
+                                                       f"Order ditolak broker: {e}", dec)
+                            except Exception:
+                                pass
                         except BridgeError as e:
                             log("OPEN_FAILED", f"Bridge: {e}")
-                            state["last_trade_at"] = time.time()
+                            state["last_reject_at"] = time.time()
+                            state["order_reject_streak"] = int(state.get("order_reject_streak", 0)) + 1
+                            if state["order_reject_streak"] >= ORDER_REJECT_STREAK_HALT:
+                                log("ORDER_HALT", f"{state['order_reject_streak']}x penolakan beruntun — "
+                                                   f"jeda {ORDER_REJECT_HALT_S}s (cek koneksi/bridge)")
+                            try:
+                                record_entry_rejection(state, "order",
+                                                       f"Bridge tidak tersedia: {e}", dec)
+                            except Exception:
+                                pass
 
             save_state(state, style)
 
@@ -722,6 +944,11 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
             log("BRIDGE_ERROR", str(e))
         except Exception as e:
             log("ERROR", str(e))
+
+        # Heartbeat telemetri: kapan bot akan minta keputusan/cek entry berikutnya
+        # (poll 5 dtk). Ditulis tiap akhir iterasi — UI hitung mundur dari sini.
+        state["next_check_at"] = time.time() + POLL_INTERVAL
+        save_state(state, style)
 
         time.sleep(POLL_INTERVAL)
 

@@ -52,7 +52,14 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
 
     def run_backtest(self, strategy_logic=None, historical_data=None, initial_capital=100000.0,
                      timeframe_seconds=3600.0, symbol='XAUUSD', sl_pct=None, tp_pct=None,
-                     benchmark_data=None, spread_pct=None, slippage_pct=None, commission_pct=None):
+                     benchmark_data=None, spread_pct=None, slippage_pct=None, commission_pct=None,
+                     execution_model=None):
+        if execution_model is not None:
+            raise NotImplementedError(
+                "EnhancedBacktestEngine tidak mengimplementasikan execution_model "
+                "(P0-2). Gunakan IsolatedBacktestEngine utk backtest model-driven."
+            )
+
         spec = INSTRUMENT_SPREADS.get(symbol, INSTRUMENT_SPREADS['XAUUSD'])
         if spread_pct is None:
             spread_pct = spec['spread_pct']
@@ -189,8 +196,9 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             'raw_dataset_hash':raw_dataset_hash,
             'purified_dataset_hash':purified_dataset_hash,
             'purification_report':purification_report,
-            # Execution semantics
-            'signal_timing':'next_bar_open','entry_price':'close',
+            # Execution semantics (P0-2): Enhanced = close-to-close legacy; label jujur.
+            'signal_timing':'same_bar_close (close-to-close legacy)','entry_price':'close',
+            'filled_at_open_next_bar': False,
             'slippage_model':'fixed_pct','spread_model':'historical',
         }
         equity_curve=df.select(['timestamp','price','signal','equity','drawdown','strategy_return'])

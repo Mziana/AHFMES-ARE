@@ -95,6 +95,9 @@ class WFOEvidence:
 
     provenance_hash: str
 
+    # P1-9: pooled turnover-event log dari seluruh OOS fold (basis metric trade)
+    pooled_trades: Tuple[Dict[str, Any], ...] = ()
+
     def to_dict(self) -> dict:
         """Canonical serialization of ALL WFO evidence fields."""
         d = {}
