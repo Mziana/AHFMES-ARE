@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "strategy_v2/schemas/decision_log.schema.json",
+  "title": "Strategy v2 Decision Log Record",
+  "description": "Satu evaluasi = satu record. Waktu semantic = market timestamp (epoch bar CLOSE M5). now()/wall-clock DILARANG masuk log (Pagar 4).",
+  "type": "object",
+  "required": [
+    "evaluation_timestamp",
+    "data_available_until",
+    "strategy_version",
+    "profile_id",
+    "hypothesis_registry_id",
+    "config_hash",
+    "dataset_hash",
+    "layer_a",
+    "all_gate_results",
+    "first_veto_reason",
+    "bias",
+    "decision",
+    "market_snapshot"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "evaluation_timestamp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Epoch bar CLOSE M5 yang dievaluasi (market timestamp, BUKAN now())."
+    },
+    "data_available_until": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "T eksplisit (epoch bar close M5). Semua input punya ts <= T."
+    },
+    "strategy_version": { "type": "string", "minLength": 1 },
+    "profile_id": { "enum": ["SCALP_V2", "MICRO_V2"] },
+    "hypothesis_registry_id": { "type": "string", "minLength": 1 },
+    "config_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "dataset_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "layer_a": {
+      "description": "DATA_VALID atau DATA_INVALID:<reason> (Layer A terpisah dari statistik strategi).",
+      "type": "string",
+      "pattern": "^(DATA_VALID|DATA_INVALID:[a-z_]+)$"
+    },
+    "all_gate_results": {
+      "type": "object",
+      "description": "FULL DIAGNOSTIC — semua gate dinilai meski satu sudah veto.",
+      "required": ["b1_news", "b2_session", "b3_regime", "b4_location", "b5_trigger", "b6_volume", "b7_risk"],
+      "additionalProperties": false,
+      "properties": {
+        "b1_news": { "enum": ["PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE", "NEWS_CALENDAR_UNAVAILABLE"] },
+        "b2_session": { "enum": ["PASS", "FAIL:outside"] },
+        "b3_regime": { "enum": ["PASS:BUY_ONLY", "PASS:SELL_ONLY", "FAIL:NO_TRADE"] },
+        "b4_location": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:far|DISABLED)$" },
+        "b5_trigger": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:none|FAIL:forming_bar|DISABLED)$" },
+        "b6_volume": { "enum": ["PASS", "FAIL:ratio", "FAIL:baseline_invalid", "DISABLED"] },
+        "b7_risk": { "enum": ["PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds"] }
+      }
+    },
+    "first_veto_reason": {
+      "type": "string",
+      "description": "OPERATIONAL DECISION — veto pertama (mis. 'B1:NEWS_EVENT_ACTIVE') atau null bila semua PASS.",
+      "type": ["string", "null"]
+    },
+    "bias": { "enum": ["BUY_ONLY", "SELL_ONLY", "NO_TRADE", null] },
+    "setup": {
+      "type": ["object", "null"],
+      "properties": {
+        "kind": { "enum": ["sr_zone", "ema_pullback"] },
+        "ref": { "type": "string" },
+        "distance_atr": { "type": "number" }
+      }
+    },
+    "trigger": {
+      "type": ["object", "null"],
+      "properties": {
+        "pattern": { "type": "string" },
+        "bar_ts": { "type": "integer" }
+      }
+    },
+    "decision": { "enum": ["BUY", "SELL", "WAIT"] },
+    "sl_points": { "type": "number", "minimum": 0 },
+    "tp_points": { "type": "number", "minimum": 0 },
+    "lot": { "type": "number", "minimum": 0 },
+    "market_snapshot": {
+      "type": "object",
+      "required": ["spread", "atr", "vol_ratio", "rsi_m15", "rsi_m5"],
+      "properties": {
+        "spread": { "type": ["number", "null"] },
+        "atr": { "type": "number" },
+        "vol_ratio": { "type": ["number", "null"] },
+        "rsi_m15": { "type": ["number", "null"] },
+        "rsi_m5": { "type": ["number", "null"] }
+      }
+    }
+  }
+}

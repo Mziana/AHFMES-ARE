@@ -1,0 +1,34 @@
+{
+  "profile_id": "SCALP_V2",
+  "description": "SCALP = high-confidence, low-frequency",
+  "session_windows_utc": [[7, 17]],
+  "timeframe_trigger": "M5",
+  "timeframe_regime": "M15",
+  "risk": {
+    "sl_atr_mult": 1.5,
+    "tp_atr_mult": 1.5,
+    "min_stop_params": { "spread_mult": 3, "stops_level_poin": 0, "buffer_poin": 10 },
+    "max_stop_points": 400,
+    "risk_percent": 2.0,
+    "max_trades_per_day": 6,
+    "cooldown_minutes": 30
+  },
+  "location": {
+    "kind": "sr_zone",
+    "sr_distance_atr": 0.5,
+    "atr_timeframe": "M15"
+  },
+  "volume_gate": {
+    "enabled": false
+  },
+  "news": {
+    "policy": "FAIL_CLOSED",
+    "window_minutes": 30,
+    "staleness_hours": 4,
+    "impacts": ["high"]
+  },
+  "layer_a": {
+    "max_staleness_bars": 3,
+    "spread_cap_points": 200
+  }
+}

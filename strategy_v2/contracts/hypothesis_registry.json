@@ -1,0 +1,60 @@
+{
+  "registry_id": "HREG-V2-2026-09-08",
+  "strategy_version": "strategy_v2/0.1.0-p0",
+  "source": "design_v2.3",
+  "hypotheses": {
+    "H-SESSION-01": {
+      "id": "H-SESSION-01",
+      "value": { "session_windows_utc": [[7, 17]] },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-RSI-BIAS-01": {
+      "id": "H-RSI-BIAS-01",
+      "value": { "rsi_threshold": 50, "timeframe": "M15", "period": 14 },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-RSI-ENTRY-01": {
+      "id": "H-RSI-ENTRY-01",
+      "value": { "pullback_zone_low": 40, "pullback_zone_high": 55, "timeframe": "M5" },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-LOC-01": {
+      "id": "H-LOC-01",
+      "value": { "sr_distance_atr": 0.5, "atr_timeframe": "M15" },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-LOC-02": {
+      "id": "H-LOC-02",
+      "value": { "ema_pullback_distance_atr": 0.25, "atr_timeframe": "M5", "ema_periods": [9, 21] },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-VOL-01": {
+      "id": "H-VOL-01",
+      "value": { "ratio": 1.2, "baseline_bars": 5, "exclude_self": true, "metric": "tick-activity proxy" },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-ATR-01": {
+      "id": "H-ATR-01",
+      "value": { "sl_tp_multiplier": { "scalp": [1.5, 1.5], "micro": [1.25, 1.5] }, "atr_timeframe": "M5" },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    },
+    "H-Q1": {
+      "id": "H-Q1",
+      "value": {
+        "min_evaluation_opportunities": 50,
+        "max_data_invalid_ratio": 0.2,
+        "min_bars_m15_warmup": 50,
+        "note": "market quality bounds untuk replay/backtest valid"
+      },
+      "status": "HYPOTHESIS",
+      "source": "design_v2.3"
+    }
+  }
+}
