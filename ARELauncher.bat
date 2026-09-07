@@ -14,6 +14,10 @@ rem P0-01: bridge auth token (dibaca sekali untuk semua mode)
 set "BRIDGE_TOKEN_VALUE="
 if exist "%ROOT%data\bridge_token.txt" set /p BRIDGE_TOKEN_VALUE=<"%ROOT%data\bridge_token.txt"
 
+rem E-3: pin interpreter bridge ke python dgn MetaTrader5 (sama dgn run_bridge.bat).
+rem Shell `python` (WindowsApps shim) tidak dijamin punya MetaTrader5.
+set "MT5_PY=C:\Users\Fajar\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+
 :MENU
 cls
 echo.
@@ -60,7 +64,7 @@ if %errorlevel% equ 0 (
     goto BRIDGE_OK
 )
 echo   Starting MT5 Bridge...
-start "ARE-Bridge" /min cmd /c "cd /d %ROOT% && set ARE_BRIDGE_TOKEN=%BRIDGE_TOKEN_VALUE% && python -m are.mt5_server --port %BRIDGE_PORT% > %LOG_DIR%\bridge.log 2>&1"
+start "ARE-Bridge" /min cmd /c "cd /d %ROOT% && set ARE_BRIDGE_TOKEN=%BRIDGE_TOKEN_VALUE% && %MT5_PY% -m are.mt5_server --port %BRIDGE_PORT% > %LOG_DIR%\bridge.log 2>&1"
 echo   Waiting for Bridge...
 timeout /t 5 /nobreak >nul
 curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
