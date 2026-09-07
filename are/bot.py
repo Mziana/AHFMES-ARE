@@ -493,6 +493,9 @@ def reconcile_positions(state: dict, positions: list, style: str, symbol: str):
         rec["sl"] = bp.get("sl", rec.get("sl", 0))
         rec["tp"] = bp.get("tp", rec.get("tp", 0))
         rec["last_pnl"] = bp.get("profit", rec.get("last_pnl", 0))
+        # C1: refresh last_price tiap siklus — tanpa ini posisi buatan bot
+        # (yang record-nya tak punya last_price) tercatat exit=0 saat TP/SL.
+        rec["last_price"] = bp.get("price_current", rec.get("last_price", 0))
         open_records.append(rec)
         seen.add(ticket)
 
@@ -990,6 +993,10 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                                 "sl": sl_pts, "tp": tp_pts,
                                 "opened_at": time.time(),
                                 "last_pnl": 0.0,
+                                # C1: harga entry sbg last known price awal —
+                                # bila TP/SL hit sebelum poll pertama, exit
+                                # tercatat harga nyata, bukan 0.
+                                "last_price": result.get("price", 0),
                             }
                             state["positions"].append(new_rec)
                             state["active_ticket"] = new_rec["ticket"]
