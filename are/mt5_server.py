@@ -130,11 +130,21 @@ def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200,
         tf = TIMEFRAME_MAP.get(timeframe_str.upper(), 16385)
         from datetime import datetime, timedelta
         import time as _time
-        offset = 0  # selisih jam server (epoch bar) vs UTC real — dinormalisasi
+        # P2-17: offset dikuantisasi ke BATAS BAR (bukan per-tick kontinu).
+        # offset lama = tick.time - now: bergeser tiap tick delay, sehingga
+        # dua poll dalam detik yang sama bisa menghasilkan sumbu waktu yang
+        # berbeda. Kuantisasi: offset = (last_bar_epoch_server - last_bar_
+        # epoch_utc) dibulatkan ke kelipatan bar — stabil dalam satu bar.
+        offset = 0
+        bar_seconds = TF_MINUTES.get(timeframe_str.upper(), 60) * 60
         if frm and to:
             rates = mt5.copy_rates_range(symbol, tf,
                                          datetime.fromtimestamp(frm),
                                          datetime.fromtimestamp(to))
+            # Jalur rentang: normalisasi yang sama diterapkan dari bar terakhir
+            # (epoch bar server vs epoch UTC referensi dari request-to bila
+            # mendekati now; tanpa referensi yang andal, biarkan apa adanya —
+            # pemanggil backtest memakai epoch server secara konsisten).
         else:
             # Jalur DEFAULT: copy_rates_from_pos. Pada terminal ini (Finex demo)
             # copy_rates_range TERBUKTI beku (history berhenti walau tick hidup),
@@ -143,8 +153,11 @@ def get_candles(symbol: str, timeframe_str: str = 'H1', count: int = 200,
             # freshness engine (Date.now) dan sumbu waktu chart tetap benar.
             rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
             tick = mt5.symbol_info_tick(symbol)
-            if tick is not None:
-                offset = int(tick.time - _time.time())
+            if tick is not None and len(rates) > 0:
+                # offset mentah dari tick lalu dikuantisasi ke kelipatan bar:
+                # drift intra-bar < 1 bar terbuang, sumbu waktu stabil.
+                raw_offset = int(tick.time) - int(_time.time())
+                offset = int(round(raw_offset / bar_seconds)) * bar_seconds
         if rates is None or len(rates) == 0:
             return {'connected': True, 'symbol': symbol, 'candles': [], 'error': 'no data'}
         candles = []
