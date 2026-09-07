@@ -1,8 +1,9 @@
 # STRATEGY V2 — GATE ARCHITECTURE (DESIGN CONTRACT v2.2)
 
-Status: **DESIGN ACCEPTED WITH REQUIRED CONTRACT HARDENING**
-(v2.1 disetujui arahnya dengan 9 requirement wajib dari review tahap 2; semua terintegrasi di dokumen ini.
-Bukan "FINAL" — status menjadi FINAL hanya setelah P0–P2 teraudit dan invariant test lolos.)
+Status: **DESIGN ACCEPTED WITH REQUIRED CONTRACT HARDENING — v2.3 (6 PAGAR TERAKHIR TERPASANG)**
+(v2.1: 9 requirement review tahap 2 · v2.2: integrasi + bukti lookahead · v2.3: 6 pagar final
+review tahap 3 — experiment freeze, no-lookahead global, tiga truth, market-timestamp,
+adversarial mutation tests, diagnostic completeness gate. Implementasi P0–P2 BOLEH DIMULAI.)
 
 Basis: analisa 122 trade 7 Sep (MT5 riil) + riset multi-TF (dokumen user) + review desain 2 tahap
 (14 koreksi + 9 requirement hardening) + audit infrastruktur AHFMES-ARE.
@@ -169,6 +170,58 @@ vs "setup bagus tapi execution/cost menghancurkan edge".
 
 ---
 
+---
+
+## 5b. ENAM PAGAR FINAL SEBELUM IMPLEMENTASI (v2.3 — review tahap 3)
+
+### PAGAR 1 — Experiment Contract Freeze
+Setelah P0 dimulai, hal berikut **immutable untuk satu experiment run**:
+strategy profile/version, hypothesis registry, parameter values, dataset identity/hash,
+timezone, session calendar, cost model, execution timing, candle timeframe, indicator
+definitions. Setiap perubahan → **experiment/config identity BARU** (config_hash berubah).
+Dilarang ada kondisi di mana replay menyatakan "Strategy v2" padahal parameter internal
+sudah berbeda dari run sebelumnya.
+
+### PAGAR 2 — No-Lookahead = INVARIANT GLOBAL (bukan patch per fungsi)
+Prinsip tunggal: **Pada evaluation time T, tidak ada fungsi strategy/research yang boleh
+menerima observasi dengan timestamp > T.** Berlaku untuk SEMUA komponen: rolling
+calculations, swing detection, candle patterns, EMA/RSI/ATR, zones, session classification,
+news timestamps, volume baseline. Bukti kebutuhan: `findSwingPoints` (indicators.ts:315)
+mengonfirmasi swing dengan `highs[i+k]` masa depan — replay tanpa evaluation-time slicing
+adalah lookahead. Invariant test no-lookahead system-wide menutup SELURUH komponen,
+bukan hanya S/R.
+
+### PAGAR 3 — Tiga Jenis Kebenaran Terpisah (tiga modul terpisah, tidak boleh bercampur)
+- **A. Data Truth** — apakah data valid? (Layer A, status DATA_INVALID)
+- **B. Decision Truth** — apa yang strategi putuskan atas informasi yang tersedia saat itu?
+  (gate engine, decision log)
+- **C. Execution Truth** — apa yang benar-benar terjadi saat dieksekusi dgn biaya & latency?
+  (execution simulator + cost model)
+Hasil buruk harus bisa dijawab presisi: data bermasalah / strategi tak beredge /
+gross edge ada tapi execution menghabiskannya.
+
+### PAGAR 4 — Decision Log: append-only + deterministik, DILARANG now()
+Field wajib tiap record: `evaluation_timestamp` (epoch BAR CLOSE yang dievaluasi),
+`data_available_until` (T eksplisit), `strategy_version`, `profile_id`,
+`hypothesis_registry_id`, `config_hash`, `dataset_hash`, `first_veto_reason`,
+`all_gate_results`, `decision`. **Sumber waktu semantic = MARKET TIMESTAMP dari data,
+BUKAN `now()` komputer.** Replay sama dijalankan dua kali → decision log identik
+secara semantik (dan bit-per-bit untuk field deterministik).
+
+### PAGAR 5 — Acceptance test = adversarial mutation (serang sistem, bukan happy path)
+Setiap invariant penting diuji dengan mutasi jahat. Kategori minimum:
+future candle disisipkan · historical candle dimodifikasi · data missing · NaN ·
+duplicate timestamp · spread ekstrem · stale data · config berubah di tengah run ·
+urutan input diacak. Tujuan: membuktikan **sistem gagal dengan benar ketika kontraknya
+dilanggar** — bukan bekerja saat kondisi bagus.
+
+### PAGAR 6 — Diagnostic Completeness GATE sebelum WFO
+Sebelum P3/WFO, baseline WAJIB mampu menjawab: berapa evaluation opportunity,
+berapa DATA_INVALID, berapa veto per gate, kombinasi veto, berapa final signal,
+berapa executed trade, berapa rejected execution, gross expectancy, total costs,
+net expectancy. **Ke mana semua kandidat trade hilang harus terjawab penuh.**
+WFO atas black box yang belum terdiagnosis = statistik lebih mahal, bukan pengetahuan.
+
 ## 6. ARSITEKTUR ALIRAN (kontrak P0–P2)
 
 ```
@@ -215,7 +268,7 @@ DECISION REPLAY     EXECUTION SIMULATOR
 | P7 Shadow execution-gap | sinyal vs eksekusi nyata: expected vs actual entry/SL/spread | |
 | P8 Demo kecil | 2 minggu lot minimum; safety stack (equity breaker, kill switch, reset harian) sudah terpasang | |
 
-### Invariant tests WAJIB (acceptance P0–P2)
+### Invariant tests WAJIB (acceptance P0–P2) — plus ADVERSARIAL MUTATION untuk tiap invariant (Pagar 5)
 1. **No-lookahead system-wide**: engine tidak dapat membaca candle > T (bukti kebutuhan: `findSwingPoints` mengonfirmasi swing dengan bar masa depan — di replay wajib evaluation-time slicing).
 2. Closed-bar semantics: tidak ada keputusan dari forming bar.
 3. Execution ≥ T+1 open; tak pernah lebih awal.
@@ -224,6 +277,8 @@ DECISION REPLAY     EXECUTION SIMULATOR
 6. Layer A ≠ Layer B statistik (DATA_INVALID tidak masuk distribusi rejection strategi).
 7. Volume baseline guard (exclude-self, zero-volume, missing-data = FAIL).
 8. Diagnostic full-evaluation tidak mengubah operational decision.
+9. **Timestamp semantics**: tidak ada `now()` di jalur decision — waktu dari market timestamp (Pagar 4).
+10. **Diagnostic completeness**: replay menghasilkan funnel lengkap (opportunity → DATA_INVALID → veto per gate → signal → executed → rejected → gross/cost/net) sebelum dianggap selesai (Pagar 6).
 
 ---
 
