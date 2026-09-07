@@ -63,6 +63,14 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
         spec = INSTRUMENT_SPREADS.get(symbol, INSTRUMENT_SPREADS['XAUUSD'])
         if spread_pct is None:
             spread_pct = spec['spread_pct']
+        # P1-05: slippage & commission sebelumnya DIABAIKAN diam-diam padahal
+        # ada di signature — friction kini lengkap, konsisten dgn parent:
+        # unit_friction = 0.5*spread + slippage + commission.
+        if slippage_pct is None:
+            slippage_pct = 0.00005
+        if commission_pct is None:
+            commission_pct = 0.00005
+        unit_friction = (0.5 * spread_pct) + slippage_pct + commission_pct
 
         if historical_data is None:
             # P1-2: Synthetic data must be EXPLICIT opt-in, never silent fallback
@@ -71,25 +79,35 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
                 "Use data_loader.load_ohlc_data() or pass explicit synthetic=True for testing."
             )
 
-        # P0-4: Compute raw dataset hash BEFORE purification
+        # P0-4/P1-05: hash format V2 — IDENTIK dengan IsolatedBacktestEngine
+        # (semua kolom market + skema rows/cols). Format V1 lama (timestamp/
+        # price/volume saja) membuat identitas dataset tak bisa dibandingkan
+        # lintas jalur research vs CLI/UI.
         import struct as _struct
         from are.hasher import compute_sha256 as _csha
-        _ts = historical_data['timestamp'].to_list() if 'timestamp' in historical_data.columns else []
-        _pr = historical_data['price'].to_list() if 'price' in historical_data.columns else []
-        _vol = historical_data['volume'].to_list() if 'volume' in historical_data.columns else [0.0] * len(_ts)
-        _raw_bytes = b'V1' + b''.join(_struct.pack('>d', float(x)) for x in _ts) + b''.join(_struct.pack('>d', float(x)) for x in _pr) + b''.join(_struct.pack('>d', float(x)) for x in _vol)
-        raw_dataset_hash = _csha(_raw_bytes)
+        _market_cols = ["timestamp", "open", "high", "low", "close", "price", "volume", "bid", "ask"]
+
+        def _v2_dataset_hash(d):
+            parts = [b"V2"]
+            for col in _market_cols:
+                if col in d.columns:
+                    vals = d[col].to_list()
+                    parts.append(col.encode())
+                    parts.append(b"|")
+                    parts.append(b"".join(_struct.pack(">d", float(x)) for x in vals))
+                    parts.append(b"|")
+            parts.append(f"rows={len(d)}".encode())
+            parts.append(b"|")
+            parts.append(f"cols={','.join(d.columns)}".encode())
+            return _csha(b"".join(parts))
+
+        raw_dataset_hash = _v2_dataset_hash(historical_data)
 
         purifier = DataPurifier()
         df = purifier.purify_tick_data(historical_data, symbol=symbol, timeframe_seconds=timeframe_seconds or 3600.0)
         purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
 
-        # P0-4: Compute purified dataset hash AFTER purification
-        _pts = df['timestamp'].to_list() if 'timestamp' in df.columns else []
-        _ppr = df['price'].to_list() if 'price' in df.columns else []
-        _pvol = df['volume'].to_list() if 'volume' in df.columns else [0.0] * len(_pts)
-        _purified_bytes = b'V1' + b''.join(_struct.pack('>d', float(x)) for x in _pts) + b''.join(_struct.pack('>d', float(x)) for x in _ppr) + b''.join(_struct.pack('>d', float(x)) for x in _pvol)
-        purified_dataset_hash = _csha(_purified_bytes)
+        purified_dataset_hash = _v2_dataset_hash(df)
 
         if 'high' not in df.columns:
             df=df.with_columns(
@@ -133,7 +151,7 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             (pl.col('signal')-pl.col('prev_signal')).abs().alias('turnover'),
             (pl.col('prev_signal')*pl.col('price_return')).alias('gross_strategy_return')
         ).with_columns(
-            (pl.col('turnover')*spread_pct*0.5).alias('friction_penalty')
+            (pl.col('turnover')*unit_friction).alias('friction_penalty')
         ).with_columns(
             (pl.col('gross_strategy_return')-pl.col('friction_penalty')).alias('strategy_return')
         ).with_columns(
@@ -143,6 +161,17 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
         ).with_columns(
             ((pl.col('equity')-pl.col('peak_equity'))/pl.col('peak_equity')).alias('drawdown')
         )
+
+        # Trade log dulu — P1-05: win_rate/pf/avg dihitung PER-TRADE (dari pnl
+        # segmen), bukan per-bar. Kode lama: win_rate = % bar return positif
+        # (bukti audit: 12 trade -> "Win Rate 0.9%") — menyesatkan.
+        trade_df=df.filter((pl.col('signal')!=pl.col('prev_signal'))&(pl.col('signal')!=0.0)).select([
+            pl.col('timestamp'),
+            pl.when(pl.col('signal')>0).then(pl.lit('BUY')).otherwise(pl.lit('SELL')).alias('action'),
+            pl.col('price'),
+            (pl.col('equity')-pl.col('equity').shift(1)).fill_null(0.0).alias('pnl'),
+            pl.col('equity'),
+        ])
 
         # Advanced metrics
         from are.backtest import calculate_sharpe_ratio
@@ -154,16 +183,17 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
         sortino=calculate_sortino_ratio(returns,timeframe_seconds)
         calmar=calculate_calmar_ratio(total_return*100,max_dd*100)
         cvar=calculate_cvar(returns,0.05)
-        gains=[r for r in returns if r>0]
-        losses_list=[abs(r) for r in returns if r<0]
-        gross_profit=sum(gains); gross_loss=sum(losses_list)
+        trade_pnls=[float(x) for x in trade_df['pnl'].to_list()] if trade_df.height>0 else []
+        trade_gains=[p for p in trade_pnls if p>0]
+        trade_losses=[abs(p) for p in trade_pnls if p<0]
+        gross_profit=sum(trade_gains); gross_loss=sum(trade_losses)
         pf=(gross_profit/gross_loss) if gross_loss>1e-9 else (100.0 if gross_profit>0 else 1.0)
-        avg_win=(gross_profit/len(gains)) if gains else 0.0
-        avg_loss=(gross_loss/len(losses_list)) if losses_list else 0.0
-        win_rate=(len(gains)/len(returns)*100) if returns else 0.0
+        avg_win=(gross_profit/len(trade_gains)) if trade_gains else 0.0
+        avg_loss=(gross_loss/len(trade_losses)) if trade_losses else 0.0
+        win_rate=(len(trade_gains)/len(trade_pnls)*100) if trade_pnls else 0.0
         max_consec_loss=0; curr_consec=0
-        for r in returns:
-            if r<0: curr_consec+=1; max_consec_loss=max(max_consec_loss,curr_consec)
+        for p in trade_pnls:
+            if p<0: curr_consec+=1; max_consec_loss=max(max_consec_loss,curr_consec)
             else: curr_consec=0
         in_pos=df['prev_signal'].abs()
         exposure_pct=(float(in_pos.sum())/len(in_pos)*100) if len(in_pos)>0 else 0.0
@@ -171,14 +201,6 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
         if benchmark_data is not None and 'price' in benchmark_data.columns:
             bp=benchmark_data['price'].to_list()
             if len(bp)>1: bh_return=(bp[-1]-bp[0])/bp[0]
-
-        trade_df=df.filter((pl.col('signal')!=pl.col('prev_signal'))&(pl.col('signal')!=0.0)).select([
-            pl.col('timestamp'),
-            pl.when(pl.col('signal')>0).then(pl.lit('BUY')).otherwise(pl.lit('SELL')).alias('action'),
-            pl.col('price'),
-            (pl.col('equity')-pl.col('equity').shift(1)).fill_null(0.0).alias('pnl'),
-            pl.col('equity'),
-        ])
 
         from are.backtest import BacktestResult
         metrics={
@@ -191,6 +213,7 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             'max_consecutive_losses':max_consec_loss,'exposure_pct':round(exposure_pct,2),
             'total_trades':len(trade_df),'total_bars':len(df),'symbol':symbol,
             'spread_pct':spread_pct,'benchmark_return_pct':round(bh_return*100,2),
+            'slippage_pct':slippage_pct,'commission_pct':commission_pct,
             'alpha_pct':round((total_return-bh_return)*100,2),
             # P0-4: Dataset identity hashes
             'raw_dataset_hash':raw_dataset_hash,
