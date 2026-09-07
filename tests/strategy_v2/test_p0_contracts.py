@@ -80,5 +80,9 @@ def test_decision_log_schema_shape():
     gates = s["properties"]["all_gate_results"]["properties"]
     assert set(gates["b1_news"]["enum"]) == {
         "PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE",
-        "NEWS_CALENDAR_UNAVAILABLE"}
-    assert set(gates["b7_risk"]["enum"]) == {"PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds"}
+        "NEWS_CALENDAR_UNAVAILABLE", "DISABLED"}
+    assert set(gates["b7_risk"]["enum"]) == {"PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"}
+    # semua gate harus punya DISABLED (Layer B tidak jalan saat DATA_INVALID)
+    for g, spec in gates.items():
+        enum = spec.get("enum") or []
+        assert "DISABLED" in enum or "DISABLED" in spec.get("pattern", ""), f"{g} tanpa DISABLED"

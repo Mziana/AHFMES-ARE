@@ -47,13 +47,13 @@
       "required": ["b1_news", "b2_session", "b3_regime", "b4_location", "b5_trigger", "b6_volume", "b7_risk"],
       "additionalProperties": false,
       "properties": {
-        "b1_news": { "enum": ["PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE", "NEWS_CALENDAR_UNAVAILABLE"] },
-        "b2_session": { "enum": ["PASS", "FAIL:outside"] },
-        "b3_regime": { "enum": ["PASS:BUY_ONLY", "PASS:SELL_ONLY", "FAIL:NO_TRADE"] },
+        "b1_news": { "enum": ["PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE", "NEWS_CALENDAR_UNAVAILABLE", "DISABLED"] },
+        "b2_session": { "enum": ["PASS", "FAIL:outside", "DISABLED"] },
+        "b3_regime": { "enum": ["PASS:BUY_ONLY", "PASS:SELL_ONLY", "FAIL:NO_TRADE", "DISABLED"] },
         "b4_location": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:far|DISABLED)$" },
         "b5_trigger": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:none|FAIL:forming_bar|DISABLED)$" },
         "b6_volume": { "enum": ["PASS", "FAIL:ratio", "FAIL:baseline_invalid", "DISABLED"] },
-        "b7_risk": { "enum": ["PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds"] }
+        "b7_risk": { "enum": ["PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"] }
       }
     },
     "first_veto_reason": {

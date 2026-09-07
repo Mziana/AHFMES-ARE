@@ -24,3 +24,10 @@ Format: tanggal | keputusan | alasan.
   07:00 UTC), evaluasi sebelum warmup cukup tetap dijalankan tapi
   `H-Q1.min_bars_m15_warmup` dilaporkan di qualification report | transparan
   tanpa membuang data.
+- 2026-09-08 | Schema gate enums diperluas dengan `DISABLED` utk semua gate
+  (b4/b5/b6 sudah punya) | desain §1: DATA_INVALID → evaluasi strategi TIDAK
+  dijalankan; schema wajib tetap bisa merepresentasikan record Layer B yang
+  tidak berjalan tanpa melanggar `required: all_gate_results`.
+- 2026-09-08 | SL final = `min_stop` (max dari SL ATR×mult dan floor spread);
+  bila min_stop > cap → `FAIL:stop_bounds` (SKIP) | desain §B7 "SKIP, bukan
+  clamp diam-diam" — SL tidak pernah dipaksa turun di bawah floor spread.
