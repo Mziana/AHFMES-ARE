@@ -26,7 +26,7 @@ echo           AHFMES-ARE  -  LAUNCHER v4.0
 echo        Autonomous Research Engine Control Center
 echo  ============================================================
 echo.
-echo   [1]  START ALL     (Bridge + UI + Bot Micro)
+echo   [1]  START ALL     (Bridge + UI — bot TIDAK auto-start)
 echo   [2]  START BOT     (Start bot micro only)
 echo   [3]  STOP ALL      (Kill all ARE services)
 echo   [4]  STATUS        (Check what's running)
@@ -60,7 +60,7 @@ rem E-4: rotasi log (data/logs/*.log) sebelum service start — gagal rotasi tid
 python scripts/rotate_logs.py >nul 2>&1
 
 :: [1] MT5 Bridge
-echo  [1/4] Checking MT5 Bridge (port %BRIDGE_PORT%)...
+echo  [1/3] Checking MT5 Bridge (port %BRIDGE_PORT%)...
 curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
 if %errorlevel% equ 0 (
     echo   [OK] MT5 Bridge already running
@@ -80,7 +80,7 @@ if %errorlevel% equ 0 (
 
 :: [2] UI
 echo.
-echo  [2/4] Checking Next.js UI (port %NEXTJS_PORT%)...
+echo  [2/3] Checking Next.js UI (port %NEXTJS_PORT%)...
 curl -s --max-time 3 http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
 if %errorlevel% equ 0 (
     echo   [OK] UI already running
@@ -98,19 +98,11 @@ echo   [OK] UI started
 
 :: [3] Account check
 echo.
-echo  [3/4] Checking account...
+echo  [3/3] Checking account...
 curl -s --max-time 5 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/account 2>nul | python -c "import json,sys; d=json.load(sys.stdin); print('   Balance: $%.2f | Positions: %d' % (d.get('balance',0), d.get('position_count',0)))" 2>nul
 
-:: [4] Bot Micro
-echo.
-echo  [4/4] Starting Bot Micro via API...
-curl -s --max-time 10 -X POST http://127.0.0.1:%NEXTJS_PORT%/api/are/bot/start -H "Content-Type: application/json" -d "{\"style\":\"micro\"}" > "%LOG_DIR%\bot_start.json" 2>&1
-findstr /c:"pid" "%LOG_DIR%\bot_start.json" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo   [OK] Bot Micro started
-) else (
-    echo   [!!] Check bot_start.json for details
-)
+rem Keputusan owner: START ALL TIDAK auto-start Bot Micro — trading harus
+rem selalu keputusan eksplisit. Start manual: menu [2] START BOT.
 
 echo.
 echo  ============================================================
@@ -118,7 +110,7 @@ echo   AHFMES-ARE IS LIVE!
 echo  -------------------------------------------------------------
 echo   UI  : http://127.0.0.1:%NEXTJS_PORT%
 echo   Bridge : http://127.0.0.1:%BRIDGE_PORT%
-echo   Bot Micro : RUNNING
+echo   Bot Micro : NOT STARTED — start manual via menu [2] START BOT
 echo  -------------------------------------------------------------
 echo   This window can be closed. Services run independently.
 echo   To stop: ARELauncher.bat ^> [3] STOP ALL
