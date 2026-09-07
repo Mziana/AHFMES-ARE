@@ -63,6 +63,7 @@ class IsolatedBacktestEngine:
         commission_pct: float = 0.00005, # 0.5 bps default broker fee (0.005%)
         synthetic: bool = False,          # Explicit opt-in for synthetic test data
         execution_model: Optional[Any] = None,  # P0-2: ExecutionModel duck-typed. None = legacy close-to-close.
+        pre_purified: bool = False,  # P2-12: input sudah melewati DataPurifier (jalur WFO)
     ) -> BacktestResult:
         """
         Executes a vectorized backtest computation over historical market data.
@@ -118,9 +119,22 @@ class IsolatedBacktestEngine:
         raw_dataset_hash = compute_sha256(b"".join(_raw_parts))
 
         # Purify raw tick / bar data via DataPurifier (Anti-GIGO, DELEGASI_029b)
-        purifier = DataPurifier()
-        purified_data = purifier.purify_tick_data(historical_data)
-        purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
+        # P2-12: jalur WFO mengirim pre_purified=True — data dipurifikasi
+        # SEKALI di run_walk_forward_optimization, bukan ulang per kandidat
+        # per fold (re-purifikasi per-slice menghasilkan flag toxic/gap yang
+        # berbeda antara fold vs dataset penuh + kerja O(folds×params)).
+        if pre_purified:
+            _required = {'timestamp'} & set(historical_data.columns)
+            if 'price' not in historical_data.columns and not ({'bid', 'ask'} <= set(historical_data.columns)):
+                raise ValueError(
+                    "PRE_PURIFIED_CONTRACT_VIOLATION: input tanpa 'price' maupun 'bid'/'ask' "
+                    "- data pre-purified harus berasal dari DataPurifier.")
+            purified_data = historical_data
+            purification_report = {}
+        else:
+            purifier = DataPurifier()
+            purified_data = purifier.purify_tick_data(historical_data)
+            purification_report = purifier.quality_report.to_dict() if purifier.quality_report else {}
 
         # Compute purified dataset hash AFTER purification (same format)
         _purified_parts = [b"V2"]
@@ -669,6 +683,7 @@ class IsolatedBacktestEngine:
                     slippage_pct=slippage_pct,
                     commission_pct=commission_pct,
                     execution_model=execution_model,
+                    pre_purified=True,  # P2-12: sudah dipurifikasi sekali di atas
                 )
                 
                 is_sharpe = float(is_res.metrics.get("sharpe_ratio", 0.0))
@@ -724,6 +739,7 @@ class IsolatedBacktestEngine:
                 slippage_pct=slippage_pct,
                 commission_pct=commission_pct,
                 execution_model=execution_model,
+                pre_purified=True,  # P2-12: sudah dipurifikasi sekali di atas
             )
 
             # Score strict OOS portion only (excluding warmup bars)
