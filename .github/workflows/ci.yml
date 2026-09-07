@@ -8,7 +8,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install polars
+      # P1-11: install requirements penuh (ci.yml lama hanya install polars,
+      # padahal smoke test menjalankan are.cli yang meng-import pyyaml, dan
+      # are/__init__ menarik pandas; data_collectors butuh requests saat
+      # menyentuh jalur terkait). Sinkron dgn requirements.txt.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
       - name: Run pytest
         run: python -m pytest tests/are/ -k "backtest or enhanced or cpcv" -q --tb=short
       - name: Smoke test backtest
