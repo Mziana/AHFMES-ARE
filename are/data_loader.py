@@ -65,7 +65,16 @@ def export_mt5_ohlc(symbol: str, timeframe: str = "H1", start: str = "2020-01-01
 
 def load_ohlc_data(symbol: str, timeframe: str = "H1", start: Optional[str] = None,
                    end: Optional[str] = None) -> pl.DataFrame:
-    """Load OHLC data from parquet files. Raises if no data found."""
+    """Load OHLC data from parquet files. Raises if no data found.
+
+    P2-15: pemilihan file berbasis CAKUPAN RENTANG AKTUAL (bukan nama file
+    "terbaru" secara leksikografis), dan filter tanggal memakai UTC
+    (calendar.timegm) — mktime lokal menghasilkan hasil berbeda antar mesin/
+    zona waktu.
+    """
+    import calendar
+    from datetime import datetime, timezone
+
     os.makedirs(DATA_DIR, exist_ok=True)
 
     # Try to find existing parquet file matching symbol/timeframe
@@ -78,23 +87,61 @@ def load_ohlc_data(symbol: str, timeframe: str = "H1", start: Optional[str] = No
             f"First export from MT5: python -m are.cli data export --symbol {symbol} --timeframe {timeframe}"
         )
 
-    # Load most recent file
-    candidates.sort(reverse=True)
-    filepath = os.path.join(DATA_DIR, candidates[0])
-    df = pl.read_parquet(filepath)
-
-    # Filter by date range if specified
+    # Parse request range in UTC
+    req_start = req_end = None
     if start:
-        start_ts = int(time.mktime(time.strptime(start, "%Y-%m-%d")))
-        df = df.filter(pl.col("timestamp") >= start_ts)
+        req_start = calendar.timegm(time.strptime(start, "%Y-%m-%d"))
     if end:
-        end_ts = int(time.mktime(time.strptime(end, "%Y-%m-%d")))
-        df = df.filter(pl.col("timestamp") <= end_ts)
+        # end date = akhir hari (23:59:59 UTC) agar rentang inklusif
+        t = time.strptime(end, "%Y-%m-%d")
+        req_end = calendar.timegm(t) + 86399
+
+    # Pilih file dengan cakupan terbaik utk rentang diminta
+    best_path, best_coverage = None, -1.0
+    for f in candidates:
+        filepath = os.path.join(DATA_DIR, f)
+        try:
+            probe = pl.scan_parquet(filepath).select(
+                pl.col("timestamp").min().alias("lo"),
+                pl.col("timestamp").max().alias("hi"),
+            ).collect()
+            lo, hi = float(probe["lo"][0]), float(probe["hi"][0])
+        except Exception:
+            continue
+        if req_start is not None and req_end is not None:
+            overlap = max(0.0, min(hi, req_end) - max(lo, req_start))
+            span = max(1.0, req_end - req_start)
+            coverage = overlap / span
+        else:
+            coverage = hi  # tanpa rentang: pilih data terbaru
+        if coverage > best_coverage:
+            best_coverage, best_path = coverage, filepath
+
+    if best_path is None:
+        raise FileNotFoundError(f"No readable parquet for {symbol} {timeframe}")
+
+    if req_start is not None and req_end is not None and best_coverage <= 0.0:
+        raise ValueError(
+            f"File {os.path.basename(best_path)} tidak mencakup rentang {start}..{end} "
+            f"(P2-15: jangan diam-diam memakai file yang salah rentang).")
+
+    df = pl.read_parquet(best_path)
+
+    # Filter by date range (UTC, inclusive)
+    if req_start is not None:
+        df = df.filter(pl.col("timestamp") >= req_start)
+    if req_end is not None:
+        df = df.filter(pl.col("timestamp") <= req_end)
 
     if df.height == 0:
         raise ValueError(f"No data in range {start}-{end} for {symbol}")
 
-    print(f"Loaded {df.height} bars: {symbol} {timeframe} from {filepath}")
+    warn = ""
+    if req_start is not None and req_end is not None and best_coverage < 0.999:
+        warn = f"  WARN: cakupan file {best_coverage*100:.1f}% dari rentang diminta"
+    print(f"Loaded {df.height} bars: {symbol} {timeframe} from {best_path}")
+    if warn:
+        print(warn)
     return df
 
 
