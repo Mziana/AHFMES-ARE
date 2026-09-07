@@ -172,9 +172,13 @@ def load_state(style: str) -> dict:
 
 
 def save_state(state: dict, style: str):
+    """Atomic write: .tmp + os.replace — crash-safe."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(get_state_file(style), "w") as f:
+    target = get_state_file(style)
+    tmp = str(target) + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(tmp, target)
 
 
 # ─── HTTP HELPERS (typed exceptions) ──────────────────────────────────────────
@@ -224,6 +228,14 @@ def log(action: str, details: str = ""):
     print(f"[{entry['timestamp'][:19]}] {action}: {details}", flush=True)
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # OPT: auto-prune bot_logs > 5MB -> rotate
+        try:
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > 5 * 1024 * 1024:
+                rotated = LOG_FILE.with_suffix(".log.1")
+                if rotated.exists(): rotated.unlink()
+                LOG_FILE.replace(rotated)
+        except Exception:
+            pass
         with open(LOG_FILE, "a") as f:
             f.write(line + "\n")
     except Exception:
@@ -366,6 +378,7 @@ def pos_to_record(p: dict) -> dict:
         "tp": p.get("tp", 0),
         "opened_at": opened_at,
         "last_pnl": p.get("profit", 0),
+        "last_price": p.get("price_current", 0),  # BUG#1: exit price
     }
 
 
@@ -395,7 +408,7 @@ def reconcile_positions(state: dict, positions: list, style: str, symbol: str):
                 "ticket": ticket,
                 "direction": rec.get("direction"),
                 "entry": rec.get("entry", 0),
-                "exit": 0,
+                "exit": rec.get("last_price", 0) or 0,  # BUG#1: last known price
                 "lot": rec.get("lot", 0),
                 "pnl": rec.get("last_pnl", 0),
             })
@@ -447,6 +460,9 @@ def record_closed_trade(state: dict, ticket, direction, entry, exit_, lot, pnl, 
         "close_reason": reason,
         "closed_at": datetime.now(timezone.utc).isoformat(),
     })
+    # RISK#5: prune max 100 — riwayat lengkap ada di trade_memory.jsonl
+    if len(state["trade_history"]) > 100:
+        state["trade_history"] = state["trade_history"][-100:]
     state["last_trade_at"] = time.time()
 
     # Learning Memory (Fase 1): catat outcome ke trade_memory.jsonl + bucket agregat.

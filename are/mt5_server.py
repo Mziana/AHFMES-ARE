@@ -19,10 +19,11 @@ Endpoints:
 """
 from __future__ import annotations
 import json
+import math
 import sys
 import time
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 try:
@@ -408,7 +409,7 @@ def main():
     print(f"MT5 Server starting on port {port}")
     print(f"MT5: {msg}")
     
-    server = HTTPServer(('127.0.0.1', port), MT5Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', port), MT5Handler)
     print(f"Listening on http://127.0.0.1:{port}")
     try:
         server.serve_forever()
