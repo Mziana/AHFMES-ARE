@@ -59,7 +59,9 @@ eksplisit (konfigurasi, bukan default).
 - `min_stop_poin = max(SL hitung, 3×spread_poin + stops_level + 10)`.
 - Cap stop per profil: SCALP 400 / MICRO 250 poin. ATR×mult > cap →
   `FAIL:stop_bounds` (SKIP eksplisit, bukan clamp diam-diam).
-- max_trades_per_day = RISK CAP (SCALP 6 / MICRO 20) → `FAIL:cap`.
+- ~~max_trades_per_day = RISK CAP~~ **DIHAPUS oleh keputusan owner
+  (2026-09-08)** — tidak ada batasan jumlah transaksi per hari. Kontrol
+  risiko tetap: cooldown, stop bounds, sizing konstan-dolar.
 - Cooldown (SCALP 30m / MICRO 5m) → `FAIL:cooldown`.
 - PASS → `PASS`.
 

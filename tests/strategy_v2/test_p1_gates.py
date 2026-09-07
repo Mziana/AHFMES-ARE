@@ -93,8 +93,8 @@ def test_layer_a_reasons_in_order():
 
 def test_b7_risk_order_and_bounds():
     profile = registry.load_profile("MICRO")
-    # cap
-    assert gates.b7_risk({"trades_today": 20, "now_ts": 0}, profile, {"skip": False}) == "FAIL:cap"
+    # TIDAK ada cap frekuensi harian (dihapus keputusan owner) — trades_today diabaikan
+    assert gates.b7_risk({"trades_today": 999, "now_ts": 0}, profile, {"skip": False}) == "PASS"
     # cooldown
     assert gates.b7_risk({"trades_today": 1, "last_entry_ts": 100, "now_ts": 100 + 60}, profile, {"skip": False}) == "FAIL:cooldown"
     assert gates.b7_risk({"trades_today": 1, "last_entry_ts": 100, "now_ts": 100 + 301}, profile, {"skip": False}) == "PASS"

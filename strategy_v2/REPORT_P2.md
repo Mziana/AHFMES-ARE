@@ -74,6 +74,14 @@ tinggi × mult 1.5 > cap) — perilaku sesuai desain §B7 (SKIP, bukan clamp).
   "indikator bukan mesin prediksi".
 - **B6 Volume**: 11 veto `FAIL:ratio` (MICRO) — baseline exclude-self terjaga.
 - **0 trade adalah outcome valid** — TIDAK ADA KPI FREKUENSI (desain §B7).
+- **Revisi keputusan owner (2026-09-08)**: batasan `max_trades_per_day`
+  (SCALP 6 / MICRO 20) **dihapus** dari B7/execution replay/schema — tidak
+  ada cap frekuensi harian. Kontrol risiko tetap: cooldown, stop bounds
+  (SKIP), sizing konstan-dolar. Per Pagar 1 ini = config_hash BARU
+  (micro `7cd4cc05…`, scalp `d656358e…`) = experiment identity baru;
+  funnel di report ini dijalankan ulang dan angkanya identik (0 sinyal
+  baik dengan maupun tanpa cap — B7 cap tidak pernah tercapai pada
+  dataset 7 Sep).
 
 ## 6. Perbandingan vs baseline lama (122 trade, −$42.02, 7 Sep)
 

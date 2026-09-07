@@ -10,7 +10,6 @@
     "min_stop_params": { "spread_mult": 3, "stops_level_poin": 0, "buffer_poin": 10 },
     "max_stop_points": 400,
     "risk_percent": 2.0,
-    "max_trades_per_day": 6,
     "cooldown_minutes": 30
   },
   "location": {

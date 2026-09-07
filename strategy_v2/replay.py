@@ -171,22 +171,14 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
     trades = []
     rejected = []
     risk = profile["risk"]
-    trades_today = 0
-    day = None
     last_entry_ts = None
 
     for rec in records:
         T = rec["evaluation_timestamp"]
-        day_key = T // 86400
-        if day_key != day:
-            day = day_key
-            trades_today = 0
         if rec["decision"] not in ("BUY", "SELL"):
             continue
-        # risk-state gate di sisi eksekusi (cap/cooldown enforcement nyata)
-        if trades_today >= risk["max_trades_per_day"]:
-            rejected.append({"ts": T, "reason": "risk_cap", "decision": rec["decision"]})
-            continue
+        # cooldown enforcement di sisi eksekusi (tanpa cap frekuensi harian —
+        # keputusan owner 2026-09-08: max_trades_per_day dihapus)
         if last_entry_ts is not None and T - last_entry_ts < risk["cooldown_minutes"] * 60:
             rejected.append({"ts": T, "reason": "cooldown", "decision": rec["decision"]})
             continue
@@ -242,7 +234,6 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
             "net_usd": round(net_usd, 4),
             "cost_label": cost["label"],
         })
-        trades_today += 1
         last_entry_ts = T
 
     executed = len(trades)

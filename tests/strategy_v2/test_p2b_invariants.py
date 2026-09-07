@@ -112,6 +112,29 @@ def test_inv3_execution_at_next_bar_open_not_earlier():
 
 # ── 4. DETERMINISM ───────────────────────────────────────────────────────────
 
+def _no_wallclock_calls(path: Path) -> list:
+    """AST check: tidak ada pemanggilan now()/time.time()/datetime.now/utcnow."""
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bad = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+            if name in ("now", "utcnow", "time", "monotonic"):
+                bad.append(f"{path.name}:{node.lineno}:{name}")
+    return bad
+
+
+def test_inv9_no_wallclock_in_decision_path():
+    """Pagar 4 — tidak ada now()/time.time() di seluruh jalur decision."""
+    pkg = Path(registry.PKG_DIR)
+    bad = []
+    for fname in ["gates.py", "zones.py", "replay.py", "costs.py"]:
+        bad += _no_wallclock_calls(pkg / fname)
+    assert bad == [], f"pemanggilan wall-clock ditemukan: {bad}"
+
+
 def test_inv4_replay_twice_bit_identical():
     m5, m15 = make_m5(180), make_m15(180)
     r1 = replay(m5, m15)

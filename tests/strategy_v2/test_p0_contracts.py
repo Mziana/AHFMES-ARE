@@ -27,7 +27,7 @@ def test_profiles_frozen_fields():
         p = reg.load_profile(pid)
         assert p["risk"]["max_stop_points"] == cap
         assert p["risk"]["cooldown_minutes"] == cd
-        assert p["risk"]["max_trades_per_day"] in (6, 20)
+        assert "max_trades_per_day" not in p["risk"]  # dihapus keputusan owner 2026-09-08
         assert p["session_windows_utc"] == [[7, 17]]
         assert p["news"]["policy"] == "FAIL_CLOSED"
     micro = reg.load_profile("MICRO")
@@ -45,7 +45,7 @@ def test_config_hash_changes_on_any_contract_byte():
     # mutasi kecil di profile → identity baru
     import copy
     p2 = copy.deepcopy(p)
-    p2["risk"]["max_trades_per_day"] += 1
+    p2["risk"]["cooldown_minutes"] += 1
     assert reg.compute_config_hash(p2, r) != h1
 
     # mutasi kecil di registry → identity baru
@@ -81,7 +81,7 @@ def test_decision_log_schema_shape():
     assert set(gates["b1_news"]["enum"]) == {
         "PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE",
         "NEWS_CALENDAR_UNAVAILABLE", "DISABLED"}
-    assert set(gates["b7_risk"]["enum"]) == {"PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"}
+    assert set(gates["b7_risk"]["enum"]) == {"PASS", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"}
     # semua gate harus punya DISABLED (Layer B tidak jalan saat DATA_INVALID)
     for g, spec in gates.items():
         enum = spec.get("enum") or []

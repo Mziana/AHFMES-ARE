@@ -301,10 +301,13 @@ def compute_sl_tp(profile: dict, atr_points: float, spread_points: float | None)
 
 
 def b7_risk(state: dict, profile: dict, sl_calc: dict) -> str:
-    """Risk cap (max trades/day), cooldown, stop bounds (desain §B7)."""
+    """Cooldown + stop bounds (desain §B7).
+
+    Catatan keputusan owner (2026-09-08): batasan max_trades_per_day DIHAPUS —
+    tidak ada cap frekuensi harian; kontrol risiko tetap dari cooldown,
+    stop bounds (SKIP), dan sizing konstan-dolar.
+    """
     risk = profile["risk"]
-    if state.get("trades_today", 0) >= risk["max_trades_per_day"]:
-        return "FAIL:cap"
     let = state.get("last_entry_ts")
     if let is not None and state.get("now_ts") is not None:
         if state["now_ts"] - int(let) < risk["cooldown_minutes"] * 60:

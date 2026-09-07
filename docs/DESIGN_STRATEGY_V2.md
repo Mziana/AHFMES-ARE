@@ -101,6 +101,8 @@ entry tetap next-bar-open. Pola searah mode B3. Contract pattern semantics masuk
   backtest wajib `signal_timing='next_bar_open'`; dilarang menghitung PnL dari close bar sinyal.
 - maxTradesPerDay = RISK CAP (SCALP 6 / MICRO 20); **TIDAK ADA KPI FREKUENSI** —
   0 trade adalah outcome valid (▲ diperkuat review: bot tidak boleh mengejar kuota).
+  **CATATAN owner 2026-09-08**: batasan maxTradesPerDay DIHAPUS — tidak ada cap
+  frekuensi harian; kontrol risiko tetap cooldown + stop bounds + sizing konstan-dolar.
 - Cooldown: SCALP 30m / MICRO 5m — juga risk cap.
 
 ---

@@ -53,7 +53,7 @@
         "b4_location": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:far|DISABLED)$" },
         "b5_trigger": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:none|FAIL:forming_bar|DISABLED)$" },
         "b6_volume": { "enum": ["PASS", "FAIL:ratio", "FAIL:baseline_invalid", "DISABLED"] },
-        "b7_risk": { "enum": ["PASS", "FAIL:cap", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"] }
+        "b7_risk": { "enum": ["PASS", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"] }
       }
     },
     "first_veto_reason": {

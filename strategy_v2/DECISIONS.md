@@ -31,3 +31,9 @@ Format: tanggal | keputusan | alasan.
 - 2026-09-08 | SL final = `min_stop` (max dari SL ATR×mult dan floor spread);
   bila min_stop > cap → `FAIL:stop_bounds` (SKIP) | desain §B7 "SKIP, bukan
   clamp diam-diam" — SL tidak pernah dipaksa turun di bawah floor spread.
+- 2026-09-08 | **Batasan max_trades_per_day (SCALP 6 / MICRO 20) DIHAPUS**
+  dari profil, gate B7 (`FAIL:cap`), execution replay, dan schema —
+  keputusan eksplisit owner. Override atas desain §B7 | kontrol risiko tetap
+  terjaga via cooldown (30m/5m), stop bounds (SKIP), sizing konstan-dolar,
+  dan Layer A. Per Pagar 1, perubahan ini = config_hash BARU = experiment
+  identity baru; replay 7 Sep dijalankan ulang dengan identity baru.
