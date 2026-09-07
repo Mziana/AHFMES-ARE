@@ -1,12 +1,25 @@
 """
 Behavioral test: Server-side Bot Daemon
 Tests the full lifecycle: start, running, holding, stop, idempotency, state persistence.
+
+E-1: test ini memerlukan bridge MT5 (127.0.0.1:18888) + UI (127.0.0.1:4028)
+HIDUP dan men-place order demo RIIL via UI API. Karena itu di-gate di belakang
+env ARE_LIVE_ITEST=1 (module-level skip by default, marker `integration`).
 """
 import json
 import os
 import sys
 import time
 import urllib.request
+
+import pytest
+
+# E-1: gerbang eksplisit — test lifecycle TIDAK boleh jalan saat suite default
+# (men-trade akun demo riil tiap run). Marker + skip module-level.
+pytestmark = pytest.mark.integration
+if os.environ.get("ARE_LIVE_ITEST") != "1":
+    pytest.skip("ARE_LIVE_ITEST=1 not set — live-trading integration test disabled",
+                allow_module_level=True)
 
 BASE = "http://localhost:4028"
 MT5 = "http://127.0.0.1:18888"

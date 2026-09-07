@@ -47,6 +47,9 @@ are = ["py.typed"]
 testpaths = ["tests"]
 timeout = 120
 addopts = "-q --tb=short"
+markers = [
+    "integration: tests yang men-place order demo RIIL (butuh ARE_LIVE_ITEST=1)",
+]
 
 [tool.hypothesis]
 database = ".hypothesis/examples"
