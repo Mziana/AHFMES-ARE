@@ -419,6 +419,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                 from are.backtest_enhanced import EnhancedBacktestEngine
                 from are.data_loader import load_ohlc_data
                 from are.strategy_engine import load_strategy_from_config
+                from are.artifacts import build_backtest_artifact, save_backtest_artifact
                 import polars as pl, time as _bt_t
                 engine = EnhancedBacktestEngine()
                 symbol = payload.get("symbol", "XAUUSD")
@@ -453,43 +454,19 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                     initial_capital=capital, timeframe_seconds=3600.0,
                 )
                 m = result.metrics
-                net_pnl = m.get('final_equity', capital) - capital
-                bt_id = f"bkt-{int(_bt_t.time()*1000)}"
-                bt_dir = os.path.join("data", "backtests")
-                os.makedirs(bt_dir, exist_ok=True)
-                # Build equity curve
-                ec = result.equity_curve
-                equity_data = []
-                if not ec.is_empty():
-                    timestamps = ec['timestamp'].to_list()
-                    equities = ec['equity'].to_list()
-                    step = max(1, len(timestamps) // 200)
-                    for i in range(0, len(timestamps), step):
-                        equity_data.append({"timestamp": int(timestamps[i]), "equity": round(equities[i], 2)})
-                bt_data = {
-                    "id": bt_id, "strategyName": "DSR Momentum Breakout",
-                    "config": {"symbol": symbol, "timeframe": timeframe, "startDate": start_date, "endDate": end_date, "initialBalance": capital},
-                    "results": {
-                        "totalTrades": m.get('total_trades', 0),
-                        "winRate": m.get('win_rate', 0),
-                        "netPnl": round(net_pnl, 2),
-                        "finalEquity": m.get('final_equity', capital),
-                        "sharpe": m.get('sharpe_ratio', 0),
-                        "sortino": m.get('sortino_ratio', 0),
-                        "calmar": m.get('calmar_ratio', 0),
-                        "cvar": m.get('cvar_5pct', 0),
-                        "profitFactor": m.get('profit_factor', 0),
-                        "maxDrawdown": m.get('max_drawdown_pct', 0),
-                        "exposure": m.get('exposure_pct', 0),
-                        "totalReturnPct": m.get('total_return_pct', 0),
-                        "dataBars": m.get('total_bars', 0),
-                    },
-                    "equityCurve": equity_data,
-                    "trades": [],
-                    "ranAt": time.strftime('%Y-%m-%dT%H:%M:%S'),
-                }
-                with open(os.path.join(bt_dir, f"{bt_id}.json"), "w") as f:
-                    json.dump(bt_data, f, indent=2)
+                bt_data = build_backtest_artifact(
+                    metrics=m,
+                    equity_curve=result.equity_curve,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    start=start_date,
+                    end=end_date,
+                    initial_capital=capital,
+                    strategy_id=(strat_list[0].get("id", "unknown") if strat_list else "unknown"),
+                    strategy_name=(strat_list[0].get("name", "Unknown") if strat_list else "Unknown"),
+                )
+                bt_id = bt_data["id"]
+                save_backtest_artifact(bt_data)
                 # Update strategies.json with latest backtest metrics
                 try:
                     strat_file = "data/strategies/strategies.json"
@@ -507,7 +484,7 @@ class AREAPIHandler(http.server.BaseHTTPRequestHandler):
                                 "result": {
                                     "sharpe": m.get('sharpe_ratio', 0),
                                     "winRate": m.get('win_rate', 0),
-                                    "netPnl": round(net_pnl, 2),
+                                    "netPnl": bt_data["results"]["netPnl"],
                                     "trades": m.get('total_trades', 0),
                                     "maxDD": m.get('max_drawdown_pct', 0),
                                     "pf": m.get('profit_factor', 0),

@@ -493,24 +493,21 @@ def handle_backtest(args: argparse.Namespace) -> int:
         print(f"  PF:          {metrics.get('profit_factor', 0):.2f}")
         print(f"{'='*60}\n")
 
-        # Save result to data/backtests/
+        # Save result to data/backtests/ — P1-09: skema union via are.artifacts
         import time as _time
-        bt_dir = os.path.join("data", "backtests")
-        os.makedirs(bt_dir, exist_ok=True)
-        bt_id = f"bkt-{int(_time.time()*1000)}"
-        bt_file = os.path.join(bt_dir, f"{bt_id}.json")
-        with open(bt_file, "w") as f:
-            _json.dump({
-                "id": bt_id,
-                "strategy_id": args.strategy,
-                "symbol": args.symbol,
-                "timeframe": args.timeframe,
-                "start": args.start,
-                "end": args.end,
-                "initial_capital": initial_capital,
-                "metrics": metrics,
-                "saved_at": _time.time(),
-            }, f, indent=2)
+        from are.artifacts import build_backtest_artifact, save_backtest_artifact
+        _r = result  # BacktestResult (punya equity_curve)
+        artifact = build_backtest_artifact(
+            metrics=metrics,
+            equity_curve=_r.equity_curve,
+            symbol=args.symbol,
+            timeframe=args.timeframe,
+            start=args.start,
+            end=args.end,
+            initial_capital=initial_capital,
+            strategy_id=args.strategy,
+        )
+        bt_file = save_backtest_artifact(artifact)
         print(f"  Saved to: {bt_file}")
         return 0
 
@@ -661,14 +658,28 @@ def handle_backtest(args: argparse.Namespace) -> int:
         bt_dir = os.path.join("data", "backtests")
         if not os.path.exists(bt_dir):
             print("No backtests found."); return 0
-        files = sorted([f for f in os.listdir(bt_dir) if f.endswith(".json")])
+        # P1-09: hanya artifact backtest (bkt-*); file wfo-*.json / skema lain
+        # bukan backtest run dan membuat baris '?' membingungkan.
+        files = sorted([f for f in os.listdir(bt_dir)
+                        if f.startswith("bkt-") and f.endswith(".json")], reverse=True)
+        if not files:
+            print("No backtests found."); return 0
         print(f"\n{'ID':<25} {'Strategy':<25} {'Trades':<8} {'WR':<8} {'Sharpe':<8}")
         print("-" * 80)
         for fn in files:
-            with open(os.path.join(bt_dir, fn)) as f:
-                bt = _json.load(f)
-            m = bt.get("metrics", {})
-            print(f"{bt.get('id','?'):<25} {bt.get('strategy_id','?'):<25} {m.get('total_trades',0):<8} {m.get('win_rate',0):.1f}%  {m.get('sharpe_ratio',0):.3f}")
+            try:
+                with open(os.path.join(bt_dir, fn)) as f:
+                    bt = _json.load(f)
+            except Exception:
+                continue
+            # skema union: metrics (python keys) atau results (camelCase)
+            m = bt.get("metrics") or {}
+            r = bt.get("results") or {}
+            strat = bt.get("strategy_id") or bt.get("strategyId") or bt.get("strategyName") or '?'
+            trades = m.get("total_trades", r.get("totalTrades", 0))
+            wr = m.get("win_rate", r.get("winRate", 0))
+            sharpe = m.get("sharpe_ratio", r.get("sharpe", 0))
+            print(f"{bt.get('id', fn[:-5]):<25} {strat:<25} {trades:<8} {wr:.1f}%  {sharpe:.3f}")
         print()
         return 0
 
