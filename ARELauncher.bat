@@ -1,43 +1,43 @@
 @echo off
-title AHFMES-ARE Launcher v3.0
+title AHFMES-ARE Launcher v4.0
 color 0A
 
 set "ROOT=%~dp0"
-if not exist "%ROOT%are\__init__.py" (
-    echo  [ERROR] Cannot find are module. Make sure you are running from AHFMES-ARE folder.
-    echo  Current ROOT: %ROOT%
-    pause
-    exit /b 1
-)
-set "PYTHON_PORT=8080"
-set "NEXTJS_PORT=4028"
-
 cd /d "%ROOT%"
+
+set "NEXTJS_PORT=4028"
+set "BRIDGE_PORT=18888"
+set "LOG_DIR=%ROOT%data\logs"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+
+rem P0-01: bridge auth token (dibaca sekali untuk semua mode)
+set "BRIDGE_TOKEN_VALUE="
+if exist "%ROOT%data\bridge_token.txt" set /p BRIDGE_TOKEN_VALUE=<"%ROOT%data\bridge_token.txt"
 
 :MENU
 cls
 echo.
 echo  ============================================================
-echo           AHFMES-ARE  -  UNIFIED LAUNCHER  v3.0
+echo           AHFMES-ARE  -  LAUNCHER v4.0
 echo        Autonomous Research Engine Control Center
 echo  ============================================================
 echo.
-echo   [1]  START ARE     (Engine + UI + Live Trading + Chat)
-echo   [2]  STATUS        (Check what's running)
-echo   [3]  STOP          (Kill all ARE services)
+echo   [1]  START ALL     (Bridge + UI + Bot Micro)
+echo   [2]  START BOT     (Start bot micro only)
+echo   [3]  STOP ALL      (Kill all ARE services)
+echo   [4]  STATUS        (Check what's running)
 echo.
-echo   [0]  Exit
+echo   [0]  Exit (services keep running)
 echo.
 echo  -------------------------------------------------------------
 set /p choice="  Select mode: "
 
 if "%choice%"=="1" goto START_ALL
-if "%choice%"=="2" goto STATUS
+if "%choice%"=="2" goto START_BOT
 if "%choice%"=="3" goto STOP_ALL
+if "%choice%"=="4" goto STATUS
 if "%choice%"=="0" goto EXIT
-
-echo.
-echo  [!] Invalid option. Press any key to try again...
+echo  [!] Invalid option.
 pause >nul
 goto MENU
 
@@ -52,78 +52,97 @@ echo   AHFMES-ARE // STARTING ALL SERVICES
 echo  ============================================================
 echo.
 
-:: [1] Start MT5 Server
-echo  [1/5] Starting MT5 Server (port 18888)...
-start "MT5-Server" /min cmd /c "cd /d "%ROOT%" && python -m are.mt5_server --port 18888"
-timeout /t 2 >nul
+:: [1] MT5 Bridge
+echo  [1/4] Checking MT5 Bridge (port %BRIDGE_PORT%)...
+curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] MT5 Bridge already running
+    goto BRIDGE_OK
+)
+echo   Starting MT5 Bridge...
+start "ARE-Bridge" /min cmd /c "cd /d %ROOT% && set ARE_BRIDGE_TOKEN=%BRIDGE_TOKEN_VALUE% && python -m are.mt5_server --port %BRIDGE_PORT% > %LOG_DIR%\bridge.log 2>&1"
+echo   Waiting for Bridge...
+timeout /t 5 /nobreak >nul
+curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] MT5 Bridge started
+) else (
+    echo   [!!] Bridge may need more time - check STATUS later
+)
+:BRIDGE_OK
 
-:: [2] Start Python Engine
-echo  [2/5] Starting Python ARE Engine (port %PYTHON_PORT%)...
-start "ARE-Engine" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python -m are.web_ui --db are_interactive.db --port %PYTHON_PORT%"
-timeout /t 2 >nul
+:: [2] UI
+echo.
+echo  [2/4] Checking Next.js UI (port %NEXTJS_PORT%)...
+curl -s --max-time 3 http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] UI already running
+    goto UI_OK
+)
+echo   Starting Next.js UI...
+start "ARE-UI" /min cmd /c "cd /d %ROOT%UI && npm run dev > %LOG_DIR%\ui.log 2>&1"
+echo   Waiting for UI to compile...
+:WAIT_UI
+timeout /t 3 /nobreak >nul
+curl -s --max-time 3 http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
+if %errorlevel% neq 0 goto WAIT_UI
+echo   [OK] UI started
+:UI_OK
 
-:: [3] Start Live Trading Brain
-echo  [3/5] Starting Live Trading Brain (7 timeframes)...
-start "ARE-LiveBrain" /min cmd /c "cd /d "%ROOT%" && set PYTHONPATH=. && python arelauncher.py"
-timeout /t 2 >nul
+:: [3] Account check
+echo.
+echo  [3/4] Checking account...
+curl -s --max-time 5 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/account 2>nul | python -c "import json,sys; d=json.load(sys.stdin); print('   Balance: $%.2f | Positions: %d' % (d.get('balance',0), d.get('position_count',0)))" 2>nul
 
-:: [4] Start Next.js UI + Chat
-echo  [4/5] Starting Next.js UI + Chat (port %NEXTJS_PORT%)...
-if exist "%ROOT%UI\.next" rd /s /q "%ROOT%UI\.next" 2>nul
-start "ARE-UI" /min cmd /c "cd /d "%ROOT%UI" && npm run serve"
-timeout /t 3 >nul
-
-:: [5] Open Browser
-echo  [5/5] Opening Mission Control Dashboard...
-start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:%NEXTJS_PORT%"
+:: [4] Bot Micro
+echo.
+echo  [4/4] Starting Bot Micro via API...
+curl -s --max-time 10 -X POST http://127.0.0.1:%NEXTJS_PORT%/api/are/bot/start -H "Content-Type: application/json" -d "{\"style\":\"micro\"}" > "%LOG_DIR%\bot_start.json" 2>&1
+findstr /c:"pid" "%LOG_DIR%\bot_start.json" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] Bot Micro started
+) else (
+    echo   [!!] Check bot_start.json for details
+)
 
 echo.
 echo  ============================================================
 echo   AHFMES-ARE IS LIVE!
 echo  -------------------------------------------------------------
-echo   Web UI Dashboard  : http://127.0.0.1:%NEXTJS_PORT%
-echo   Python Engine API : http://127.0.0.1:%PYTHON_PORT%
-echo   MT5 Server        : http://127.0.0.1:18888
-echo   Live Trading      : ACTIVE (7 timeframes, tick by tick)
-echo   AI Chat           : Available in Web UI
+echo   UI  : http://127.0.0.1:%NEXTJS_PORT%
+echo   Bridge : http://127.0.0.1:%BRIDGE_PORT%
+echo   Bot Micro : RUNNING
 echo  -------------------------------------------------------------
-echo   Tip: This window can be closed (services run in background).
-echo         To stop: run ARELauncher.bat and choose [3]
+echo   This window can be closed. Services run independently.
+echo   To stop: ARELauncher.bat ^> [3] STOP ALL
 echo  ============================================================
-echo.
 pause
 goto MENU
 
 :: ============================================================
-::  MODE 2: STATUS CHECK
+::  MODE 2: START BOT ONLY
 :: ============================================================
-:STATUS
+:START_BOT
 cls
 echo.
 echo  ============================================================
-echo   AHFMES-ARE // STATUS
+echo   AHFMES-ARE // START BOT MICRO
 echo  ============================================================
 echo.
-
-echo  Checking MT5 Server (port 18888)...
-curl -s http://127.0.0.1:18888/health >nul 2>&1 && echo   [OK] MT5 Server running || echo   [!!] MT5 Server NOT running
-
-echo  Checking Engine (port %PYTHON_PORT%)...
-curl -s http://127.0.0.1:%PYTHON_PORT%/api/status >nul 2>&1 && echo   [OK] Engine running || echo   [!!] Engine NOT running
-
-echo  Checking UI (port %NEXTJS_PORT%)...
-curl -s http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1 && echo   [OK] UI running || echo   [!!] UI NOT running
-
-echo  Checking Live Trading Brain...
-tasklist /fi "WINDOWTITLE eq ARE-LiveBrain*" 2>nul | findstr /i "cmd.exe" >nul 2>&1 && echo   [OK] Live Trading running || echo   [!!] Live Trading NOT running
-
-echo  Checking database...
-if exist "%ROOT%are_interactive.db" (
-    echo   [OK] Database file exists
-) else (
-    echo   [!!] Database file not found
+curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
+if %errorlevel% neq 0 (
+    echo   [!!] MT5 Bridge NOT running. Run [1] START ALL first.
+    pause
+    goto MENU
 )
-
+curl -s --max-time 3 http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
+if %errorlevel% neq 0 (
+    echo   [!!] UI NOT running. Run [1] START ALL first.
+    pause
+    goto MENU
+)
+echo   Starting Bot Micro via API...
+curl -s --max-time 10 -X POST http://127.0.0.1:%NEXTJS_PORT%/api/are/bot/start -H "Content-Type: application/json" -d "{\"style\":\"micro\"}" 2>&1
 echo.
 pause
 goto MENU
@@ -139,34 +158,67 @@ echo   AHFMES-ARE // STOPPING ALL SERVICES
 echo  ============================================================
 echo.
 
-echo  Stopping MT5 Server...
-taskkill /f /fi "WINDOWTITLE eq MT5-Server*" >nul 2>&1
+echo  Stopping Bot Micro via API...
+curl -s --max-time 5 -X POST http://127.0.0.1:%NEXTJS_PORT%/api/are/bot/stop -H "Content-Type: application/json" -d "{\"style\":\"micro\"}" >nul 2>&1
 
-echo  Stopping Engine...
-taskkill /f /fi "WINDOWTITLE eq ARE-Engine*" >nul 2>&1
+echo  Killing bot.py processes...
+wmic process where "commandline like '%%bot.py%%'" call terminate >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq ARE-Bot*" >nul 2>&1
 
-echo  Stopping Live Trading Brain...
-taskkill /f /fi "WINDOWTITLE eq ARE-LiveBrain*" >nul 2>&1
+echo  Stopping MT5 Bridge...
+curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/shutdown >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":%BRIDGE_PORT%" ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
 echo  Stopping Next.js UI...
-taskkill /f /fi "WINDOWTITLE eq ARE-UI*" >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%NEXTJS_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":%NEXTJS_PORT%" ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
 
-echo  Stopping Python Engine...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :%PYTHON_PORT% ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq ARE-*" >nul 2>&1
 
 echo.
 echo   All services stopped.
-echo.
 pause
 goto MENU
 
 :: ============================================================
-::  EXIT
+::  MODE 4: STATUS
 :: ============================================================
+:STATUS
+cls
+echo.
+echo  ============================================================
+echo   AHFMES-ARE // STATUS
+echo  ============================================================
+echo.
+
+echo  MT5 Bridge (port %BRIDGE_PORT%)...
+curl -s --max-time 3 -H "X-Bridge-Token: %BRIDGE_TOKEN_VALUE%" http://127.0.0.1:%BRIDGE_PORT%/health >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] Running
+    curl -s --max-time 3 http://127.0.0.1:%BRIDGE_PORT%/account 2>nul | python -c "import json,sys; d=json.load(sys.stdin); print('   Balance: $%.2f | Positions: %d' % (d.get('balance',0), d.get('position_count',0)))" 2>nul
+) else (
+    echo   [!!] NOT running
+)
+
+echo.
+echo  Next.js UI (port %NEXTJS_PORT%)...
+curl -s --max-time 3 http://127.0.0.1:%NEXTJS_PORT% >nul 2>&1
+if %errorlevel% equ 0 (
+    echo   [OK] Running
+) else (
+    echo   [!!] NOT running
+)
+
+echo.
+echo  Bot Micro...
+curl -s --max-time 5 http://127.0.0.1:%NEXTJS_PORT%/api/are/bot/status?style=micro 2>nul | python -c "import json,sys; d=json.load(sys.stdin); print('   [%s] PID: %s | Trades: %s | P&L: $%s' % ('OK' if d.get('status')=='running' else 'OFF', d.get('pid','?'), d.get('trade_count',0), d.get('daily_pnl',0)))" 2>nul || echo   [!!] Not responding
+
+echo.
+pause
+goto MENU
+
 :EXIT
 echo.
-echo  Goodbye! AHFMES-ARE services continue running in background.
-echo  To stop them, run ARELauncher.bat and choose [3].
+echo  Services keep running in background.
+echo  To stop: ARELauncher.bat ^> [3] STOP ALL
 echo.
 exit /b 0

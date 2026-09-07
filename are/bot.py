@@ -69,6 +69,25 @@ LOG_FILE = DATA_DIR / "bot_logs.jsonl"
 
 DECISION_API = "http://localhost:4028/api/are/decision"
 MT5_BRIDGE = "http://127.0.0.1:18888"
+
+# ─── P0-01: BRIDGE AUTH TOKEN ─────────────────────────────────────────────────
+# Bridge menolak semua request tanpa token (X-Bridge-Token). Sumber token:
+# env ARE_BRIDGE_TOKEN, lalu data/bridge_token.txt (dibuat bridge saat start).
+# Bot menolak start tanpa token — fail-loud, bukan trading tanpa boundary.
+BRIDGE_TOKEN = None
+
+def _bridge_token() -> str:
+    global BRIDGE_TOKEN
+    if BRIDGE_TOKEN is None:
+        tok = os.environ.get("ARE_BRIDGE_TOKEN", "").strip()
+        if not tok:
+            try:
+                tok = (DATA_DIR / "bridge_token.txt").read_text(encoding="utf-8").strip()
+            except OSError:
+                tok = ""
+        BRIDGE_TOKEN = tok
+    return BRIDGE_TOKEN
+
 POLL_INTERVAL = 1  # seconds — engine dipanggil tiap detik (analyzeMarket punya cache 2 detik)
 COOLDOWN_SECONDS = 60  # default jeda antar entri (multi-entry) — bisa diubah dari UI
 # Backoff penolakan order broker/bridge: tunggu sebelum kirim ulang order.
@@ -196,9 +215,15 @@ def save_state(state: dict, style: str):
 def http_get(url: str, timeout: int = 10) -> dict:
     """GET request. Returns parsed JSON. Raises BridgeError on failure."""
     try:
-        req = urllib.request.Request(url)
+        headers = {}
+        tok = _bridge_token()
+        if tok:
+            headers["X-Bridge-Token"] = tok
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise BridgeResponseError(f"HTTP {e.code}: {url}") from e
     except urllib.error.URLError as e:
         if isinstance(e.reason, TimeoutError):
             raise BridgeTimeoutError(f"Timeout: {url}") from e
@@ -213,9 +238,15 @@ def http_post(url: str, data: dict, timeout: int = 10) -> dict:
     """POST request. Returns parsed JSON. Raises BridgeError on failure."""
     try:
         body = json.dumps(data).encode()
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        tok = _bridge_token()
+        if tok:
+            headers["X-Bridge-Token"] = tok
+        req = urllib.request.Request(url, data=body, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise BridgeResponseError(f"HTTP {e.code}: {url}") from e
     except urllib.error.URLError as e:
         if isinstance(e.reason, TimeoutError):
             raise BridgeTimeoutError(f"Timeout: {url}") from e
@@ -596,6 +627,17 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
     # Single-instance lock: refuse to run if another bot for this style is alive.
     if not acquire_single_instance_lock(style):
         log("EXIT", f"Duplicate bot for style={style} — exiting")
+        return
+
+    # P0-01: fail-loud bila bridge token tidak tersedia (bridge belum pernah
+    # start / file token hilang). Tanpa token SEMUA request bridge akan 401 —
+    # lebih baik berhenti sekarang daripada loop error tanpa batas.
+    if not _bridge_token():
+        log("AUTH_FAILED", "Bridge token tidak ditemukan (data/bridge_token.txt). Start bridge dulu: run_bridge.bat")
+        state = load_state(style)
+        state["status"] = "error"
+        state["pid"] = None
+        save_state(state, style)
         return
 
     cfg0 = load_runtime_config()

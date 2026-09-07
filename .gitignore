@@ -64,3 +64,6 @@ test_results.txt
 
 # Large local files
 ahfmes_are.db*
+
+# Bridge auth token (P0-01) — never commit
+data/bridge_token.txt

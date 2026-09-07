@@ -18,8 +18,11 @@ Endpoints:
     POST /disconnect — disconnect MT5
 """
 from __future__ import annotations
+import hmac
 import json
 import math
+import os
+import secrets
 import sys
 import time
 import threading
@@ -33,6 +36,52 @@ except ImportError:
 
 MT5_CONNECTED = False
 MT5_ACCOUNT = None
+
+# ─── P0-01: BRIDGE AUTHENTICATION ────────────────────────────────────────────
+# Threat model: any local process or browser page must NOT be able to send
+# real MT5 orders. Every request now requires the shared bridge token, and
+# browser-originated requests (non-empty Origin header) must come from the
+# local UI origin. Token source (in order): ARE_BRIDGE_TOKEN env var, then
+# data/bridge_token.txt (generated on first startup, gitignored).
+_REPO_ROOT = None  # resolved lazily to avoid import-order coupling
+
+
+def _repo_root() -> str:
+    global _REPO_ROOT
+    if _REPO_ROOT is None:
+        _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return _REPO_ROOT
+
+
+BRIDGE_TOKEN = os.environ.get('ARE_BRIDGE_TOKEN', '')
+BRIDGE_TOKEN_FILE = None
+ALLOWED_ORIGINS = {'http://127.0.0.1:4028', 'http://localhost:4028'}
+
+
+def load_or_create_token() -> str:
+    """Load bridge token from env or data/bridge_token.txt; generate if absent.
+
+    Returns the token (never empty when called from main()).
+    """
+    global BRIDGE_TOKEN, BRIDGE_TOKEN_FILE
+    if BRIDGE_TOKEN:
+        return BRIDGE_TOKEN
+    if BRIDGE_TOKEN_FILE is None:
+        BRIDGE_TOKEN_FILE = os.path.join(_repo_root(), 'data', 'bridge_token.txt')
+    try:
+        with open(BRIDGE_TOKEN_FILE, 'r', encoding='utf-8') as f:
+            t = f.read().strip()
+        if t:
+            BRIDGE_TOKEN = t
+            return t
+    except OSError:
+        pass
+    t = secrets.token_urlsafe(32)
+    os.makedirs(os.path.dirname(BRIDGE_TOKEN_FILE), exist_ok=True)
+    with open(BRIDGE_TOKEN_FILE, 'w', encoding='utf-8') as f:
+        f.write(t)
+    BRIDGE_TOKEN = t
+    return t
 
 def connect_mt5():
     global MT5_CONNECTED, MT5_ACCOUNT
@@ -312,14 +361,55 @@ def modify_position(ticket, sl=None, tp=None):
         return {'success': False, 'error': str(e)}
 
 
+def _cors_origin(origin):
+    """Strict CORS echo (P0-01): hanya origin UI lokal yang diizinkan.
+    Non-browser request (tanpa Origin) mendapat origin pertama allowlist
+    (tidak pernah '*')."""
+    if origin in ALLOWED_ORIGINS:
+        return origin
+    return next(iter(ALLOWED_ORIGINS))
+
+
 class MT5Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # suppress logs
 
+    # ─── P0-01: AUTH ──────────────────────────────────────────────────────────
+    def _origin_allowed(self) -> bool:
+        """Non-browser clients send no Origin header (allowed).
+        Browser clients must come from the local UI origin."""
+        origin = (self.headers.get('Origin') or '').strip()
+        if not origin:
+            return True  # non-browser (bot, curl server-side, gateway)
+        return origin in ALLOWED_ORIGINS
+
+    def _token_ok(self) -> bool:
+        """Constant-time token compare. Empty token => deny (fail-closed)."""
+        expected = (BRIDGE_TOKEN or '').strip()
+        if not expected:
+            return False
+        provided = (self.headers.get('X-Bridge-Token') or
+                    self.headers.get('Authorization', '').removeprefix('Bearer ')).strip()
+        if not provided:
+            return False
+        return hmac.compare_digest(provided, expected)
+
+    def _reject_401(self) -> None:
+        self.send_response(401)
+        self.send_header('Content-Type', 'application/json')
+        body = json.dumps({'error': 'unauthorized'}).encode()
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        # P0-01: global auth gate (all endpoints, incl. /health)
+        if not self._origin_allowed() or not self._token_ok():
+            self._reject_401()
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip('/')
-        
+
         if path == '/account':
             data = get_account_data()
         elif path == '/positions':
@@ -365,14 +455,18 @@ class MT5Handler(BaseHTTPRequestHandler):
                 data = {'deals': [], 'error': str(e)}
         else:
             data = {'error': 'unknown endpoint'}
-        
+
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', _cors_origin(self.headers.get('Origin')))
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
     def do_POST(self):
+        # P0-01: global auth gate (all endpoints)
+        if not self._origin_allowed() or not self._token_ok():
+            self._reject_401()
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip('/')
         length = int(self.headers.get('Content-Length', 0))
@@ -418,9 +512,9 @@ class MT5Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', _cors_origin(self.headers.get('Origin')))
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Bridge-Token, Authorization')
         self.end_headers()
 
 
@@ -429,9 +523,13 @@ def main():
     if '--port' in sys.argv:
         idx = sys.argv.index('--port')
         port = int(sys.argv[idx + 1])
-    
+
+    # P0-01: bridge auth. Token dari env ATAU data/bridge_token.txt (dibuat
+    # otomatis saat startup pertama). Fail-closed: tanpa token, semua request
+    # ditolak 401 — tidak pernah ada mode tanpa-auth.
+    load_or_create_token()
     ok, msg = connect_mt5()
-    print(f"MT5 Server starting on port {port}")
+    print(f"MT5 Server starting on port {port} (auth: token enabled)")
     print(f"MT5: {msg}")
     
     server = ThreadingHTTPServer(('127.0.0.1', port), MT5Handler)
