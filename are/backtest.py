@@ -389,6 +389,13 @@ class IsolatedBacktestEngine:
             "execution_model_id": (str(getattr(execution_model, "model_id", "legacy"))
                                    if execution_model is not None else "legacy_close_to_close"),
             "filled_at_open_next_bar": use_next_bar_open,
+            # P2-14: deklarasi batas model portofolio — hasil engine adalah
+            # komposisi return penuh (equity = cumprod(1+r)), TIDAK memodelkan
+            # lot/margin/leverage. Pemetaan ke sizing lot-nyata ada di jalur
+            # eksekusi (UI calculateLotSize / bot). Jangan baca PnL dolar
+            # backtest sebagai proyeksi PnL akun.
+            "portfolio_model": "return_compounding",
+            "portfolio_model_limits": "no_lot_no_margin_no_leverage",
         }
 
 

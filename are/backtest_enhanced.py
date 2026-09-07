@@ -214,6 +214,9 @@ class EnhancedBacktestEngine(IsolatedBacktestEngine):
             'total_trades':len(trade_df),'total_bars':len(df),'symbol':symbol,
             'spread_pct':spread_pct,'benchmark_return_pct':round(bh_return*100,2),
             'slippage_pct':slippage_pct,'commission_pct':commission_pct,
+            # P2-14: deklarasi batas model portofolio (sama dgn parent)
+            'portfolio_model':'return_compounding',
+            'portfolio_model_limits':'no_lot_no_margin_no_leverage',
             'alpha_pct':round((total_return-bh_return)*100,2),
             # P0-4: Dataset identity hashes
             'raw_dataset_hash':raw_dataset_hash,
