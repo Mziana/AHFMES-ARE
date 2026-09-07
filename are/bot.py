@@ -148,6 +148,35 @@ DEFAULT_RUNTIME_CONFIG = {
 }
 
 
+# ─── P1-07: KILL SWITCH AUTHORITY ─────────────────────────────────────────────
+# Kill switch bukan fitur UI — ia authority boundary yang harus memotong
+# Signal -> Execution request -> Order submission. Jalur eksekusi live adalah
+# open_position() di bot ini; bila execution_state.json menandai
+# kill_switch_active, SEMUA order baru ditolak sebelum menyentuh bridge.
+# Posisi tetap dikelola (trailing/close = risk-REDUCING, bukan risk-increasing).
+EXECUTION_STATE_FILE = DATA_DIR / "execution_state.json"
+_KILLSWITCH_CACHE = {"ts": 0.0, "active": False}
+
+
+def is_kill_switch_active() -> bool:
+    """Baca flag kill switch persisten (cache 2 dtk; file diubah UI/CLI)."""
+    now = time.time()
+    if now - _KILLSWITCH_CACHE["ts"] < 2.0:
+        return _KILLSWITCH_CACHE["active"]
+    active = False
+    try:
+        d = json.loads(EXECUTION_STATE_FILE.read_text(encoding="utf-8"))
+        active = bool(d.get("kill_switch_active", False))
+    except Exception:
+        active = False  # file hilang/rusak = tidak ada perintah kill; order
+        # tetap lolos gate normal. (fail-open di sini disengaja: kill switch
+        # yang salah-positif karena file rusak tidak boleh memblokir
+        # penutupan posisi; veto entry dijaga oleh breaker & backoff.)
+    _KILLSWITCH_CACHE["ts"] = now
+    _KILLSWITCH_CACHE["active"] = active
+    return active
+
+
 def load_runtime_config() -> dict:
     """Baca data/bot_config.json; fallback ke default bila rusak/absent."""
     cfg = json.loads(json.dumps(DEFAULT_RUNTIME_CONFIG))
@@ -874,7 +903,16 @@ def run_bot(symbol: str, style: str, risk: float, max_daily_loss: float, trailin
                                  and dec["inSession"]
                                  and dec["rr"] >= min_rr
                                  and dec["lotSize"] >= 0.01)
-                    if not can_enter:
+                    # P1-07: kill switch = authority boundary yang memotong
+                    # Signal -> Execution request -> Order submission. Veto
+                    # entry baru di sini (SEBELUM bridge); posisi terbuka tetap
+                    # dikelola (trailing/close = risk-reducing). Dicatat sbg
+                    # rejection agar muncul di UI.
+                    if is_kill_switch_active():
+                        can_enter = False
+                        record_entry_rejection(state, "kill_switch",
+                                               "Kill switch aktif — order baru diblokir (P1-07)", dec)
+                    elif not can_enter:
                         # Riwayat penolakan entry (sumber kebenaran: state bot, ditampilkan UI)
                         if dec["decision"] == "WAIT":
                             _reason = str(dec.get("decisionReason") or "Tidak ada alasan")
