@@ -23,6 +23,12 @@ except ImportError:
 
 
 class DataChronologyError(Exception):
+    """Timestamp chronology violation (reordered timestamps)."""
+
+
+class DuplicateTimestampError(Exception):
+    """P1-6: duplicate timestamps ditolak tegas — kebijakan REJECT, bukan agregasi."""
+
     """Dilempar saat data timestamp tidak monotonik naik (waktu mundur)."""
 
 
@@ -140,10 +146,32 @@ class DataPurifier:
                 duplicate_timestamps += 1
             seen_ts.add(ts)
 
+        # P1-6: kebijakan tegas — duplicate timestamps ditolak (REJECT).
+        # Duplikat mengubah rolling indicators, WFO fold boundary, dan execution ordering;
+        # agregasi deterministik tidak dipilih karena memilih bar mana pun adalah asumsi
+        # yang tidak bisa dibuktikan dari data.
+        if duplicate_timestamps > 0:
+            # cari contoh index duplikat (O(n), hanya di jalur error)
+            dup_examples = []
+            seen_at = {}
+            for i, ts in enumerate(ts_list):
+                if ts in seen_at:
+                    dup_examples.append(i)
+                    if len(dup_examples) >= 5:
+                        break
+                else:
+                    seen_at[ts] = i
+            raise DuplicateTimestampError(
+                f"Duplicate timestamps detected: {duplicate_timestamps} duplicate row(s) "
+                f"(contoh index: {dup_examples}). "
+                f"Data harus punya timestamp unik & monotonik — perbaiki sumber data atau "
+                f"agregasikan secara eksplisit sebelum purifikasi."
+            )
+
         # 2. Strict Monotonic Chronology Validation
         time_diffs = df["timestamp"].diff().to_list()
         for i, diff in enumerate(time_diffs[1:], start=1):
-            if diff is not None and diff < 0:
+            if diff is not None and diff <= 0:
                 raise DataChronologyError(
                     f"Timestamp chronology violation at index {i}: "
                     f"timestamp[{i}]={df['timestamp'][i]} < timestamp[{i-1}]={df['timestamp'][i-1]}"

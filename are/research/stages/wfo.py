@@ -30,44 +30,71 @@ class WFOStage:
 
     def run(self, run: BacktestRun, config: ExperimentConfig,
             df: pl.DataFrame, strategy_logic: Callable,
-            em: ExecutionModel) -> StageResult:
+            em: ExecutionModel, stage_ctx: Any = None) -> StageResult:
         t0 = time.time()
         engine = IsolatedBacktestEngine()
 
         pg = config.parameter_grid
         param_names = pg.param_names or ["lookback"]
-        param_values = list(pg.param_values[0]) if pg.param_values else [20]
 
         # Build param_grid as list of dicts [{param_name: val, ...}, ...]
+        # P1-8: cartesian product atas SEMUA nilai per nama parameter.
+        # Sebelumnya zip(names, vals) meng-collapse grid multi-nilai menjadi hanya
+        # kombinasi PERTAMA (grid_size=2 -> 1 kandidat) — WFO praktis hanya
+        # mengoptimasi nilai pertama. Product memperbaiki cakupan grid penuh.
+        import itertools
         param_grid = []
-        for vals in (pg.param_values if pg.param_values else [[20]]):
-            param_dict = {name: val for name, val in zip(param_names, vals)}
-            param_grid.append(param_dict)
+        if pg.param_values:
+            for combo in itertools.product(*pg.param_values):
+                param_grid.append(dict(zip(param_names, combo)))
+        else:
+            param_grid = [{}]
 
-        # FIX P0-3: Validate parameter binding before running WFO
+        # P1-8: Validasi parameter binding terhadap SELURUH param_grid (bukan hanya grid[0]).
+        # Setiap kombinasi parameter harus mengubah output sinyal vs baseline; jika ada satu
+        # kombinasi pun yang tidak berpengaruh -> binding INVALID (fail-closed).
         param_binding_valid = False
+        param_binding_note = ""
         if param_grid and len(param_grid) > 1:
             try:
                 signals_base = strategy_logic(df)
-                signals_vary = None
-                test_param = param_grid[0]
-                df_test = df
-                for k, v in test_param.items():
-                    df_test = df_test.with_columns(pl.lit(v).alias(f"_param_{k}"))
-                try:
-                    signals_vary = strategy_logic(df_test)
-                except Exception:
-                    pass
-                if signals_vary is not None and "signal" in signals_vary.columns:
-                    base_sigs = signals_base["signal"].to_list()
-                    vary_sigs = signals_vary["signal"].to_list()
-                    n_different = sum(1 for a, b in zip(base_sigs, vary_sigs) if a != b)
-                    if n_different > 0:
+                base_sigs = signals_base["signal"].to_list() if "signal" in signals_base.columns else []
+                if not base_sigs:
+                    param_binding_note = "Baseline tidak menghasilkan kolom signal"
+                else:
+                    failing = []
+                    checked = 0
+                    for test_param in param_grid:
+                        df_test = df
+                        for k, v in test_param.items():
+                            df_test = df_test.with_columns(pl.lit(v).alias(f"_param_{k}"))
+                        try:
+                            signals_vary = strategy_logic(df_test)
+                        except Exception as exc:
+                            failing.append(f"{test_param}: error strategi ({exc})")
+                            continue
+                        checked += 1
+                        if "signal" not in signals_vary.columns:
+                            failing.append(f"{test_param}: tanpa kolom signal")
+                            continue
+                        vary_sigs = signals_vary["signal"].to_list()
+                        n_different = sum(1 for a, b in zip(base_sigs, vary_sigs) if a != b)
+                        if n_different == 0:
+                            failing.append(f"{test_param}: tidak mengubah sinyal vs baseline")
+                    if not failing:
                         param_binding_valid = True
-            except Exception:
-                pass
+                        param_binding_note = f"Semua {checked} kombinasi param_grid mengubah output vs baseline"
+                    else:
+                        param_binding_note = (f"BINDING GAGAL: {len(failing)}/{len(param_grid)} kombinasi "
+                                              + "; ".join(failing[:3]))
+            except Exception as exc:
+                param_binding_note = f"Binding check error: {exc}"
+        elif param_grid and len(param_grid) == 1:
+            param_binding_valid = True
+            param_binding_note = "grid_size=1: tidak ada variasi parameter untuk diverifikasi"
         else:
             param_binding_valid = True
+            param_binding_note = "tanpa parameter grid (strategi bebas parameter)" 
 
         def wfo_strategy_factory(params):
             def logic(df_inner):
@@ -83,6 +110,11 @@ class WFOStage:
             return logic
 
         try:
+            cancel_check = None
+            if stage_ctx is not None:
+                def cancel_check():
+                    stage_ctx.check_cancelled()
+
             wfo_evidence = engine.run_walk_forward_optimization(
                 strategy_factory=wfo_strategy_factory,
                 historical_data=df,
@@ -98,6 +130,7 @@ class WFOStage:
                 step_bars=config.wfo_step_bars,
                 purge_bars=config.wfo_purge_bars,
                 warmup_bars=config.wfo_warmup_bars,
+                cancel_check=cancel_check,
             )
 
             run.wfo_result = wfo_evidence.to_dict()
@@ -136,7 +169,7 @@ class WFOStage:
                     "fold_count": wfo_evidence.fold_count,
                     "provenance": wfo_evidence.provenance_hash[:16],
                     "param_binding_valid": param_binding_valid,
-                    "param_binding_note": "Parameters affect strategy output" if param_binding_valid else "WARNING: Parameters may not affect strategy",
+                    "param_binding_note": param_binding_note,
                 },
             )
         except Exception as e:
@@ -160,9 +193,12 @@ class OOSStage:
             "pooled_max_dd": run.wfo_result.get("pooled_oos_max_drawdown", 0.0),
             "fold_count": run.wfo_result.get("fold_count", 0),
             "pooled_oos_returns": run.wfo_result.get("pooled_oos_returns", []),
+            "pooled_trades": run.wfo_result.get("pooled_trades", []),
             "effective_trial_count": run.wfo_result.get("effective_trial_count", 1),
             "parameter_family_size": run.wfo_result.get("parameter_family_size", 1),
-            "n_obs": run.wfo_result.get("n_obs", 0),
+            # n_obs = jumlah observasi OOS sebenarnya (WFOEvidence tidak punya field n_obs;
+            # sebelumnya selalu 0 -> Final Gate INVALID permanen via evidence_sufficiency).
+            "n_obs": len(run.wfo_result.get("pooled_oos_returns", [])),
         }
         return StageResult(
             stage="oos", status=RunStage.PASSED,

@@ -109,6 +109,11 @@ class ExperimentConfig:
     mc_simulations: int = 1000
     crisis_enabled: bool = True
 
+    # P1-5: Data qualification policy — 'STRICT' (default): synthetic bid/ask/volume
+    # membuat experiment INVALID. 'BAR_APPROXIMATION': opt-in eksplisit untuk data
+    # OHLCV-only (microstructure sintetis dilabeli, bukan diklaim historical).
+    qualification_policy: str = "STRICT"
+
     # Hashes
     config_hash: str = ""
 
@@ -260,8 +265,14 @@ def build_experiment_config(
     wfo_purge_bars: int = 10,
     wfo_warmup_bars: int = 50,
     wfo_n_folds: int = 5,
+    wfo_selection_metric: str = "sharpe_ratio",
+    wfo_tie_breaker: str = "(sharpe, -max_dd, -turnover)",
     dsr_enabled: bool = True,
+    psr_enabled: bool = True,
+    mc_enabled: bool = True,
     mc_simulations: int = 1000,
+    crisis_enabled: bool = True,
+    qualification_policy: str = "STRICT",
 ) -> ExperimentConfig:
     """Build and hash a frozen experiment configuration."""
     experiment_id = f"EXP-{strategy.strategy_id}-{parameter_grid.grid_hash[:8]}"
@@ -277,8 +288,18 @@ def build_experiment_config(
         "wfo_purge": wfo_purge_bars,
         "wfo_warmup": wfo_warmup_bars,
         "wfo_folds": wfo_n_folds,
+        # P1-14: field yang mengubah HASIL experiment harus terikat di hash
+        # (sebelumnya wfo_selection_metric/tie_breaker/psr/mc/crisis/qualification
+        #  hardcoded & tidak ter-hash — perubahan di sana mengubah hasil tanpa
+        #  mengubah config_hash).
+        "wfo_selection_metric": wfo_selection_metric,
+        "wfo_tie_breaker": wfo_tie_breaker,
         "dsr": dsr_enabled,
+        "psr": psr_enabled,
+        "mc": mc_enabled,
         "mc_sims": mc_simulations,
+        "crisis": crisis_enabled,
+        "qualification_policy": qualification_policy,
     }
     config_hash = compute_sha256(json.dumps(config_fields, sort_keys=True).encode())
 
@@ -294,11 +315,13 @@ def build_experiment_config(
         wfo_purge_bars=wfo_purge_bars,
         wfo_warmup_bars=wfo_warmup_bars,
         wfo_n_folds=wfo_n_folds,
-        wfo_selection_metric="sharpe_ratio",
-        wfo_tie_breaker="(sharpe, -max_dd, -turnover)",
+        wfo_selection_metric=wfo_selection_metric,
+        wfo_tie_breaker=wfo_tie_breaker,
         dsr_enabled=dsr_enabled,
-        mc_enabled=True,
+        psr_enabled=psr_enabled,
+        mc_enabled=mc_enabled,
         mc_simulations=mc_simulations,
-        crisis_enabled=True,
+        crisis_enabled=crisis_enabled,
+        qualification_policy=qualification_policy,
         config_hash=config_hash,
     )

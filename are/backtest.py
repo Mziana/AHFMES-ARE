@@ -605,6 +605,7 @@ class IsolatedBacktestEngine:
         slippage_pct: float = 0.00005,
         commission_pct: float = 0.00005,
         execution_model: Optional[Any] = None,  # P0-2: forwarded ke run_backtest per fold.
+        cancel_check: Optional[Callable[[], None]] = None,  # P1-4: cooperative cancellation per fold.
     ) -> WFOEvidence:
         """
         True Walk-Forward Optimization (WFO) with in-sample parameter fitting,
@@ -637,6 +638,7 @@ class IsolatedBacktestEngine:
         
         pooled_returns = []
         pooled_equity = []
+        pooled_trades = []
         
         def ts(idx):
             if idx < 0: return 0.0
@@ -646,11 +648,18 @@ class IsolatedBacktestEngine:
         while (start + train_window_bars + purge_bars + test_window_bars) <= total_bars:
             train_slice = purified_data.slice(start, train_window_bars)
 
+            # P1-4: cooperative cancellation — per fold, supaya timeout nyata (bukan post-hoc)
+            if cancel_check is not None:
+                cancel_check()
+
             # In-Sample (Train) Phase: grid search over param_grid
             candidates = []
             
             for params in param_grid:
                 strat_logic = strategy_factory(params)
+
+                if cancel_check is not None:
+                    cancel_check()
                 is_res = self.run_backtest(
                     strategy_logic=strat_logic,
                     historical_data=train_slice,
@@ -744,6 +753,13 @@ class IsolatedBacktestEngine:
                         for r in oos_returns:
                             last_eq *= (1.0 + r)
                             pooled_equity.append(last_eq)
+                    # P1-9: pool turnover-event log OOS (buang trade di bar warmup)
+                    if oos_res.trade_log is not None and len(oos_res.trade_log) > 0:
+                        _oos_start_ts = ts(start + train_window_bars + purge_bars)
+                        _trades = oos_res.trade_log.to_dicts()
+                        _trades = [t for t in _trades
+                                   if float(t.get("timestamp", 0.0)) >= _oos_start_ts]
+                        pooled_trades.extend(_trades)
             else:
                 oos_metrics = oos_res.metrics
                 oos_sharpe = float(oos_res.metrics.get("sharpe_ratio", 0.0))
@@ -761,6 +777,9 @@ class IsolatedBacktestEngine:
                         for r in oos_returns:
                             last_eq *= (1.0 + r)
                             pooled_equity.append(last_eq)
+                    # P1-9: pool turnover-event log OOS (tanpa warmup -> semua trade valid)
+                    if oos_res.trade_log is not None and len(oos_res.trade_log) > 0:
+                        pooled_trades.extend(oos_res.trade_log.to_dicts())
 
             is_sharpe = float(best_cand["is_sharpe"])
             wfe_ratio = (oos_sharpe / is_sharpe) if is_sharpe > 0.0 else 0.0
@@ -892,7 +911,8 @@ class IsolatedBacktestEngine:
             mean_wfe=_mean(fold_wfes),
             median_wfe=_median(fold_wfes),
             worst_wfe=_worst(fold_wfes),
-            provenance_hash=""
+            provenance_hash="",
+            pooled_trades=tuple(pooled_trades),
         )
 
         payload = build_wfo_provenance_payload(evidence)

@@ -254,11 +254,12 @@ class DataQualityGate:
         else:
             checks.append({"check": "price_column", "status": "FAIL", "detail": "Missing price"})
 
-        # Duplicate timestamps
+        # Duplicate timestamps — P1-6: kebijakan tegas (REJECT), bukan WARN.
+        # Duplikat bar mengubah rolling indicators, fold boundary WFO, dan execution ordering.
         if "timestamp" in df.columns:
             dupes = int(df["timestamp"].is_duplicated().sum())
             if dupes > 0:
-                checks.append({"check": "duplicate_timestamps", "status": "WARN", "detail": f"{dupes} duplicates"})
+                checks.append({"check": "duplicate_timestamps", "status": "FAIL", "detail": f"{dupes} duplicates — harus unik & monotonik"})
             else:
                 checks.append({"check": "duplicate_timestamps", "status": "PASS", "detail": "OK"})
 

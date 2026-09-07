@@ -41,12 +41,41 @@ class StatisticsStage:
             "effective_trial_count": effective_trials,
         }
 
-        # Compute additional metrics from actual OOS returns
-        if oos_returns and len(oos_returns) > 2:
+        # P1-9: metric trade dihitung dari turnover-event log (pooled_trades) bila tersedia,
+        # BUKAN dari tiap bar return positif/negatif. Bar-return hanya fallback + label basis jujur.
+        pooled_trades = oos.get("pooled_trades", []) or []
+        if pooled_trades:
+            pnls = []
+            for t in pooled_trades:
+                p = t.get("pnl")
+                if p is None:
+                    p = t.get("net_pnl", 0.0)
+                try:
+                    pnls.append(float(p))
+                except (TypeError, ValueError):
+                    continue
+            wins = [p for p in pnls if p > 0]
+            losses = [p for p in pnls if p < 0]
+            win_count = len(wins)
+            loss_count = len(losses)
+            actual_trades = len(pnls)
+            stats["total_trades"] = actual_trades
+            stats["total_observations"] = len(oos_returns)
+            stats["flat_observations"] = len(pnls) - win_count - loss_count
+            stats["win_count"] = win_count
+            stats["loss_count"] = loss_count
+            stats["win_rate"] = (win_count / actual_trades * 100) if actual_trades > 0 else 0.0
+            avg_win = sum(wins) / len(wins) if wins else 0.0
+            avg_loss = abs(sum(losses) / len(losses)) if losses else 1.0
+            stats["avg_win"] = avg_win
+            stats["avg_loss"] = avg_loss
+            gross_profit = sum(wins)
+            gross_loss = abs(sum(losses))
+            stats["profit_factor"] = (gross_profit / gross_loss) if gross_loss > 0 else (0.0 if gross_profit == 0 else 999.0)
+            stats["trade_metrics_basis"] = "turnover_event_log (pooled_trades, bukan bar-return)"
+            stats["pooled_trades_count"] = actual_trades
+        elif oos_returns and len(oos_returns) > 2:
             returns_arr = oos_returns
-            mean_r = sum(returns_arr) / len(returns_arr)
-            var_r = sum((r - mean_r) ** 2 for r in returns_arr) / max(len(returns_arr) - 1, 1)
-            std_r = math.sqrt(var_r) if var_r > 0 else 1e-10
             upside = [r for r in returns_arr if r > 0]
             downside = [r for r in returns_arr if r < 0]
             flat_count = len(returns_arr) - len(upside) - len(downside)
@@ -64,24 +93,25 @@ class StatisticsStage:
             stats["avg_win"] = avg_win
             stats["avg_loss"] = avg_loss
             stats["profit_factor"] = (avg_win * win_count) / (avg_loss * loss_count) if (avg_loss * loss_count) > 0 else 0.0
-            cum = 1.0
-            equity_curve = [1.0]
-            peak = 1.0
-            max_dd = 0.0
-            for r in returns_arr:
-                cum *= (1 + r)
-                equity_curve.append(cum)
-                if cum > peak:
-                    peak = cum
-                dd = (peak - cum) / peak if peak > 0 else 0
-                if dd > max_dd:
-                    max_dd = dd
-            stats["total_return_pct"] = (cum - 1.0) * 100
-            stats["max_drawdown_calc"] = max_dd * 100
+            # Jujur: basis ini adalah observasi bar-return, BUKAN ledger trade.
+            stats["trade_metrics_basis"] = "bar_return_observations (FALLBACK: tanpa pooled_trades; bukan ledger trade)"
         else:
             stats["total_trades"] = 0
             stats["win_rate"] = 0.0
             stats["profit_factor"] = 0.0
+            stats["trade_metrics_basis"] = "tidak ada data"
+        cum = 1.0
+        peak = 1.0
+        max_dd = 0.0
+        for r in (oos_returns or []):
+            cum *= (1 + r)
+            if cum > peak:
+                peak = cum
+            dd = (peak - cum) / peak if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+        stats["total_return_pct"] = (cum - 1.0) * 100
+        stats["max_drawdown_calc"] = max_dd * 100
 
         # DSR/PSR using ACTUAL trial count from WFOEvidence
         try:
