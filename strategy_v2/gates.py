@@ -32,17 +32,6 @@ VETO_ORDER = [
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
-def _last_closed_index(bars: list, now_ts: int, bar_seconds: int) -> int:
-    """Index bar closed terakhir pada T. -1 bila tidak ada (semua forming)."""
-    last = -1
-    for i, b in enumerate(bars):
-        if int(b["time"]) + bar_seconds <= now_ts:
-            last = i
-        else:
-            break
-    return last
-
-
 def _is_finite(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
