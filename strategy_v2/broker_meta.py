@@ -56,21 +56,48 @@ def load_broker_meta(bridge_account: dict) -> dict:
     Field baru di bridge TIDAK wajib — bila tak ada, fallback konstanta profil
     + label FALLBACK. `bridge_account`: dict dari GET /account (keys:
     ticks.<symbol>.spread/stops_level; symbol_info optional).
+
+    tick_value CONFLICT GUARD (bukti kalibrasi 2026-09-08, Finex demo):
+    broker melaporkan trade_tick_value=10.0 padahal order_calc_profit-nya
+    sendiri membayar $1.00 per poin per lot (= contract_size × point).
+    Metadata tick_value broker TIDAK konsisten dengan kalkulator profitnya —
+    jadi tick_value yang dilaporkan hanya diadopsi bila konsisten (toleransi
+    1%) dengan contract_size × point; bila tidak, nilai HITUNGAN yang dipakai
+    dan konfliknya dicatat (tick_value_source=COMPUTED_CONFLICT).
     """
     info = (bridge_account.get("symbol_info") or {}).get("XAUUSD") or {}
     if info.get("contract_size") is not None:
-        meta = {
-            "symbol": "XAUUSD",
-            "contract_size": float(info["contract_size"]),
-            "point": float(info.get("point", 0.01)),
-            "tick_value": float(info.get("tick_value", 0.0)) or None,
-            "source": "BRIDGE_SYMBOL_INFO",
-        }
+        cs, pt = float(info["contract_size"]), float(info.get("point", 0.01))
+        if cs <= 0 or pt <= 0:
+            # Spec tidak valid → fail-closed ke FALLBACK (pv=0 mematikan PnL).
+            meta = dict(FALLBACK_META)
+        else:
+            meta = {
+                "symbol": "XAUUSD",
+                "contract_size": cs,
+                "point": pt,
+                "tick_value": None,
+                "source": "BRIDGE_SYMBOL_INFO",
+            }
     else:
         meta = dict(FALLBACK_META)
-    if not meta.get("tick_value"):
-        # DIHITUNG, bukan hardcode: USD per poin per lot = contract_size × point
-        meta["tick_value"] = meta["contract_size"] * meta["point"]
+    computed = meta["contract_size"] * meta["point"]
+    reported = info.get("tick_value") if meta["source"] == "BRIDGE_SYMBOL_INFO" else None
+    try:
+        reported = float(reported) if reported is not None else None
+    except (TypeError, ValueError):
+        reported = None
+    if reported is not None and reported > 0 and computed > 0 \
+            and abs(reported - computed) / computed <= 0.01:
+        meta["tick_value"] = reported
+        meta["tick_value_source"] = "BROKER"
+    else:
+        meta["tick_value"] = computed
+        if reported is not None and reported > 0:
+            meta["tick_value_source"] = "COMPUTED_CONFLICT"
+            meta["tick_value_reported_broker"] = reported
+        else:
+            meta["tick_value_source"] = "COMPUTED"
     return meta
 
 

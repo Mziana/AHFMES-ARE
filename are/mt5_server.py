@@ -6,7 +6,7 @@ Usage:
     python -m are.mt5_server --port 18888
 
 Endpoints:
-    GET  /account    — account info + ticks + positions
+    GET  /account    — account info + ticks + symbol_info + positions
     GET  /positions  — positions only (fast)
     GET  /ticks      — ticks only (fast)
     GET  /candles    — OHLCV candle data
@@ -183,9 +183,17 @@ def get_account_data():
             return {'connected': False, 'error': 'account_info returned None'}
         
         ticks = {}
+        symbol_info = {}
         for sym in ['XAUUSD','EURUSD','GBPUSD','USDJPY','BTCUSD']:
             try:
                 t = mt5.symbol_info_tick(sym)
+                # E-2: spec simbol di-fetch sekali per sym (tidak bergantung tick
+                # hidup — spec valid walau pasar tutup).
+                _si = None
+                try:
+                    _si = mt5.symbol_info(sym)
+                except Exception:
+                    _si = None
                 if t:
                     decimals = 3 if 'JPY' in sym else (2 if sym == 'XAUUSD' else 5)
                     ticks[sym] = {
@@ -195,13 +203,28 @@ def get_account_data():
                     }
                     # Jarak minimum SL/TP broker (poin simbol) — dipakai bot utk clamp
                     # supaya tidak kena retcode 10016 'Invalid stops' (spread+5 saja kurang).
-                    _sl = 0
-                    try:
-                        _si = mt5.symbol_info(sym)
-                        _sl = int(_si.trade_stops_level) if (_si and _si.trade_stops_level) else 0
-                    except Exception:
-                        _sl = 0
+                    _sl = int(_si.trade_stops_level) if (_si and _si.trade_stops_level) else 0
                     ticks[sym]['stops_level'] = _sl
+                # E-2: spesifikasi simbol utk broker meta replay (sumber
+                # BRIDGE_SYMBOL_INFO, menggantikan FALLBACK konstanta).
+                # Guard fail-closed: hanya emit bila spec VALID (contract_size &
+                # point > 0) — spec nol lebih baik jatuh ke FALLBACK daripada
+                # menghasilkan point_value = 0 yang mematikan seluruh PnL.
+                if _si is not None and float(_si.trade_contract_size) > 0 and float(_si.point) > 0:
+                    symbol_info[sym] = {
+                        'contract_size': float(_si.trade_contract_size),
+                        'point': float(_si.point),
+                        'tick_value': float(_si.trade_tick_value or 0.0),
+                        'tick_size': float(_si.trade_tick_size or 0.0),
+                        'digits': int(_si.digits),
+                        'stops_level': int(_si.trade_stops_level or 0),
+                        'spread_points': int(_si.spread or 0),
+                        'volume_min': float(_si.volume_min or 0.0),
+                        'volume_max': float(_si.volume_max or 0.0),
+                        'volume_step': float(_si.volume_step or 0.0),
+                        'currency_profit': str(_si.currency_profit),
+                        'source': 'MT5_SYMBOL_INFO',
+                    }
             except Exception as e:
                 import logging
                 logging.warning(f"MT5 tick error for {sym}: {e}")
@@ -227,7 +250,8 @@ def get_account_data():
             'margin_level': round(acc.margin_level, 2) if acc.margin_level else 0,
             'leverage': acc.leverage, 'currency': acc.currency,
             'profit': round(acc.profit, 2),
-            'ticks': ticks, 'positions': positions, 'position_count': len(positions),
+            'ticks': ticks, 'symbol_info': symbol_info,
+            'positions': positions, 'position_count': len(positions),
         }
     except Exception as e:
         return {'connected': False, 'error': str(e)}

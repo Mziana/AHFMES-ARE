@@ -366,7 +366,20 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
             open_pos = None
             state = "FLAT"
 
-        # 3) cooldown (untuk setiap entry baru, incl. reversal) — tanpa cap
+        # 2) REGIME CHANGE EXIT: bias flips -> close position
+        #    Extract bias from current record's diagnostic
+        current_bias = rec.get("bias")
+        if open_pos is not None and current_bias is not None:
+            pos_direction = open_pos["direction"]
+            # Long position + bias flips to SELL_ONLY -> close
+            # Short position + bias flips to BUY_ONLY -> close
+            if (pos_direction == "BUY" and current_bias == "SELL_ONLY") or \
+               (pos_direction == "SELL" and current_bias == "BUY_ONLY"):
+                trades.append(mark_to_market(open_pos, T, "REGIME_CHANGE"))
+                open_pos = None
+                state = "FLAT"
+
+        # 2) cooldown (untuk setiap entry baru, incl. reversal) -- tanpa cap
         #    frekuensi harian (keputusan owner 2026-09-08)
         if last_entry_ts is not None and T - last_entry_ts < cooldown_sec:
             rejected.append({"ts": T, "reason": "cooldown", "decision": direction})
@@ -518,7 +531,8 @@ def _preflight_calendar_provenance(calendar: dict | None, m5: list) -> None:
 
 
 def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str | None,
-                out_dir: Path, balance: float = 1136.65, with_execution: bool = True) -> dict:
+                out_dir: Path, balance: float = 1136.65, with_execution: bool = True,
+                bridge_account: dict | None = None) -> dict:
     m5 = load_candles(m5_path)
     m15 = load_candles(m15_path)
     qualification = qualify_dataset(m5, m15)
@@ -527,7 +541,9 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     reg_data = registry.load_hypothesis_registry()
     calendar = load_calendar(calendar_path)
     cal_hash = calendar_artifact_hash(calendar_path) if calendar else None
-    meta = bm.load_broker_meta({})
+    # E-2: broker meta dari snapshot /account bridge (file, deterministik —
+    # engine TIDAK memanggil bridge live). Tanpa snapshot → FALLBACK (lama).
+    meta = bm.load_broker_meta(bridge_account or {})
     chash = registry.compute_config_hash(profile_cfg, reg_data,
                                          calendar_artifact_hash=cal_hash,
                                          broker_meta_hash=bm.broker_meta_hash(meta))
@@ -583,10 +599,17 @@ def main(argv=None) -> int:
     ap.add_argument("--calendar", default=None)
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--balance", type=float, default=1136.65)
+    ap.add_argument("--bridge-account", default=None,
+                    help="Snapshot JSON GET /account bridge (deterministik; "
+                         "tanpa ini → broker meta FALLBACK)")
     ap.add_argument("--validate", action="store_true",
                     help="Validasi seluruh record JSONL terhadap decision_log.schema.json (P1-03)")
     args = ap.parse_args(argv)
-    res = run_profile(args.profile, args.m5, args.m15, args.calendar, Path(args.out), args.balance)
+    bridge_account = None
+    if args.bridge_account:
+        bridge_account = json.loads(Path(args.bridge_account).read_text(encoding="utf-8"))
+    res = run_profile(args.profile, args.m5, args.m15, args.calendar, Path(args.out),
+                      args.balance, bridge_account=bridge_account)
     s = res["summary"]
     print(json.dumps(s["funnel"], indent=2))
     print(f"decision log: {res['decision_log_path']}")

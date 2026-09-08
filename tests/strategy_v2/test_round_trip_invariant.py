@@ -117,6 +117,38 @@ def test_broker_meta_hash_stable_and_sensitive():
     assert broker_meta_hash(meta2) != h1
 
 
+def test_broker_meta_tick_value_conflict_guard():
+    """Kalibrasi empiris 2026-09-08 (Finex demo): broker melaporkan
+    trade_tick_value=10.0 padahal order_calc_profit-nya sendiri membayar
+    $1.00/poin/lot (= contract_size x point). tick_value yang dilaporkan
+    TIDAK konsisten → nilai HITUNGAN yang dipakai + konflik dicatat.
+    Guard $17/lot tidak boleh dirusak metadata broker yang salah."""
+    meta = load_broker_meta({"symbol_info": {"XAUUSD": {
+        "contract_size": 100.0, "point": 0.01, "tick_value": 10.0}}})
+    assert meta["source"] == "BRIDGE_SYMBOL_INFO"
+    assert meta["tick_value"] == pytest.approx(1.0)          # computed wins
+    assert meta["tick_value_source"] == "COMPUTED_CONFLICT"
+    assert meta["tick_value_reported_broker"] == pytest.approx(10.0)
+    assert point_value_usd_per_lot(meta) == pytest.approx(1.0)
+
+
+def test_broker_meta_tick_value_consistent_adopted_from_broker():
+    """tick_value broker konsisten (±1%) dengan contract_size x point →
+    diadopsi apa adanya (sumber BROKER)."""
+    meta = load_broker_meta({"symbol_info": {"XAUUSD": {
+        "contract_size": 100.0, "point": 0.01, "tick_value": 1.0}}})
+    assert meta["tick_value"] == pytest.approx(1.0)
+    assert meta["tick_value_source"] == "BROKER"
+
+
+def test_broker_meta_invalid_spec_fails_closed_to_fallback():
+    """Spec nol/rusak (pv akan 0) → FALLBACK, bukan meta mati."""
+    meta = load_broker_meta({"symbol_info": {"XAUUSD": {
+        "contract_size": 0.0, "point": 0.01}}})
+    assert meta["source"] == "FALLBACK"
+    assert point_value_usd_per_lot(meta) == pytest.approx(1.0)
+
+
 # ─── PRICE BASIS / SIDES (E-1) ──────────────────────────────────────────────
 
 def test_price_basis_sides_recorded():
