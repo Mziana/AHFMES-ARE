@@ -114,3 +114,56 @@ def test_p0_02_calendar_artifact_hash_and_snapshot(tmp_path=None):
         tmp.unlink(missing_ok=True)
         import shutil as _sh
         _sh.rmtree(outdir, ignore_errors=True)
+
+
+# ─── P0-03: fail-closed slippage/delay non-zero ──────────────────────────────
+
+def test_p0_03_compute_cost_rejects_nonzero_slippage():
+    import pytest
+    from strategy_v2.costs import UnsupportedCostModel
+    with pytest.raises(UnsupportedCostModel, match="slippage"):
+        __import__("strategy_v2.costs", fromlist=["compute_cost"]).compute_cost(20.0, 20.0, slippage=1.0)
+
+
+def test_p0_03_compute_cost_rejects_nonzero_delay():
+    from strategy_v2.costs import UnsupportedCostModel, compute_cost
+    import pytest
+    with pytest.raises(UnsupportedCostModel, match="delay"):
+        compute_cost(20.0, 20.0, delay=1)
+
+
+def test_p0_03_default_zero_cost_model_accepted():
+    from strategy_v2.costs import compute_cost
+    c = compute_cost(20.0, 20.0)
+    assert c["slippage_points"] == 0.0 and c["delay_bars"] == 0
+    assert c["label"] == "HISTORICAL"
+
+
+def test_p0_03_cost_model_mutation_fails_closed():
+    # bila COST_MODEL di-mutasi non-zero → compute_cost menolak (bukan diam-diam)
+    import pytest
+    from strategy_v2.costs import UnsupportedCostModel, compute_cost
+    import strategy_v2.registry as rm
+    old = dict(rm.COST_MODEL)
+    try:
+        rm.COST_MODEL["slippage_points"] = 3.0
+        with pytest.raises(UnsupportedCostModel):
+            compute_cost(None, None)  # fallback path
+    finally:
+        rm.COST_MODEL.clear()
+        rm.COST_MODEL.update(old)
+
+
+def test_p0_03_execution_replay_runs_with_zero_cost():
+    from strategy_v2.replay import run_decision_replay, run_execution_replay
+    m5 = [{"time": 1788739200 + i * 300, "open": 4400.0, "high": 4401.2,
+           "low": 4398.8, "close": 4400.4, "volume": 100 + (i % 5)} for i in range(220)]
+    m15 = [{"time": 1788739200 + i * 900, "open": 4400.0 + 0.08 * i, "high": 4400.5 + 0.08 * i,
+            "low": 4399.5 + 0.08 * i, "close": 4400.0 + 0.08 * i, "volume": 400} for i in range(220)]
+    profile = registry.load_profile("MICRO")
+    reg = registry.load_hypothesis_registry()
+    cfg = {"config_hash": "a" * 64, "dataset_hash": "b" * 64, "balance": 1000.0, "spread_points": None}
+    records = run_decision_replay(m5, m15, profile, reg,
+                                  {"status": "empty", "events": [], "information_available_at": 0}, cfg)
+    ex = run_execution_replay(records, m5, profile)
+    assert ex["cost_label"] in ("HISTORICAL", "ESTIMATED_COST_MODEL")
