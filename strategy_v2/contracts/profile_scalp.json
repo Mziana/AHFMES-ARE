@@ -1,7 +1,7 @@
 {
   "profile_id": "SCALP_V2",
   "description": "SCALP = high-confidence, low-frequency",
-  "session_windows_utc": [[7, 17]],
+  "session_windows_utc": [[0, 24]],
   "timeframe_trigger": "M5",
   "timeframe_regime": "M15",
   "risk": {

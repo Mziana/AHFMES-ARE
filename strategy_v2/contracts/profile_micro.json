@@ -1,25 +1,25 @@
 {
   "profile_id": "MICRO_V2",
   "description": "MICRO = higher-frequency, guarded",
-  "session_windows_utc": [[7, 17]],
+  "session_windows_utc": [[0, 24]],
   "timeframe_trigger": "M5",
   "timeframe_regime": "M15",
   "risk": {
-    "sl_atr_mult": 1.25,
-    "tp_atr_mult": 1.5,
-    "min_stop_params": { "spread_mult": 3, "stops_level_poin": 0, "buffer_poin": 10 },
-    "max_stop_points": 250,
-    "risk_percent": 2.0,
-    "cooldown_minutes": 5
-  },
+      "sl_atr_mult": 1.25,
+      "tp_atr_mult": 1.5,
+      "min_stop_params": { "spread_mult": 3, "stops_level_poin": 0, "buffer_poin": 10 },
+      "max_stop_points": 350,
+      "risk_percent": 2.0,
+      "cooldown_minutes": 5
+    },
   "location": {
     "kind": "ema_pullback",
-    "ema_pullback_distance_atr": 0.25,
+    "ema_pullback_distance_atr": 1.0,
     "atr_timeframe": "M5",
     "ema_periods": [9, 21]
   },
   "volume_gate": {
-    "enabled": true,
+    "enabled": false,
     "ratio": 1.2,
     "baseline_bars": 5,
     "exclude_self": true

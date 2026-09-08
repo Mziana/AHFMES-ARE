@@ -171,13 +171,8 @@ def b1_news(now_ts: int, calendar: dict | None, policy: dict) -> str:
 
 
 def b2_session(now_ts: int, session_windows: list) -> str:
-    """UTC hour ∈ session_windows. windows = [[start_hour, end_hour), ...]"""
-    from datetime import datetime, timezone
-    hour = datetime.fromtimestamp(int(now_ts), tz=timezone.utc).hour
-    for start, end in session_windows:
-        if start <= hour < end:
-            return "PASS"
-    return "FAIL:outside"
+    """24/7 adaptive — session filter disabled. Other gates handle adaptivity."""
+    return "PASS"
 
 
 def b3_regime(m15_closed_bars: list, config: dict) -> str:
@@ -378,6 +373,21 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     m15 = bars_dict.get("m15", [])
     now_ts = config["now_ts"]
 
+    # Always populate snapshot with required fields (even if null) for schema compliance
+    spread_points = (config.get("ticks_meta") or {}).get("spread_points")
+    rsi_m15 = Z.rsi([b["close"] for b in m15]) if m15 else None
+    rsi_m5 = Z.rsi([b["close"] for b in m5]) if m5 else None
+    atr5 = Z.atr(m5) if m5 else None
+    
+    # Default snapshot with all required fields (schema compliance)
+    snap = {
+        "spread": spread_points,
+        "atr": atr5 * 100.0 if atr5 else None,
+        "vol_ratio": None,
+        "rsi_m15": rsi_m15,
+        "rsi_m5": rsi_m5,
+    }
+
     layer_a = layer_a_data_integrity(m5, config.get("ticks_meta"), config)
     if layer_a == "DATA_VALID":
         # P0-04 — M15 dipakai b3/b4 → wajib tervalidasi juga (per-timeframe reason).
@@ -385,7 +395,6 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
         if m15_valid != "DATA_VALID":
             layer_a = m15_valid
 
-    snap = dict(market_snapshot or {})
     results: dict = {}
     bias = None
     setup = None

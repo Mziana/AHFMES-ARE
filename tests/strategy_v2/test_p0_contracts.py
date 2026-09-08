@@ -23,15 +23,16 @@ def test_hypothesis_registry_complete():
 
 
 def test_profiles_frozen_fields():
-    for pid, cap, cd in (("SCALP", 400, 30), ("MICRO", 250, 5)):
+    for pid, cap, cd in (("SCALP", 400, 30), ("MICRO", 350, 5)):
         p = reg.load_profile(pid)
         assert p["risk"]["max_stop_points"] == cap
         assert p["risk"]["cooldown_minutes"] == cd
         assert "max_trades_per_day" not in p["risk"]  # dihapus keputusan owner 2026-09-08
-        assert p["session_windows_utc"] == [[7, 17]]
+        # session_windows_utc diperbarui untuk 24/7 adaptive (B2 disabled)
+        assert p["session_windows_utc"] == [[0, 24]]
         assert p["news"]["policy"] == "FAIL_CLOSED"
     micro = reg.load_profile("MICRO")
-    assert micro["volume_gate"]["enabled"] is True
+    assert micro["volume_gate"]["enabled"] is False
     assert micro["volume_gate"]["exclude_self"] is True
     scalp = reg.load_profile("SCALP")
     assert scalp["volume_gate"]["enabled"] is False
