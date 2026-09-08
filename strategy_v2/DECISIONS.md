@@ -111,3 +111,9 @@ Format: tanggal | keputusan | alasan.
   bridge copy_rates_from_pos count=1200; replay per sesi (break maintenance
   bukan korupsi data; M5 Layer A strict gap tetap). F2 memakai sesi honesta
   saja | M5 tidak bisa di-concat silang break (mengarang data).
+
+## P4 (2026-09-08) — Keputusan gate hasil ablation (dataset 86014edf…)
+- B3 regime + B4 location: NONAKTIF utk MICRO — kehadirannya menurunkan expNet (−1,67 → +3,22 saat keduanya off, 136 trade). Revisi hipotesis terdaftar, bukan tweak.
+- B5 trigger: DIPERTAHANKAN — dilepas expNet −1,67 → −4,17 (kontribusi ±2,5/trade).
+- B1 news: DISABLED terlabel utk replay riset (kalender historis per-bar tidak ada); jalur live tetap aktif.
+- Juara P4: MICRO no_b3_b4 (+b1 off) — expNet +3,22/trade. Frozen utk P5/P6; caveat long-only di uptrend diuji WFO OOS.
