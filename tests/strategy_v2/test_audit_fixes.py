@@ -167,3 +167,73 @@ def test_p0_03_execution_replay_runs_with_zero_cost():
                                   {"status": "empty", "events": [], "information_available_at": 0}, cfg)
     ex = run_execution_replay(records, m5, profile)
     assert ex["cost_label"] in ("HISTORICAL", "ESTIMATED_COST_MODEL")
+
+
+# ─── P0-04: Layer A validasi M15 ─────────────────────────────────────────────
+
+def _m15(n, start=1788739200, base=4400.0, drift=0.08):
+    return [{"time": start + i * 900, "open": base + drift * i, "high": base + drift * i + 0.5,
+             "low": base + drift * i - 0.5, "close": base + drift * i, "volume": 400}
+            for i in range(n)]
+
+
+def _m5(n, start=1788739200, base=4400.0):
+    return [{"time": start + i * 300, "open": base, "high": base + 1.2, "low": base - 1.2,
+             "close": base + 0.4, "volume": 100 + (i % 5)} for i in range(n)]
+
+
+PROFILE_A = registry.load_profile("MICRO")
+
+
+def _cfg(now_ts):
+    return {"now_ts": now_ts, "layer_a": {}, "layer_b_ran": None,
+            "calendar": {"status": "empty", "events": [], "information_available_at": None}}
+
+
+def test_p0_04_m15_nan_fails_layer_a():
+    m15 = _m15(120)
+    m15[50]["close"] = float("nan")
+    r = gates.layer_a_m15_integrity(m15, _cfg(_m15(120)[-1]["time"] + 900))
+    assert r == "DATA_INVALID:m15:nan"
+
+
+def test_p0_04_m15_gap_fails_layer_a():
+    m15 = _m15(120)
+    m15[60]["time"] += 900  # gap
+    r = gates.layer_a_m15_integrity(m15, _cfg(m15[-1]["time"] + 900))
+    assert r == "DATA_INVALID:m15:missing_bar"
+
+
+def test_p0_04_m15_duplicate_fails_layer_a():
+    m15 = _m15(120)
+    m15[60]["time"] = m15[59]["time"]
+    r = gates.layer_a_m15_integrity(m15, _cfg(m15[-1]["time"] + 900))
+    assert r == "DATA_INVALID:m15:duplicate_ts"
+
+
+def test_p0_04_m15_stale_fails_layer_a():
+    m15 = _m15(120)
+    far_future = m15[-1]["time"] + 900 + 4 * 900  # > 3 bar staleness
+    r = gates.layer_a_m15_integrity(m15, _cfg(far_future))
+    assert r == "DATA_INVALID:m15:stale"
+
+
+def test_p0_04_evaluate_all_disables_layer_b_on_bad_m15():
+    m5, m15 = _m5(60), _m15(300)
+    m15[200]["close"] = float("nan")
+    cfg = {"now_ts": m5[-1]["time"] + 300, "rsi_bias_threshold": 50,
+           "min_bars_m15_warmup": 50, "layer_a": {},
+           "calendar": {"status": "empty", "events": [], "information_available_at": None}}
+    d = gates.evaluate_all({"m5": m5, "m15": m15}, PROFILE_A, cfg, {})
+    assert d["layer_a"] == "DATA_INVALID:m15:nan"
+    assert d["layer_b_ran"] is False
+    assert all(v == "DISABLED" for v in d["all_gate_results"].values())
+
+
+def test_p0_04_valid_m15_does_not_change_result():
+    m5, m15 = _m5(60), _m15(300)
+    cfg = {"now_ts": m5[-1]["time"] + 300, "rsi_bias_threshold": 50,
+           "min_bars_m15_warmup": 50, "layer_a": {},
+           "calendar": {"status": "empty", "events": [], "information_available_at": None}}
+    d1 = gates.evaluate_all({"m5": m5, "m15": m15}, PROFILE_A, cfg, {})
+    assert d1["layer_a"] == "DATA_VALID" and d1["layer_b_ran"] is True

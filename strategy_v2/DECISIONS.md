@@ -42,3 +42,7 @@ Format: tanggal | keputusan | alasan.
   `max(event.ts)`; artifact tanpa provenance → fail-closed `NEWS_DATA_STALE`
   | temporal provenance: replay historis tidak boleh menganggap snapshot now
   tersedia di masa lalu; event_timestamp ≠ availability_timestamp.
+- 2026-09-08 | P0-04 — Layer A kini memvalidasi M15 juga (regime/location
+  timeframe): reason per-timeframe `DATA_INVALID:m15:<reason>`; M15 invalid →
+  Layer B DISABLED (Pagar 3 tetap) | keputusan strategi bergantung M15, jadi
+  M15 wajib tervalidasi sama seperti M5; schema pattern diperluas.

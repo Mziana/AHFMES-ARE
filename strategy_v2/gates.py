@@ -48,6 +48,34 @@ def layer_a_data_integrity(bars: list, ticks_meta: dict | None, config: dict) ->
     max_stale_bars = prof_a.get("max_staleness_bars", 3)
     spread_cap = prof_a.get("spread_cap_points", 200)
 
+    return _layer_a_check_bars(bars, ticks_meta, bar_seconds, max_stale_bars,
+                               spread_cap, now_ts=config["now_ts"])
+
+
+def layer_a_m15_integrity(m15: list, config: dict) -> str:
+    """P0-04 — Layer A atas M15 (regime/location timeframe).
+
+    M15 dipakai b3_regime + b4_location → keputusan bergantung timeframe ini,
+    jadi wajib tervalidasi sama seperti M5. Tanpa spread check (tick spread
+    adalah properti M5 trigger). Return 'DATA_VALID' atau 'DATA_INVALID:m15:<reason>'.
+    """
+    prof_a = config.get("layer_a", {})
+    max_stale_bars = prof_a.get("max_staleness_bars", 3)
+    base = _layer_a_check_bars(m15, None, 900, max_stale_bars,
+                               spread_cap=None, now_ts=config["now_ts"])
+    if base == "DATA_VALID":
+        return base
+    # prefix per-timeframe: DATA_INVALID:m15:<reason> (audit P0-04)
+    return "DATA_INVALID:m15:" + base.split(":", 1)[1]
+
+
+def _layer_a_check_bars(bars: list, ticks_meta: dict | None, bar_seconds: int,
+                        max_stale_bars: int, spread_cap: float | None,
+                        now_ts: int) -> str:
+    """Core integrity check (dipakai M5 dan M15). Urutan deterministik."""
+    if spread_cap is None:
+        spread_cap = float("inf")  # M15: tanpa spread check
+
     seen = set()
     prev_t = None
     for b in bars:
@@ -73,7 +101,6 @@ def layer_a_data_integrity(bars: list, ticks_meta: dict | None, config: dict) ->
         return "DATA_INVALID:missing_bar"
 
     last_close = int(bars[-1]["time"]) + bar_seconds
-    now_ts = config["now_ts"]
     if now_ts - last_close > max_stale_bars * bar_seconds:
         return "DATA_INVALID:stale"
 
@@ -327,6 +354,11 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     now_ts = config["now_ts"]
 
     layer_a = layer_a_data_integrity(m5, config.get("ticks_meta"), config)
+    if layer_a == "DATA_VALID":
+        # P0-04 — M15 dipakai b3/b4 → wajib tervalidasi juga (per-timeframe reason).
+        m15_valid = layer_a_m15_integrity(m15, config)
+        if m15_valid != "DATA_VALID":
+            layer_a = m15_valid
 
     snap = dict(market_snapshot or {})
     results: dict = {}

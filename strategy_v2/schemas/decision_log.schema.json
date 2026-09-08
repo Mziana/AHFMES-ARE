@@ -39,7 +39,7 @@
     "layer_a": {
       "description": "DATA_VALID atau DATA_INVALID:<reason> (Layer A terpisah dari statistik strategi).",
       "type": "string",
-      "pattern": "^(DATA_VALID|DATA_INVALID:[a-z_]+)$"
+      "pattern": "^(DATA_VALID|DATA_INVALID:[a-z0-9_]+(:[a-z0-9_]+)?)$"
     },
     "all_gate_results": {
       "type": "object",
