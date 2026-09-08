@@ -81,10 +81,16 @@ B2–B7 full-diagnostic tetap di `all_gate_results`.
   baik dengan maupun tanpa cap — B7 cap tidak pernah tercapai pada
   dataset 7 Sep).
 - **Revisi audit (2026-09-08)**: P0-01..P1-03 fix — provenance kalender
-  (look-ahead guard), calendar hash in config_hash (identity baru:
-  micro `c732ade7…`, scalp `e149fc0d…`), fail-closed cost model,
-  Layer A M15 (gap break sesi ≥ 1h diizinkan), schema validation.
-  Funnel di atas = identity baru dengan provenance jujur.
+  (look-ahead guard), calendar hash in config_hash, Layer A M15 (gap break
+  sesi ≥ 1h diizinkan), schema validation (CLI `--validate`).
+- **Revisi 2 (2026-09-08, post-audit)**: slippage & delay DITERAPKAN nyata di
+  execution replay (P0-03 opsi A — fill adverse + geser bar; slippage TIDAK
+  masuk deduksi USD = tidak double-count, teruji); pre-flight provenance
+  (snapshot setelah window → gagal cepat); `archived` hanya dari artifact
+  builder; determinism ×2 mencakup summary + JSONL; qualify_dataset
+  mengklasifikasi gap break-sesi vs intra-day. Identity baru: micro
+  `925b606a…`, scalp `16695dcb…` (cal artifact `5c4a51d0…`, archived).
+  Funnel di atas = identity terbaru, provenance jujur (B1 STALE 222/222).
 
 ## 6. Perbandingan vs baseline lama (122 trade, −$42.02, 7 Sep)
 

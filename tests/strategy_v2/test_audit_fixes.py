@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from strategy_v2 import gates, registry
-from strategy_v2.replay import load_calendar
+from strategy_v2.replay import (load_calendar, run_decision_replay, run_execution_replay)
 
 
 # ─── P0-01: news temporal provenance ─────────────────────────────────────────
@@ -118,18 +118,28 @@ def test_p0_02_calendar_artifact_hash_and_snapshot(tmp_path=None):
 
 # ─── P0-03: fail-closed slippage/delay non-zero ──────────────────────────────
 
-def test_p0_03_compute_cost_rejects_nonzero_slippage():
+def test_p0_03_compute_cost_accepts_nonzero_slippage_delay():
+    # P0-03 opsi A (diimplementasikan): slippage/delay non-zero kini SAH —
+    # diterapkan nyata di execution replay
+    from strategy_v2.costs import compute_cost
+    c = compute_cost(20.0, 20.0, slippage=2.0, delay=1)
+    assert c["slippage_points"] == 2.0 and c["delay_bars"] == 1
+
+
+def test_p0_03_compute_cost_rejects_invalid_slippage():
     import pytest
-    from strategy_v2.costs import UnsupportedCostModel
+    from strategy_v2.costs import UnsupportedCostModel, compute_cost
     with pytest.raises(UnsupportedCostModel, match="slippage"):
-        __import__("strategy_v2.costs", fromlist=["compute_cost"]).compute_cost(20.0, 20.0, slippage=1.0)
+        compute_cost(20.0, 20.0, slippage=-1.0)  # negatif
+    with pytest.raises(UnsupportedCostModel, match="slippage"):
+        compute_cost(20.0, 20.0, slippage=float("nan"))  # non-finite
 
 
-def test_p0_03_compute_cost_rejects_nonzero_delay():
+def test_p0_03_compute_cost_rejects_invalid_delay():
     from strategy_v2.costs import UnsupportedCostModel, compute_cost
     import pytest
     with pytest.raises(UnsupportedCostModel, match="delay"):
-        compute_cost(20.0, 20.0, delay=1)
+        compute_cost(20.0, 20.0, delay=-1)
 
 
 def test_p0_03_default_zero_cost_model_accepted():
@@ -140,13 +150,13 @@ def test_p0_03_default_zero_cost_model_accepted():
 
 
 def test_p0_03_cost_model_mutation_fails_closed():
-    # bila COST_MODEL di-mutasi non-zero → compute_cost menolak (bukan diam-diam)
+    # bila COST_MODEL di-mutasi ke nilai INVALID (negatif) → compute_cost menolak
     import pytest
     from strategy_v2.costs import UnsupportedCostModel, compute_cost
     import strategy_v2.registry as rm
     old = dict(rm.COST_MODEL)
     try:
-        rm.COST_MODEL["slippage_points"] = 3.0
+        rm.COST_MODEL["slippage_points"] = -3.0
         with pytest.raises(UnsupportedCostModel):
             compute_cost(None, None)  # fallback path
     finally:
@@ -313,3 +323,139 @@ def test_p0_01b_archived_artifact_skips_age_check():
             "events": [{"ts": now - 60, "impact": "high", "currency": "USD"}],
             "archived": True}
     assert gates.b1_news(now, cal2, POLICY) == "NEWS_EVENT_ACTIVE"
+
+
+# ─── P0-03b: slippage/delay diterapkan nyata di execution replay ─────────────
+
+def _records_with_signal(m5, n_bar=50):
+    m15 = [{"time": m5[0]["time"] + i * 900, "open": 4400.0, "high": 4401.0,
+            "low": 4399.0, "close": 4400.0, "volume": 400} for i in range(120)]
+    profile = registry.load_profile("MICRO")
+    reg = registry.load_hypothesis_registry()
+    cfg = {"config_hash": "a" * 64, "dataset_hash": "b" * 64, "balance": 1000.0, "spread_points": None}
+    records = run_decision_replay(m5, m15, profile, reg,
+                                  {"status": "empty", "events": [], "information_available_at": 0}, cfg)
+    records[n_bar]["decision"] = "BUY"
+    records[n_bar]["sl_points"] = 150.0
+    records[n_bar]["tp_points"] = 150.0
+    records[n_bar]["lot"] = 0.02
+    return records
+
+
+def test_p0_03b_delay_shifts_fill_and_slippage_adverse():
+    m5 = [{"time": 1788739200 + i * 300, "open": 4400.0, "high": 4401.2,
+           "low": 4398.8, "close": 4400.4, "volume": 100 + (i % 5)} for i in range(220)]
+    records = _records_with_signal(m5, 50)
+    # delay=1 bar, slippage=3 poin
+    ex = run_execution_replay(records, m5, registry.load_profile("MICRO"),
+                              slippage_points=3.0, delay_bars=1)
+    assert ex["spread_model"]["delay_bars"] == 1 and ex["spread_model"]["slippage_points"] == 3.0
+    t = ex["trades"][0]
+    sig_T = records[50]["evaluation_timestamp"]
+    assert t["signal_ts"] == sig_T
+    assert t["entry_ts"] == sig_T + 300  # fill digeser 1 bar
+    bar = next(b for b in m5 if b["time"] == t["entry_ts"])
+    expected_entry = bar["open"] + (20.0 + 3.0) * 0.01  # spread + slippage adverse
+    assert abs(t["entry"] - expected_entry) < 1e-9
+
+
+def test_p0_03b_zero_cost_matches_old_semantics():
+    m5 = [{"time": 1788739200 + i * 300, "open": 4400.0, "high": 4401.2,
+           "low": 4398.8, "close": 4400.4, "volume": 100 + (i % 5)} for i in range(220)]
+    records = _records_with_signal(m5, 50)
+    ex = run_execution_replay(records, m5, registry.load_profile("MICRO"))
+    t = ex["trades"][0]
+    assert t["entry_ts"] == t["signal_ts"]  # tanpa delay → fill di bar T+1 (open ts == T)
+    bar = next(b for b in m5 if b["time"] == t["entry_ts"])
+    assert abs(t["entry"] - (bar["open"] + 20.0 * 0.01)) < 1e-9
+
+
+def test_p0_03b_delay_beyond_dataset_rejected():
+    m5 = [{"time": 1788739200 + i * 300, "open": 4400.0, "high": 4401.2,
+           "low": 4398.8, "close": 4400.4, "volume": 100 + (i % 5)} for i in range(220)]
+    records = _records_with_signal(m5, 219)  # sinyal di bar kedua terakhir
+    ex = run_execution_replay(records, m5, registry.load_profile("MICRO"), delay_bars=5)
+    assert not ex["trades"]
+    assert any(r["reason"] == "delay_no_bar" for r in ex["rejected_executions"])
+
+
+# ─── Determinism: summary ikut bit-identik + qualify_dataset gap policy ──────
+
+def test_determinism_summary_and_jsonl_bit_identical(tmp_path=None):
+    from strategy_v2.replay import run_profile
+    import shutil
+    m5p = Path("data/research/v2_replay/dataset_sep7_m5.json")
+    m15p = Path("data/research/v2_replay/dataset_sep7_m15.json")
+    calp = Path("data/research/calendar/calendar_5c4a51d0.json")
+    if not (m5p.exists() and m15p.exists()):
+        import pytest
+        pytest.skip("dataset 7 Sep tidak tersedia")
+    out1 = Path(__file__).parent / "_tmp_det1"
+    out2 = Path(__file__).parent / "_tmp_det2"
+    try:
+        for p in ("micro", "scalp"):
+            run_profile(p, str(m5p), str(m15p), str(calp), out1)
+            run_profile(p, str(m5p), str(m15p), str(calp), out2)
+            assert (out1 / f"decision_{p}.jsonl").read_bytes() ==                    (out2 / f"decision_{p}.jsonl").read_bytes(), f"JSONL {p} beda"
+            assert (out1 / f"summary_{p}.json").read_bytes() ==                    (out2 / f"summary_{p}.json").read_bytes(), f"summary {p} beda"
+    finally:
+        shutil.rmtree(out1, ignore_errors=True)
+        shutil.rmtree(out2, ignore_errors=True)
+
+
+def test_qualify_dataset_classifies_gaps_like_layer_a():
+    m5 = [{"time": 1788739200 + i * 300, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+          for i in range(10)]
+    # M15 eksplisit: 0..4 kontinu, break sesi 4500 dtk, 5..9 kontinu,
+    # gap intra 1800 dtk (2 bar hilang), 10..19 kontinu
+    times = [1788739200 + i * 900 for i in range(5)]
+    times += [times[-1] + 4500]                       # break sesi
+    times += [times[-1] + 900 * (i + 1) for i in range(5)]
+    times += [times[-1] + 1800]                       # intra-day missing
+    times += [times[-1] + 900 * (i + 1) for i in range(10)]
+    m15 = [{"time": t, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1} for t in times]
+    from strategy_v2.replay import qualify_dataset
+    rep = qualify_dataset(m5, m15)
+    assert rep["m15"]["gaps"] == 2
+    assert rep["m15"]["gaps_session_break"] == 1
+    assert rep["m15"]["gaps_intra_day"] == 1
+    assert rep["m5"]["gaps"] == 0
+
+
+# ─── Pre-flight provenance + slippage tidak double-dip ───────────────────────
+
+def test_preflight_rejects_snapshot_fetched_after_window():
+    from strategy_v2.replay import _preflight_calendar_provenance
+    import pytest
+    m5 = [{"time": 1788739200 + i * 300, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+          for i in range(10)]
+    last_eval = 1788739200 + 10 * 300
+    cal = {"status": "ok", "information_available_at": last_eval + 600, "events": []}
+    with pytest.raises(ValueError, match="PRE-FLIGHT"):
+        _preflight_calendar_provenance(cal, m5)
+    # archived artifact → pre-flight dilewati (availability dinyatakan artifact)
+    cal_arch = {**cal, "archived": True}
+    _preflight_calendar_provenance(cal_arch, m5)  # tidak raise
+
+
+def test_preflight_passes_snapshot_before_window():
+    from strategy_v2.replay import _preflight_calendar_provenance
+    m5 = [{"time": 1788739200 + i * 300, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+          for i in range(10)]
+    cal = {"status": "ok", "information_available_at": 1788739200 - 3600, "events": []}
+    _preflight_calendar_provenance(cal, m5)  # tidak raise
+
+
+def test_p0_03b_slippage_not_double_counted_in_cost_deduction():
+    # slippage mempengaruhi GROSS via harga fill (adverse), TIDAK dipotong lagi
+    # di cost_usd (deduksi = spread + commission saja)
+    m5 = [{"time": 1788739200 + i * 300, "open": 4400.0, "high": 4401.2,
+           "low": 4398.8, "close": 4400.4, "volume": 100 + (i % 5)} for i in range(220)]
+    records = _records_with_signal(m5, 50)
+    ex0 = run_execution_replay(records, m5, registry.load_profile("MICRO"))
+    ex1 = run_execution_replay(records, m5, registry.load_profile("MICRO"),
+                               slippage_points=3.0)
+    t0, t1 = ex0["trades"][0], ex1["trades"][0]
+    # gross berubah (fill lebih buruk), cost_usd TIDAK bertambah karena slippage
+    assert abs(t1["entry"] - t0["entry"] - 3.0 * 0.01) < 1e-9  # BUY: entry lebih tinggi
+    assert abs(t1["cost_usd"] - t0["cost_usd"]) < 1e-9

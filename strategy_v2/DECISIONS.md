@@ -58,3 +58,14 @@ Format: tanggal | keputusan | alasan.
   nyata di dataset 7 Sep); gap 1–3 bar intra-sesi tetap `missing_bar` |
   struktur kalender pasar bukan korupsi data; konsisten dengan
   qualify_dataset (gap dilaporkan, tidak meng-invalidate).
+- 2026-09-08 | P0-03 opsi A — slippage & delay DITERAPKAN nyata di execution
+  replay: fill digeser delay_bars (rejection `delay_no_bar` bila bar tidak
+  ada), slippage adverse pada harga fill (BUY +, SELL −); slippage TIDAK masuk
+  deduksi USD (spread+commission saja) — double counting tertangkap test dan
+  difix | cost model kini penuh, bukan fail-closed-only.
+- 2026-09-08 | Pre-flight provenance: `run_profile` gagal cepat bila snapshot
+  kalender non-archived postdates window evaluasi | funnel 100% veto B1 valid
+  secara formal tapi tidak informatif — lebih baik gagal jelas di awal.
+- 2026-09-08 | `archived` flag HANYA ditulis oleh save_calendar_artifact;
+  load_calendar membacanya dari file (tidak lagi hard-coded True) | jalur
+  live (snapshot provider) tetap kena age-check staleness.

@@ -40,6 +40,7 @@ def qualify_dataset(m5: list, m15: list) -> dict:
     """Data qualification ringan (mandat P2a): gaps, duplicate, OHLC, volume."""
     def check(bars, tf_seconds, name):
         rep = {"name": name, "bars": len(bars), "duplicate_ts": 0, "gaps": 0,
+               "gaps_session_break": 0, "gaps_intra_day": 0,
                "ohlc_invalid": 0, "volume_missing": 0, "nan": 0}
         seen = set()
         prev = None
@@ -50,6 +51,13 @@ def qualify_dataset(m5: list, m15: list) -> dict:
             seen.add(t)
             if prev is not None and int(t) - int(prev) != tf_seconds:
                 rep["gaps"] += 1
+                # klasifikasi selaras policy Layer A (gates.layer_a_m15_integrity):
+                # gap >= 3600 dtk = break sesi pasar (maintenance/weekend), bukan
+                # korupsi data; gap lebih kecil = kehilangan data intra-sesi.
+                if int(t) - int(prev) >= 3600:
+                    rep["gaps_session_break"] += 1
+                else:
+                    rep["gaps_intra_day"] += 1
             prev = t
             o, h, l, c = b.get("open"), b.get("high"), b.get("low"), b.get("close")
             if any(x is None or x != x for x in (o, h, l, c)):
@@ -99,9 +107,13 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
             info_at = int(info_at)
         except Exception:
             info_at = None
+    # archived: HANYA dari field eksplisit artifact (ditulis save_calendar_artifact).
+    # File kalender mentah (snapshot provider) TIDAK dianggap arsip — age-check
+    # tetap jalan di jalur live.
+    archived = bool(raw.get("archived")) if isinstance(raw, dict) else False
     return {"status": "ok" if events else "empty",
             "information_available_at": info_at, "events": events,
-            "archived": True}  # artifact arsip: availability dinyatakan eksplisit
+            "archived": archived}
 
 
 def save_calendar_artifact(raw: dict | list, src_path: str | Path,
@@ -115,6 +127,7 @@ def save_calendar_artifact(raw: dict | list, src_path: str | Path,
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     artifact = {"information_available_at": int(fetched_at),
+                "archived": True,  # satu-satunya jalur yang boleh menandai arsip
                 "source": str(src_path),
                 "events": (raw if isinstance(raw, list) else raw.get("events", []))}
     blob = json.dumps(artifact, sort_keys=True, ensure_ascii=True)
@@ -199,15 +212,20 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
 # ─── Execution Replay (next-bar-open + cost model) ───────────────────────────
 
 def run_execution_replay(records: list[dict], m5: list, profile: dict,
-                         spread_points: float | None = None) -> dict:
+                         spread_points: float | None = None,
+                         slippage_points: float | None = None,
+                         delay_bars: int | None = None) -> dict:
     """Decision → simulator next-bar-open + cost model → trades + PnL.
 
     Kontrak eksekusi: sinyal @ close T → fill paling awal = OPEN bar dengan
     open time == T (bar T+1 dari sisi sinyal). Eksekusi lebih awal = violation.
     Intrabar ambiguity (SL & TP kena bar yang sama) → SL dulu (konservatif).
     """
-    cost = compute_cost(spread_points, spread_points)
+    cost = compute_cost(spread_points, spread_points,
+                        slippage=slippage_points, delay=delay_bars)
     spread_pts = cost["entry_spread_points"]
+    slip_pts = cost["slippage_points"]
+    delay_bars = cost["delay_bars"]
     price_mult = 0.01  # 1 poin XAUUSD = 0.01 harga
 
     by_time = {int(b["time"]): b for b in m5}
@@ -226,14 +244,19 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
         if last_entry_ts is not None and T - last_entry_ts < risk["cooldown_minutes"] * 60:
             rejected.append({"ts": T, "reason": "cooldown", "decision": rec["decision"]})
             continue
-        entry_bar = by_time.get(T)
-        if entry_bar is None:
-            rejected.append({"ts": T, "reason": "no_next_bar", "decision": rec["decision"]})
-            continue
-
         direction = rec["direction"] = rec["decision"]
-        # BUY fill di ask = open + spread; SELL fill di bid = open − spread
-        entry = entry_bar["open"] + (spread_pts * price_mult if direction == "BUY" else -spread_pts * price_mult)
+        # Delay (P0-03 opsi A): fill digeser delay_bars dari bar T+1.
+        # Bila bar hasil geser tidak ada (akhir dataset) → rejection eksplisit.
+        fill_T = T + delay_bars * BAR_SECONDS
+        fill_bar = by_time.get(fill_T)
+        if fill_bar is None:
+            rejected.append({"ts": T, "reason": "delay_no_bar", "decision": rec["decision"]})
+            continue
+        entry_bar = fill_bar
+        # BUY fill di ask = open + spread + slippage adverse; SELL fill di bid =
+        # open − spread − slippage adverse (slippage selalu merugikan trader).
+        adverse = (spread_pts + slip_pts) * price_mult
+        entry = entry_bar["open"] + (adverse if direction == "BUY" else -adverse)
         sl_d = rec["sl_points"] * price_mult
         tp_d = rec["tp_points"] * price_mult
         if direction == "BUY":
@@ -243,7 +266,7 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
 
         # cari exit mulai bar ENTRY sendiri (fill di open, kelola sejak bar itu)
         exit_ts, exit_price, exit_reason = None, None, None
-        idx = ordered.index(T)
+        idx = ordered.index(fill_T)
         for t in ordered[idx:]:
             b = by_time[t]
             if direction == "BUY":
@@ -269,7 +292,8 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
         total_cost_usd = cost["total_usd_per_lot"] * rec["lot"]
         net_usd = gross_usd - total_cost_usd
         trades.append({
-            "entry_ts": T, "exit_ts": exit_ts, "direction": direction,
+            "entry_ts": fill_T, "exit_ts": exit_ts, "direction": direction,
+            "signal_ts": T, "delay_bars": delay_bars, "slippage_points": slip_pts,
             "entry": entry, "exit": exit_price, "exit_reason": exit_reason,
             "sl_points": rec["sl_points"], "tp_points": rec["tp_points"],
             "lot": rec["lot"], "gross_points": round(pts, 2),
@@ -288,6 +312,8 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
         "cost_label": cost["label"],
         "spread_model": {"entry_spread_points": cost["entry_spread_points"],
                          "exit_spread_points": cost["exit_spread_points"],
+                         "slippage_points": cost["slippage_points"],
+                         "delay_bars": cost["delay_bars"],
                          "commission_usd_per_lot": cost["commission_usd_per_lot"]},
         "executed_trades": executed,
         "rejected_executions": rejected,
@@ -356,6 +382,25 @@ def _count(seq: list) -> dict:
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
+def _preflight_calendar_provenance(calendar: dict | None, m5: list) -> None:
+    """Pre-flight (saran post-audit): gagal CEPAT bila snapshot kalender
+    postdates window evaluasi — tanpa ini replay menghasilkan funnel 100%
+    veto B1 yang valid secara formal tapi tidak informatif. archived artifact
+    (availability dinyatakan sebelum window) dilewati."""
+    if not calendar or calendar.get("archived"):
+        return
+    info_at = calendar.get("information_available_at")
+    if info_at is None:
+        return  # fail-closed di B1 per-bar; bukan kasus pre-flight
+    last_eval = int(m5[-1]["time"]) + BAR_SECONDS if m5 else 0
+    if int(info_at) > last_eval:
+        raise ValueError(
+            f"PRE-FLIGHT GAGAL: snapshot kalender di-fetch {int(info_at)} "
+            f"(SETELAH window evaluasi berakhir {last_eval}) — replay historis "
+            "akan 100% veto B1. Fetch kalender SEBELUM window, atau pakai "
+            "artifact arsip ber-provenance (save_calendar_artifact).")
+
+
 def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str | None,
                 out_dir: Path, balance: float = 1136.65, with_execution: bool = True) -> dict:
     m5 = load_candles(m5_path)
@@ -367,6 +412,7 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     calendar = load_calendar(calendar_path)
     cal_hash = calendar_artifact_hash(calendar_path) if calendar else None
     chash = registry.compute_config_hash(profile_cfg, reg_data, calendar_artifact_hash=cal_hash)
+    _preflight_calendar_provenance(calendar, m5)
 
     cfg = {"config_hash": chash, "dataset_hash": dhash, "balance": balance,
            "risk_percent": profile_cfg["risk"]["risk_percent"],
@@ -407,11 +453,20 @@ def main(argv=None) -> int:
     ap.add_argument("--calendar", default=None)
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     ap.add_argument("--balance", type=float, default=1136.65)
+    ap.add_argument("--validate", action="store_true",
+                    help="Validasi seluruh record JSONL terhadap decision_log.schema.json (P1-03)")
     args = ap.parse_args(argv)
     res = run_profile(args.profile, args.m5, args.m15, args.calendar, Path(args.out), args.balance)
     s = res["summary"]
     print(json.dumps(s["funnel"], indent=2))
     print(f"decision log: {res['decision_log_path']}")
+    if args.validate:
+        from . import schema_check
+        n, errs = schema_check.validate_jsonl(res["decision_log_path"])
+        if errs:
+            print(f"SCHEMA VIOLATIONS: {len(errs)} (contoh: {errs[:3]})")
+            return 1
+        print(f"schema validation: {n} records OK")
     return 0
 
 
