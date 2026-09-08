@@ -221,6 +221,37 @@ def test_position_closed_chronologically_without_later_signal():
     assert ex["state_transitions"]["eod_marks"] == 0
 
 
+# ─── REGRESSION GUARD: $17/lot, BUKAN $3400 (E-2) ───────────────────────────
+
+def test_cost_17_usd_per_lot_regression_guard():
+    """Contoh riil bridge: spread 0.17 harga (raw 1700 PRICE_1E4) → cost
+    $17/lot per sisi, BUKAN $3400 (bug unit 100× tidak boleh kembali).
+    Mandat F2b: guard permanen atas contoh riil ini."""
+    pts = normalize_spread(1700.0, "PRICE_1E4")
+    assert pts == pytest.approx(17.0)
+    m5 = flat_m5(60)
+    # BUY flat, lot 1.0, komisi 0: cost_usd = exit spread saja = $17/lot
+    ex = run_execution_replay(signal_record("BUY", idx=50, lot=1.0), m5, PROFILE,
+                              spread_points=pts, slippage_points=0.0, delay_bars=0,
+                              commission_usd_per_lot=0.0)
+    t = ex["trades"][0]
+    assert t["cost_usd"] == pytest.approx(17.0)   # exit spread saja (BUY)
+    assert t["net_usd"] == pytest.approx(-34.0)   # entry+exit spread, flat
+    assert t["gross_usd"] == pytest.approx(-17.0)  # spread entry di path harga
+    # SELL flat identik: cost_usd = entry spread saja = $17/lot
+    ex2 = run_execution_replay(signal_record("SELL", idx=50, lot=1.0), m5, PROFILE,
+                               spread_points=pts, slippage_points=0.0, delay_bars=0,
+                               commission_usd_per_lot=0.0)
+    t2 = ex2["trades"][0]
+    assert t2["cost_usd"] == pytest.approx(17.0)   # entry spread saja (SELL)
+    assert t2["net_usd"] == pytest.approx(-34.0)
+    assert t2["gross_usd"] == pytest.approx(-17.0)  # spread exit di path harga
+    # dan model biaya langsung: 17+17 poin = $34/lot round-trip (tanpa komisi)
+    from strategy_v2.costs import compute_cost
+    c = compute_cost(pts, pts, commission=0.0)
+    assert c["total_usd_per_lot"] == pytest.approx(34.0)
+
+
 def test_state_machine_cooldown_still_enforced():
     """Cooldown tetap berlaku per entry (incl. setelah FLAT) — bukan hanya
     position gate."""

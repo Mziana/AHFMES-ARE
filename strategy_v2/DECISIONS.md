@@ -98,3 +98,16 @@ Format: tanggal | keputusan | alasan.
   poin 0.01) → `normalize_spread(1700, PRICE_1E4)` = 17.0; replay menerima
   poin yang SUDAH dinormalisasi | unit tak dikenal → fail-closed
   (UnknownSpreadUnit); dilarang hardcode price_mult (E-2).
+- 2026-09-08 (F2) | Window replay honesta = sesi dengan close ≥
+  information_available_at kalender riil (Sep 7 18:59:42Z) → satu-satunya
+  sesi: Sep 7 22:00 → Sep 8 08:25 (125 bar). Sesi Sep 1–4 + Sep 7 pagi
+  ditolak provenance guard (P0-01) — kalender memang belum tersedia saat itu
+  | jujur > window besar; JANGAN mengarang data (mandat §4).
+- 2026-09-08 (F2) | Cost label: spread snapshot live (17 poin) diberi label
+  `ESTIMATED_COST_MODEL`, BUKAN HISTORICAL — spread konstanta snapshot bukan
+  spread historis per-bar; compute_cost menerima `spread_label` override
+  eksplisit | desain §4: estimasi tidak pernah disajikan sebagai market truth.
+- 2026-09-08 (F2) | Dataset multi-sesi M5 (Sep 1–8, 6 sesi) ditarik via
+  bridge copy_rates_from_pos count=1200; replay per sesi (break maintenance
+  bukan korupsi data; M5 Layer A strict gap tetap). F2 memakai sesi honesta
+  saja | M5 tidak bisa di-concat silang break (mengarang data).
