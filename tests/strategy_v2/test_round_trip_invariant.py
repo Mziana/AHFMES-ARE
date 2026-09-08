@@ -115,3 +115,130 @@ def test_broker_meta_hash_stable_and_sensitive():
     meta2 = load_broker_meta(
         {"symbol_info": {"XAUUSD": {"contract_size": 100.0, "point": 0.01}}})
     assert broker_meta_hash(meta2) != h1
+
+
+# ─── PRICE BASIS / SIDES (E-1) ──────────────────────────────────────────────
+
+def test_price_basis_sides_recorded():
+    """BUY fill di ASK (open+spread), SELL fill di BID (open); exit di sisi
+    berlawanan; candle_price_basis = BID tetap (E-1)."""
+    tb = _flat_round_trip("BUY")
+    ts = _flat_round_trip("SELL")
+    assert (tb["entry_side"], tb["exit_side"]) == ("ASK", "BID")
+    assert (ts["entry_side"], ts["exit_side"]) == ("BID", "ASK")
+    assert tb["price_basis"] == ts["price_basis"] == "BID"
+    assert tb["entry"] == pytest.approx(4400.0 + 17.0 * 0.01)  # spread masuk harga
+    assert ts["entry"] == pytest.approx(4400.0)                # SELL di BID: tanpa spread
+    assert len(tb["broker_meta_hash"]) == 64
+
+
+# ─── POSITION STATE MACHINE (E-3, ONE_POSITION_ONLY) ────────────────────────
+
+def test_state_machine_same_direction_rejected_position_open():
+    """Sinyal searah saat LONG terbuka → REJECTED:position_open, 1 trade saja
+    (tidak ada phantom stacking)."""
+    m5 = flat_m5(60)
+    recs = signal_record("BUY", idx=40, lot=0.1) + signal_record("BUY", idx=45, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    assert len(ex["trades"]) == 1
+    assert any(r["reason"] == "position_open" for r in ex["rejected_executions"])
+    # state terbuka saat EOD (state_after FLAT karena EOD_MARK tutup posisi)
+    assert ex["trades"][0]["state_before"] == "LONG"
+    assert ex["trades"][0]["state_after"] == "FLAT"
+
+
+def test_state_machine_opposite_direction_exit_then_reverse():
+    """Sinyal berlawanan saat terbuka → exit_then_reverse: posisi lama tutup
+    pada bar sinyal (REVERSAL), posisi baru fill next-bar-open."""
+    m5 = flat_m5(60)
+    recs = signal_record("BUY", idx=40, lot=0.1) + signal_record("SELL", idx=45, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    assert len(ex["trades"]) == 2
+    t0, t1 = ex["trades"]
+    assert t0["exit_reason"] == "REVERSAL" and t0["direction"] == "BUY"
+    assert t1["direction"] == "SELL"
+    assert t1["entry_ts"] == t1["signal_ts"]  # fill di bar T+1 (open ts == T)
+    assert ex["state_transitions"]["reversals"] == 1
+    assert t0["state_before"] == "LONG" and t0["state_after"] == "FLAT"
+    assert t1["state_before"] == "SHORT" and t1["state_after"] == "FLAT"
+
+
+def test_state_machine_eod_mark_labeled():
+    """Posisi terbuka di akhir dataset → EOD_MARK dilabeli, state FLAT."""
+    m5 = flat_m5(60)
+    recs = signal_record("BUY", idx=55, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    assert len(ex["trades"]) == 1
+    assert ex["trades"][0]["exit_reason"] == "EOD_MARK"
+    assert ex["state_transitions"]["eod_marks"] == 1
+    assert ex["position_state"] == "FLAT"
+
+
+# ─── SELL TRIGGER SEMANTICS (E-1: exit SELL di ASK = level + spread) ────────
+
+def test_sell_sl_trigger_bid_equivalent_not_premature():
+    """SELL SL di ASK level → trigger saat BID >= level − spread (bukan level
+    + spread — itu premature). Bar high 4401.00, SL level 4401.00, spread
+    0.17 → trigger TEPAT di bar itu (4401.00 >= 4400.83), exit = ASK level."""
+    m5 = flat_m5(60)
+    m5[52]["high"] = 4401.00  # tepat menyentuh level SL
+    recs = signal_record("SELL", idx=50, sl=100.0, tp=100.0, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    t = ex["trades"][0]
+    assert t["exit_reason"] == "SL"
+    assert t["exit"] == pytest.approx(4401.00)   # exit di ASK level (BID + spread)
+    # loss harga = 100 poin (4400.00 BID-in → 4401.00 ASK-out)
+    assert t["gross_points"] == pytest.approx(-100.0)
+
+
+def test_sell_sl_not_triggered_below_bid_threshold():
+    """Bar high di bawah threshold BID (level − spread) → TIDAK trigger
+    (dulu buggy: trigger pada level + spread = premature)."""
+    m5 = flat_m5(60)
+    m5[52]["high"] = 4400.80  # < 4401.00 − 0.17 = 4400.83 → belum kena
+    recs = signal_record("SELL", idx=50, sl=100.0, tp=100.0, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    assert ex["trades"][0]["exit_reason"] == "EOD_MARK"
+
+
+def test_position_closed_chronologically_without_later_signal():
+    """Scan kronologis: SL hit di bar 52 (1 bar setelah entry) → tutup di bar
+    itu walau TIDAK ADA sinyal setelahnya (dulu buggy: posisi menggantung
+    sampai EOD_MARK)."""
+    m5 = flat_m5(60)
+    m5[52]["low"] = 4390.0  # SL hit 1 bar setelah entry
+    recs = signal_record("BUY", idx=50, sl=100.0, tp=100.0, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    t = ex["trades"][0]
+    assert t["exit_reason"] == "SL"
+    assert t["exit_ts"] == M5_START + 53 * 300  # close bar 52
+    assert ex["state_transitions"]["eod_marks"] == 0
+
+
+def test_state_machine_cooldown_still_enforced():
+    """Cooldown tetap berlaku per entry (incl. setelah FLAT) — bukan hanya
+    position gate."""
+    m5 = flat_m5(60)
+    recs = signal_record("BUY", idx=20, lot=0.1) + signal_record("BUY", idx=24, lot=0.1)
+    ex = run_execution_replay(recs, m5, PROFILE, spread_points=17.0,
+                              slippage_points=0.0, delay_bars=0)
+    # flat price → posisi pertama tidak pernah hit SL/TP; kedua = position_open
+    assert any(r["reason"] == "position_open" for r in ex["rejected_executions"])
+    # skenario cooldown murni: posisi tutup (SL di bar entry) lalu sinyal baru
+    # dekat — cooldown 5m == 1 bar, jadi T2-T1 = 300 tidak < 300 → perlu profil
+    # dengan cooldown lebih panjang dari 1 bar utk men-test rejection.
+    P2 = dict(PROFILE)
+    P2["risk"] = {**PROFILE["risk"], "cooldown_minutes": 10}
+    m5b = flat_m5(60)
+    m5b[21]["low"] = 4300.0  # SL hit pada bar entry sendiri
+    recs2 = signal_record("BUY", idx=20, lot=0.1) + signal_record("BUY", idx=21, lot=0.1)
+    ex2 = run_execution_replay(recs2, m5b, P2, spread_points=17.0,
+                               slippage_points=0.0, delay_bars=0)
+    assert len(ex2["trades"]) == 1
+    assert any(r["reason"] == "cooldown" for r in ex2["rejected_executions"])

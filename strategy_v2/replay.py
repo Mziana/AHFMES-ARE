@@ -19,6 +19,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import broker_meta as bm
 from . import gates, registry
 from .costs import compute_cost
 
@@ -214,95 +215,202 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
 def run_execution_replay(records: list[dict], m5: list, profile: dict,
                          spread_points: float | None = None,
                          slippage_points: float | None = None,
-                         delay_bars: int | None = None) -> dict:
+                         delay_bars: int | None = None,
+                         commission_usd_per_lot: float | None = None,
+                         broker_meta: dict | None = None) -> dict:
     """Decision → simulator next-bar-open + cost model → trades + PnL.
 
-    Kontrak eksekusi: sinyal @ close T → fill paling awal = OPEN bar dengan
-    open time == T (bar T+1 dari sisi sinyal). Eksekusi lebih awal = violation.
+    Kontrak eksekusi v2.4 (F1b, desain §10.1 E-1) — `candle_price_basis = BID`:
+    - BUY:  entry = open(BID) + spread + slippage_adverse  (fill di ASK)
+            exit (SL/TP/EOD) = level pada basis BID (tanpa spread di harga exit)
+    - SELL: entry = open(BID) − slippage_adverse           (dijual di BID)
+            exit (SL/TP/EOD) = level + spread (tutup di ASK)
+    Spread muncul TEPAT SATU KALI per arah per trade (dilarang double-count):
+    BUY  → spread entry dalam path harga; cost_usd = spread exit + commission
+    SELL → spread exit dalam path harga;  cost_usd = spread entry + commission
+    Round-trip flat (slippage=0, delay=0): net = -(entry+exit+comm)*pv*lot
+    PERSIS untuk BUY & SELL (invariant round-trip, test_round_trip_invariant).
+
+    ONE_POSITION_ONLY (desain §10.1 E-3): state FLAT|LONG|SHORT. Sinyal searah
+    saat terbuka → REJECTED:position_open; berlawanan → exit_then_reverse
+    (posisi lama tutup pada bar sinyal, posisi baru fill next-bar-open + delay).
+    Scan SL/TP KRONOLOGIS: posisi terbuka di-scan pada SETIAP record (cursor
+    per posisi), bukan hanya saat sinyal berikutnya — posisi yang hit SL/TP
+    di tengah dataset tutup pada bar hit-nya, dan sinyal setelahnya melihat
+    state FLAT yang benar. EOD_MARK (akhir dataset) tetap ada, dilabeli.
     Intrabar ambiguity (SL & TP kena bar yang sama) → SL dulu (konservatif).
     """
+    meta = broker_meta if broker_meta is not None else bm.load_broker_meta({})
+    pv = bm.point_value_usd_per_lot(meta)
+    point_price = meta["point"]
+    meta_hash = bm.broker_meta_hash(meta)
+
     cost = compute_cost(spread_points, spread_points,
+                        commission=commission_usd_per_lot,
                         slippage=slippage_points, delay=delay_bars)
     spread_pts = cost["entry_spread_points"]
     slip_pts = cost["slippage_points"]
     delay_bars = cost["delay_bars"]
-    price_mult = 0.01  # 1 poin XAUUSD = 0.01 harga
+    comm = cost["commission_usd_per_lot"]
+    spread_px = spread_pts * point_price
+    slip_px = slip_pts * point_price
 
     by_time = {int(b["time"]): b for b in m5}
     ordered = sorted(by_time.keys())
     trades = []
     rejected = []
     risk = profile["risk"]
+    cooldown_sec = risk["cooldown_minutes"] * 60
     last_entry_ts = None
+    state = "FLAT"
+    open_pos: dict | None = None
+    n_reversals = 0
+    n_eod = 0
+
+    def make_trade(pos: dict, exit_ts: int, exit_price: float,
+                   exit_reason: str, state_after: str) -> dict:
+        direction = pos["direction"]
+        if direction == "BUY":
+            pts = (exit_price - pos["entry"]) / point_price
+            cost_usd = (spread_pts * pv + comm) * pos["lot"]  # exit spread + comm
+            entry_side, exit_side = "ASK", "BID"
+        else:
+            pts = (pos["entry"] - exit_price) / point_price
+            cost_usd = (spread_pts * pv + comm) * pos["lot"]  # entry spread + comm
+            entry_side, exit_side = "BID", "ASK"
+        gross_usd = pts * pv * pos["lot"]
+        net_usd = gross_usd - cost_usd
+        return {
+            "entry_ts": pos["entry_ts"], "exit_ts": exit_ts,
+            "direction": direction, "signal_ts": pos["signal_ts"],
+            "delay_bars": delay_bars, "slippage_points": slip_pts,
+            "entry": pos["entry"], "exit": exit_price,
+            "exit_reason": exit_reason,
+            "sl_points": pos["sl_points"], "tp_points": pos["tp_points"],
+            "lot": pos["lot"], "gross_points": round(pts, 2),
+            "gross_usd": round(gross_usd, 4),
+            "cost_usd": round(cost_usd, 4),
+            "net_usd": round(net_usd, 4),
+            "cost_label": cost["label"],
+            "price_basis": "BID",
+            "entry_side": entry_side, "exit_side": exit_side,
+            "broker_meta_hash": meta_hash,
+            "state_before": pos["state_label"], "state_after": state_after,
+        }
+
+    def close_scan(pos: dict, up_to_ts: int) -> dict | None:
+        """Scan KRONOLOGIS dari cursor pos (scan_from) sampai up_to_ts
+        (inclusive) — SL/TP hit → trade closed (SL priority). None → posisi
+        masih terbuka; cursor maju ke bar setelah yang terakhir di-scan agar
+        scan berikutnya tidak mengulang bar lama."""
+        start = pos.get("scan_from", pos["entry_ts"])
+        last_t = None
+        for t in ordered:
+            if t < start:
+                continue
+            if t > up_to_ts:
+                break
+            last_t = t
+            b = by_time[t]
+            if pos["direction"] == "BUY":
+                hit_sl = b["low"] <= pos["sl_price"]
+                hit_tp = b["high"] >= pos["tp_price"]
+            else:
+                # SELL exit di ASK = level + spread → trigger saat ASK mencapai
+                # level; ASK = BID + spread → ekuivalen BID: level − spread.
+                hit_sl = b["high"] >= pos["sl_price"] - spread_px
+                hit_tp = b["low"] <= pos["tp_price"] - spread_px
+            if hit_sl:
+                return make_trade(pos, t + BAR_SECONDS, pos["sl_price"], "SL", "FLAT")
+            if hit_tp:
+                return make_trade(pos, t + BAR_SECONDS, pos["tp_price"], "TP", "FLAT")
+        if last_t is not None:
+            pos["scan_from"] = last_t + BAR_SECONDS
+        return None
+
+    def mark_to_market(pos: dict, ts: int, reason: str) -> dict:
+        """Close posisi pada bar ts (close price; SELL exit di ASK = close + spread)."""
+        b = by_time[ts]
+        exit_px = b["close"] + (spread_px if pos["direction"] == "SELL" else 0.0)
+        return make_trade(pos, ts + BAR_SECONDS, exit_px, reason, "FLAT")
 
     for rec in records:
         T = rec["evaluation_timestamp"]
+
+        # 0) KRONOLOGIS: posisi terbuka di-scan sampai bar T pada SETIAP record
+        #    (bukan hanya record sinyal) — SL/TP hit di tengah dataset menutup
+        #    posisi pada bar hit-nya; sinyal setelahnya melihat FLAT yang benar.
+        if open_pos is not None:
+            closed = close_scan(open_pos, T)
+            if closed is not None:
+                trades.append(closed)
+                open_pos = None
+                state = "FLAT"
+
         if rec["decision"] not in ("BUY", "SELL"):
             continue
-        # cooldown enforcement di sisi eksekusi (tanpa cap frekuensi harian —
-        # keputusan owner 2026-09-08: max_trades_per_day dihapus)
-        if last_entry_ts is not None and T - last_entry_ts < risk["cooldown_minutes"] * 60:
-            rejected.append({"ts": T, "reason": "cooldown", "decision": rec["decision"]})
+        direction = rec["decision"]
+
+        # 1) position gate (ONE_POSITION_ONLY)
+        if open_pos is not None:
+            if direction == open_pos["direction"]:
+                rejected.append({"ts": T, "reason": "position_open",
+                                 "decision": direction})
+                continue
+            # exit_then_reverse: posisi lama tutup pada bar sinyal (aturan exit
+            # normal — SL/TP sudah di-scan sampai bar itu; else mark-to-market)
+            trades.append(mark_to_market(open_pos, T, "REVERSAL"))
+            n_reversals += 1
+            open_pos = None
+            state = "FLAT"
+
+        # 3) cooldown (untuk setiap entry baru, incl. reversal) — tanpa cap
+        #    frekuensi harian (keputusan owner 2026-09-08)
+        if last_entry_ts is not None and T - last_entry_ts < cooldown_sec:
+            rejected.append({"ts": T, "reason": "cooldown", "decision": direction})
             continue
-        direction = rec["direction"] = rec["decision"]
-        # Delay (P0-03 opsi A): fill digeser delay_bars dari bar T+1.
-        # Bila bar hasil geser tidak ada (akhir dataset) → rejection eksplisit.
+
+        # 4) fill next-bar-open + delay (P0-03 opsi A). Bila bar hasil geser
+        #    tidak ada (akhir dataset) → rejection eksplisit.
         fill_T = T + delay_bars * BAR_SECONDS
         fill_bar = by_time.get(fill_T)
         if fill_bar is None:
-            rejected.append({"ts": T, "reason": "delay_no_bar", "decision": rec["decision"]})
+            rejected.append({"ts": T, "reason": "delay_no_bar", "decision": direction})
             continue
         entry_bar = fill_bar
-        # BUY fill di ask = open + spread + slippage adverse; SELL fill di bid =
-        # open − spread − slippage adverse (slippage selalu merugikan trader).
-        adverse = (spread_pts + slip_pts) * price_mult
-        entry = entry_bar["open"] + (adverse if direction == "BUY" else -adverse)
-        sl_d = rec["sl_points"] * price_mult
-        tp_d = rec["tp_points"] * price_mult
+        if direction == "BUY":
+            entry = entry_bar["open"] + spread_px + slip_px
+        else:
+            entry = entry_bar["open"] - slip_px
+        sl_d = rec["sl_points"] * point_price
+        tp_d = rec["tp_points"] * point_price
         if direction == "BUY":
             sl_price, tp_price = entry - sl_d, entry + tp_d
         else:
             sl_price, tp_price = entry + sl_d, entry - tp_d
 
-        # cari exit mulai bar ENTRY sendiri (fill di open, kelola sejak bar itu)
-        exit_ts, exit_price, exit_reason = None, None, None
-        idx = ordered.index(fill_T)
-        for t in ordered[idx:]:
-            b = by_time[t]
-            if direction == "BUY":
-                hit_sl = b["low"] <= sl_price
-                hit_tp = b["high"] >= tp_price
-            else:
-                hit_sl = b["high"] >= sl_price
-                hit_tp = b["low"] <= tp_price
-            if hit_sl:  # konservatif: SL dulu saat ambiguity
-                exit_ts, exit_price, exit_reason = t + BAR_SECONDS, sl_price, "SL"
-                break
-            if hit_tp:
-                exit_ts, exit_price, exit_reason = t + BAR_SECONDS, tp_price, "TP"
-                break
-        if exit_ts is None:
-            # akhir dataset → mark-to-market pada close bar terakhir (dilabeli)
-            b = m5[-1]
-            exit_ts, exit_price, exit_reason = b["time"] + BAR_SECONDS, b["close"], "EOD_MARK"
-
-        pts = (exit_price - entry) if direction == "BUY" else (entry - exit_price)
-        pts *= 100.0  # harga → poin
-        gross_usd = pts * rec["lot"] * 1.0
-        total_cost_usd = cost["total_usd_per_lot"] * rec["lot"]
-        net_usd = gross_usd - total_cost_usd
-        trades.append({
-            "entry_ts": fill_T, "exit_ts": exit_ts, "direction": direction,
-            "signal_ts": T, "delay_bars": delay_bars, "slippage_points": slip_pts,
-            "entry": entry, "exit": exit_price, "exit_reason": exit_reason,
+        open_pos = {
+            "direction": direction, "entry_ts": fill_T, "entry": entry,
+            "sl_price": sl_price, "tp_price": tp_price,
             "sl_points": rec["sl_points"], "tp_points": rec["tp_points"],
-            "lot": rec["lot"], "gross_points": round(pts, 2),
-            "gross_usd": round(gross_usd, 4),
-            "cost_usd": round(total_cost_usd, 4),
-            "net_usd": round(net_usd, 4),
-            "cost_label": cost["label"],
-        })
+            "lot": rec["lot"], "signal_ts": T,
+            "state_label": "LONG" if direction == "BUY" else "SHORT",
+            "scan_from": fill_T,
+        }
+        state = open_pos["state_label"]
         last_entry_ts = T
+
+    # Final sweep: scan sisa bar setelah record terakhir, lalu EOD_MARK bila
+    # masih terbuka (dilabeli).
+    if open_pos is not None:
+        closed = close_scan(open_pos, ordered[-1])
+        if closed is not None:
+            trades.append(closed)
+        else:
+            trades.append(mark_to_market(open_pos, ordered[-1], "EOD_MARK"))
+            n_eod += 1
+        open_pos = None
+        state = "FLAT"
 
     executed = len(trades)
     gross = sum(t["gross_usd"] for t in trades)
@@ -314,7 +422,13 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
                          "exit_spread_points": cost["exit_spread_points"],
                          "slippage_points": cost["slippage_points"],
                          "delay_bars": cost["delay_bars"],
-                         "commission_usd_per_lot": cost["commission_usd_per_lot"]},
+                         "commission_usd_per_lot": comm,
+                         "point_value_usd_per_lot": pv,
+                         "point_price": point_price,
+                         "broker_meta_hash": meta_hash},
+        "state_machine": "ONE_POSITION_ONLY",
+        "position_state": state,
+        "state_transitions": {"reversals": n_reversals, "eod_marks": n_eod},
         "executed_trades": executed,
         "rejected_executions": rejected,
         "trades": trades,
@@ -411,14 +525,26 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     reg_data = registry.load_hypothesis_registry()
     calendar = load_calendar(calendar_path)
     cal_hash = calendar_artifact_hash(calendar_path) if calendar else None
-    chash = registry.compute_config_hash(profile_cfg, reg_data, calendar_artifact_hash=cal_hash)
+    meta = bm.load_broker_meta({})
+    chash = registry.compute_config_hash(profile_cfg, reg_data,
+                                         calendar_artifact_hash=cal_hash,
+                                         broker_meta_hash=bm.broker_meta_hash(meta))
     _preflight_calendar_provenance(calendar, m5)
 
+    # F1b/E-2: unit spread bridge = PRICE_1E4 (spread "1700" = 0.17 harga =
+    # 17 poin 0.01). Unit dideklarasi EKSPLISIT di sini — satu-satunya tempat
+    # normalisasi; replay menerima poin yang SUDAH dinormalisasi.
+    # Fallback broker meta (bridge belum expose symbol_info) → label FALLBACK
+    # tercatat di broker_meta + hash masuk config_hash (Pagar 1).
     cfg = {"config_hash": chash, "dataset_hash": dhash, "balance": balance,
            "risk_percent": profile_cfg["risk"]["risk_percent"],
-           "spread_points": None}
+           "spread_points": bm.normalize_spread(1700.0, bm.PRICE_1E4)}
     records = run_decision_replay(m5, m15, profile_cfg, reg_data, calendar, cfg)
-    execution = run_execution_replay(records, m5, profile_cfg) if with_execution else None
+    execution = (run_execution_replay(records, m5, profile_cfg,
+                                      spread_points=cfg["spread_points"],
+                                      broker_meta=meta)
+                 if with_execution else None)
+
     funnel = build_funnel(records, execution)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -432,6 +558,7 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
         "strategy_version": registry.STRATEGY_VERSION,
         "config_hash": chash,
         "dataset_hash": dhash,
+        "broker_meta": {**meta, "hash": bm.broker_meta_hash(meta)},
         "qualification": qualification,
         "calendar_source": "ff_calendar_thisweek.json (real)" if calendar else "unavailable (B1 fail-closed)",
         "calendar_artifact_hash": cal_hash,

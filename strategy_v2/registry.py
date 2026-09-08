@@ -90,7 +90,8 @@ def dataset_hash(candles: list) -> str:
 
 def compute_config_hash(profile: dict, registry: dict,
                         dataset_sha: str | None = None,
-                        calendar_artifact_hash: str | None = None) -> str:
+                        calendar_artifact_hash: str | None = None,
+                        broker_meta_hash: str | None = None) -> str:
     """Pagar 1 — SHA-256 atas seluruh konten yang menentukan identitas.
 
     dataset_sha ikut dalam hash bila diberikan (dataset identity per replay
@@ -101,7 +102,10 @@ def compute_config_hash(profile: dict, registry: dict,
     P0-02/P1-02: news calendar identity ikut hash via calendar_artifact_hash
     (SHA-256 konten artifact kalender). Dua replay dengan kalender berbeda →
     config_hash berbeda → experiment identity berbeda (tidak ada collision).
-    """
+
+    F1b/E-2: broker metadata (contract_size, point, tick_value, unit spread
+    bridge) ikut hash via broker_meta_hash — broker spec berubah → identity
+    eksperimen baru (dilarang replay menyatakan kontrak sama)."""
     identity = {
         "strategy_version": STRATEGY_VERSION,
         "profile": profile,
@@ -114,6 +118,7 @@ def compute_config_hash(profile: dict, registry: dict,
         "session_calendar": profile.get("session_windows_utc"),
         "indicator_defs": INDICATOR_DEFS,
         "news_calendar_artifact": calendar_artifact_hash,
+        "broker_meta": broker_meta_hash,
     }
     if dataset_sha is not None:
         identity["dataset_sha"] = dataset_sha

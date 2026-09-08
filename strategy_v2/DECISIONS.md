@@ -69,3 +69,32 @@ Format: tanggal | keputusan | alasan.
 - 2026-09-08 | `archived` flag HANYA ditulis oleh save_calendar_artifact;
   load_calendar membacanya dari file (tidak lagi hard-coded True) | jalur
   live (snapshot provider) tetap kena age-check staleness.
+- 2026-09-08 (F1b) | Bentuk exit BID/ASK (desain §10.1 E-1, PILIH SATU):
+  BUY entry = open(BID) + spread + slippage (fill ASK), exit = level pada
+  basis BID (tanpa spread di path), cost_usd = exit_spread + commission.
+  SELL entry = open(BID) − slippage (dijual di BID, tanpa spread), exit =
+  level + spread (tutup ASK; trigger ekuivalen BID = level − spread),
+  cost_usd = entry_spread + commission | spread muncul TEPAT SATU KALI per
+  arah per trade; round-trip flat invariant = −(entry+exit+comm)×pv×lot
+  PERSIS untuk BUY & SELL (test_round_trip_invariant).
+- 2026-09-08 (F1b) | Reversal policy (desain §10.1 E-3): `exit_then_reverse`
+  — sinyal berlawanan saat posisi terbuka → posisi lama tutup pada bar sinyal
+  (REVERSAL, mark-to-market close), sinyal baru fill next-bar-open + delay.
+  Cooldown tetap berlaku untuk entry reversal (konsisten E-3 "Cooldown tetap
+  berlaku"). Policy SAMA untuk scalp & micro pada baseline ini | satu pilihan
+  konsisten, teruji di state machine tests.
+- 2026-09-08 (F1b) | Scan SL/TP KRONOLOGIS: posisi terbuka di-scan pada
+  SETIAP record (cursor per posisi), bukan hanya saat sinyal berikutnya —
+  posisi yang hit SL/TP di tengah dataset tutup pada bar hit-nya, dan
+  sinyal setelahnya melihat state FLAT yang benar | tanpa ini posisi dengan
+  hit di tengah dataset menggantung sampai EOD_MARK (PnL salah).
+- 2026-09-08 (F1b) | Broker meta: bridge /account TIDAK expose `symbol_info`
+  (verified) → `load_broker_meta({})` fallback konstanta XAUUSD dengan label
+  FALLBACK; `point_value_usd_per_lot` DIHITUNG = contract_size × point
+  (100 × 0.01 = $1/lot), bukan hardcode | Pagar 1: broker_meta_hash masuk
+  config_hash; bila bridge menambah symbol_info, identity eksperimen berubah.
+- 2026-09-08 (F1b) | Unit spread dideklarasi EKSPLISIT di satu-satunya
+  tempat (run_profile): bridge spread = PRICE_1E4 (1700 = 0.17 harga = 17
+  poin 0.01) → `normalize_spread(1700, PRICE_1E4)` = 17.0; replay menerima
+  poin yang SUDAH dinormalisasi | unit tak dikenal → fail-closed
+  (UnknownSpreadUnit); dilarang hardcode price_mult (E-2).
