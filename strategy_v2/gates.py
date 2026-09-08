@@ -461,7 +461,9 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
         bias = config.get("ablation_forced_bias")
     else:
         results["b3_regime"] = b3_regime(m15, config)
-        bias = results["b3_regime"].replace("PASS:", "") if results["b3_regime"].startswith("PASS:") else None
+        # bias = kode bersih (sufiks diagnostic seperti |slope=... dipisah di sini —
+        # exact-match bias di B4/B5 butuh "BUY_ONLY"/"SELL_ONLY" murni)
+        bias = results["b3_regime"][5:].split("|")[0] if results["b3_regime"].startswith("PASS:") else None
     config = dict(config)
     config["bias"] = bias
     if "b4_location" in _off or not (profile.get("layer_a") or {}).get("b4_enabled", True):
