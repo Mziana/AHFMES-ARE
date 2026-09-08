@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import sys
+from bisect import bisect_right
 from pathlib import Path
 
 from . import broker_meta as bm
@@ -148,12 +149,27 @@ def calendar_artifact_hash(path: str | Path | None) -> str | None:
 # ─── Evaluation loop (Decision Replay) ───────────────────────────────────────
 
 def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
-                        calendar: dict | None, config: dict) -> list[dict]:
+                        calendar: dict | None, config: dict,
+                        disable_gates: tuple = ()) -> list[dict]:
     """Satu record JSONL per M5 CLOSED bar T. Slice bars[0..T] dulu → gates.
 
     Deterministik: tidak ada now(); urutan & konten hanya fungsi input.
+
+    disable_gates: nama gate Layer B yang di-DISABLE untuk P4 ablation
+    ("b3_regime", "b4_location", "b5_trigger", "b6_volume") — gate dinonaktifkan
+    via profile VIRTUAL (bukan edit file kontrak), hasil tercatat eksplisit.
     """
     prof_a = profile["layer_a"]
+    if disable_gates:
+        profile = dict(profile)
+        if "b6_volume" in disable_gates:
+            profile["volume_gate"] = {**profile.get("volume_gate", {}), "enabled": False}
+        if "b3_regime" in disable_gates:
+            prof_a = {**prof_a, "b3_enabled": False}
+        if "b4_location" in disable_gates:
+            prof_a = {**prof_a, "b4_enabled": False}
+        if "b5_trigger" in disable_gates:
+            prof_a = {**prof_a, "b5_enabled": False}
     cfg = {
         "now_ts": 0,
         "rsi_bias_threshold": registry.hypothesis(registry_dict, "H-RSI-BIAS-01")["value"]["rsi_threshold"],
@@ -164,16 +180,26 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         "risk_state": {},   # diupdate oleh eksekusi (dipakai saat gabungan)
     }
     records: list[dict] = []
-    m15_times = [b["time"] for b in m15]
+    # P4: bisect index — slice bars[0..T] O(log n) + list-build terbatas, bukan
+    # komprehensi O(n) per bar atas seluruh dataset (identik secara semantik:
+    # tetap HANYA bar dengan close <= T yang masuk slice).
+    m5_close_ts = [int(b["time"]) + BAR_SECONDS for b in m5]
+    m15_close_ts = [int(b["time"]) + 900 for b in m15]
 
     for bar in m5:
         T = int(bar["time"]) + BAR_SECONDS          # evaluation time = bar CLOSE
-        m5_slice = [b for b in m5 if int(b["time"]) + BAR_SECONDS <= T]
-        m15_slice = [b for b in m15 if int(b["time"]) + 900 <= T]
+        k5 = bisect_right(m5_close_ts, T)
+        k15 = bisect_right(m15_close_ts, T)
+        m5_slice = m5[:k5]
+        m15_slice = m15[:k15]
         if int(m5_slice[-1]["time"]) + BAR_SECONDS != T:
             continue  # bar T belum closed pada T (tidak mungkin utk loop ini)
         c = dict(cfg)
         c["now_ts"] = T
+        if disable_gates:
+            c["disabled_gates"] = set(disable_gates)
+            if "b3_regime" in disable_gates:
+                c["ablation_forced_bias"] = "BUY_ONLY"
         diag = gates.evaluate_all({"m5": m5_slice, "m15": m15_slice}, profile, c, {})
         first_veto, decision = gates.decide(diag)
 
@@ -532,7 +558,8 @@ def _preflight_calendar_provenance(calendar: dict | None, m5: list) -> None:
 
 def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str | None,
                 out_dir: Path, balance: float = 1136.65, with_execution: bool = True,
-                bridge_account: dict | None = None) -> dict:
+                bridge_account: dict | None = None,
+                disable_gates: tuple = ()) -> dict:
     m5 = load_candles(m5_path)
     m15 = load_candles(m15_path)
     qualification = qualify_dataset(m5, m15)
@@ -557,7 +584,8 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     cfg = {"config_hash": chash, "dataset_hash": dhash, "balance": balance,
            "risk_percent": profile_cfg["risk"]["risk_percent"],
            "spread_points": bm.normalize_spread(1700.0, bm.PRICE_1E4)}
-    records = run_decision_replay(m5, m15, profile_cfg, reg_data, calendar, cfg)
+    records = run_decision_replay(m5, m15, profile_cfg, reg_data, calendar, cfg,
+                                  disable_gates=disable_gates)
     execution = (run_execution_replay(records, m5, profile_cfg,
                                       spread_points=cfg["spread_points"],
                                       broker_meta=meta,

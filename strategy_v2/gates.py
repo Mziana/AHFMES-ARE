@@ -423,20 +423,45 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     rsi_m5 = Z.rsi([b["close"] for b in m5]) if m5 else None
     spread_points = (config.get("ticks_meta") or {}).get("spread_points")
 
-    results["b1_news"] = b1_news(now_ts, config.get("calendar"), profile["news"])
+    if "b1_news" in (config.get("disabled_gates") or set()):
+        # P4 riset historis: kalender historis per-bar tidak tersedia → B1
+        # tidak bisa dievaluasi jujur → DISABLED terlabel (bukan PASS palsu).
+        results["b1_news"] = "DISABLED"
+    else:
+        results["b1_news"] = b1_news(now_ts, config.get("calendar"), profile["news"])
     results["b2_session"] = b2_session(now_ts, profile["session_windows_utc"])
-    results["b3_regime"] = b3_regime(m15, config)
-    bias = results["b3_regime"].replace("PASS:", "") if results["b3_regime"].startswith("PASS:") else None
+    # P4 ablation: gate di-off via profile.layer_a.*_enabled (virtual profile
+    # dari run_decision_replay) → DISABLED di diagnostic, TANPA side-effect
+    # ke bias gate berikutnya (decide() melewatkan DISABLED).
+    _off = config.get("disabled_gates") or set()
+    if "b3_regime" in _off or not (profile.get("layer_a") or {}).get("b3_enabled", True):
+        results["b3_regime"] = "DISABLED"
+        # Ablation b3-off: filter rezim dihapus — arah dipaksa (default long-only)
+        # supaya arm tetap fungsional dan nilai filter terukur vs baseline.
+        bias = config.get("ablation_forced_bias")
+    else:
+        results["b3_regime"] = b3_regime(m15, config)
+        bias = results["b3_regime"].replace("PASS:", "") if results["b3_regime"].startswith("PASS:") else None
     config = dict(config)
     config["bias"] = bias
-    results["b4_location"] = b4_location(profile, zones15, m5, config)
+    if "b4_location" in _off or not (profile.get("layer_a") or {}).get("b4_enabled", True):
+        results["b4_location"] = "DISABLED"
+    else:
+        results["b4_location"] = b4_location(profile, zones15, m5, config)
     if results["b4_location"].startswith("PASS:"):
         ref = results["b4_location"][5:].split("|")
         dist = None
         if len(ref) > 1 and ref[1].startswith("dist_atr="):
             dist = float(ref[1].split("=")[1])
         setup = {"kind": profile["location"]["kind"], "ref": ref[0], "distance_atr": dist}
-    results["b5_trigger"] = b5_trigger(m5, bias, config) if bias else "FAIL:none"
+    if "b5_trigger" in _off or not (profile.get("layer_a") or {}).get("b5_enabled", True):
+        results["b5_trigger"] = "DISABLED"
+        # Ablation b5-off: konfirmasi trigger dihapus — tiap bar yang lolos
+        # rezim+lokasi menjadi sinyal (trigger sintetis, dilabel eksplisit).
+        if bias:
+            trigger = {"pattern": "ablation_any", "bar_ts": int(m5[-1]["time"])}
+    else:
+        results["b5_trigger"] = b5_trigger(m5, bias, config) if bias else "FAIL:none"
     if results["b5_trigger"].startswith("PASS:"):
         trigger = {"pattern": results["b5_trigger"][5:], "bar_ts": int(m5[-1]["time"])}
     vol_enabled = profile["volume_gate"].get("enabled", False)
