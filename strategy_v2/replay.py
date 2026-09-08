@@ -174,6 +174,8 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         "now_ts": 0,
         "rsi_bias_threshold": registry.hypothesis(registry_dict, "H-RSI-BIAS-01")["value"]["rsi_threshold"],
         "min_bars_m15_warmup": registry.hypothesis(registry_dict, "H-Q1")["value"]["min_bars_m15_warmup"],
+        # H-REGIME-SLOPE-02 (revisi P6 iter-1): param B3 slope — None = mode classic
+        "b3_slope": registry.hypothesis(registry_dict, "H-REGIME-SLOPE-02")["value"],
         "layer_a": prof_a,
         "calendar": calendar or {"status": "down", "events": []},
         "ticks_meta": {"spread_points": config.get("spread_points")},  # None → cek spread dilewati

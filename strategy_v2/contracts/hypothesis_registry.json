@@ -5,43 +5,85 @@
   "hypotheses": {
     "H-SESSION-01": {
       "id": "H-SESSION-01",
-      "value": { "session_windows_utc": [[7, 17]] },
+      "value": {
+        "session_windows_utc": [
+          [
+            7,
+            17
+          ]
+        ]
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-RSI-BIAS-01": {
       "id": "H-RSI-BIAS-01",
-      "value": { "rsi_threshold": 50, "timeframe": "M15", "period": 14 },
+      "value": {
+        "rsi_threshold": 50,
+        "timeframe": "M15",
+        "period": 14
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-RSI-ENTRY-01": {
       "id": "H-RSI-ENTRY-01",
-      "value": { "pullback_zone_low": 40, "pullback_zone_high": 55, "timeframe": "M5" },
+      "value": {
+        "pullback_zone_low": 40,
+        "pullback_zone_high": 55,
+        "timeframe": "M5"
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-LOC-01": {
       "id": "H-LOC-01",
-      "value": { "sr_distance_atr": 0.5, "atr_timeframe": "M15" },
+      "value": {
+        "sr_distance_atr": 0.5,
+        "atr_timeframe": "M15"
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-LOC-02": {
       "id": "H-LOC-02",
-      "value": { "ema_pullback_distance_atr": 0.25, "atr_timeframe": "M5", "ema_periods": [9, 21] },
+      "value": {
+        "ema_pullback_distance_atr": 0.25,
+        "atr_timeframe": "M5",
+        "ema_periods": [
+          9,
+          21
+        ]
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-VOL-01": {
       "id": "H-VOL-01",
-      "value": { "ratio": 1.2, "baseline_bars": 5, "exclude_self": true, "metric": "tick-activity proxy" },
+      "value": {
+        "ratio": 1.2,
+        "baseline_bars": 5,
+        "exclude_self": true,
+        "metric": "tick-activity proxy"
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
     "H-ATR-01": {
       "id": "H-ATR-01",
-      "value": { "sl_tp_multiplier": { "scalp": [1.5, 1.5], "micro": [1.25, 1.5] }, "atr_timeframe": "M5" },
+      "value": {
+        "sl_tp_multiplier": {
+          "scalp": [
+            1.5,
+            1.5
+          ],
+          "micro": [
+            1.25,
+            1.5
+          ]
+        },
+        "atr_timeframe": "M5"
+      },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
     },
@@ -55,6 +97,29 @@
       },
       "status": "HYPOTHESIS",
       "source": "design_v2.3"
+    },
+    "H-REGIME-SLOPE-02": {
+      "id": "H-REGIME-SLOPE-02",
+      "value": {
+        "mode": "slope",
+        "ema_period": 20,
+        "lookback_bars": 8,
+        "min_abs_slope_points": 1.0,
+        "timeframe": "M15",
+        "rationale": "P6 iter-1 GAGAL_STATISTIK (CI95 lower -1.03, worst-fold -9.14): fold 5-6 downtrend membuktikan long-only paksa (b3-off) rentan rezim. Revisi B3 = trend-strength dua-arah via slope EMA20 M15; |slope| < threshold = NO_TRADE (saring chop)."
+      },
+      "status": "HYPOTHESIS",
+      "source": "P6_iter1_revision"
+    },
+    "H-SPREADCAP-03": {
+      "id": "H-SPREADCAP-03",
+      "value": {
+        "max_spread_points_live": 34,
+        "source_basis": "P5: edge mati di spread x2.0 (34 pts); x1.5 (25.5) bertahan",
+        "rationale": "Cap spread live saat eksekusi = 2x baseline (34 pts); di atas cap fail-closed tidak ada order."
+      },
+      "status": "HYPOTHESIS",
+      "source": "P6_iter1_revision"
     }
   }
 }

@@ -176,11 +176,31 @@ def b2_session(now_ts: int, session_windows: list) -> str:
 
 
 def b3_regime(m15_closed_bars: list, config: dict) -> str:
-    """BUY_ONLY / SELL_ONLY / NO_TRADE dari M15 CLOSED bars ≤ T."""
+    """BUY_ONLY / SELL_ONLY / NO_TRADE dari M15 CLOSED bars <= T.
+
+    Mode "slope" (H-REGIME-SLOPE-02, revisi P6 iter-1): arah dari slope EMA20
+    M15 (dua arah), |slope| < min_abs_slope_points = NO_TRADE (saring chop).
+    Mode "classic" (default): EMA stack + RSI (kontrak asli, tetap teruji).
+    """
     warmup = int(config.get("min_bars_m15_warmup", 50))
     if len(m15_closed_bars) < warmup:
         return "FAIL:NO_TRADE"
     closes = [b["close"] for b in m15_closed_bars]
+    slope_cfg = config.get("b3_slope")
+    if slope_cfg and slope_cfg.get("mode") == "slope":
+        n = int(slope_cfg.get("ema_period", 20))
+        lb = int(slope_cfg.get("lookback_bars", 8))
+        min_slope = float(slope_cfg.get("min_abs_slope_points", 1.0))
+        if len(closes) < n + lb:
+            return "FAIL:NO_TRADE"
+        ema = Z.ema(closes, n)
+        # poin: 1 poin = 0.01 harga (XAUUSD) — slope dibandingkan dalam poin
+        slope_pts = (ema[-1] - ema[-1 - lb]) / 0.01 / lb
+        if slope_pts >= min_slope:
+            return f"PASS:BUY_ONLY|slope={slope_pts:.3f}pt/bar"
+        if slope_pts <= -min_slope:
+            return f"PASS:SELL_ONLY|slope={slope_pts:.3f}pt/bar"
+        return f"FAIL:NO_TRADE|slope={slope_pts:.3f}pt/bar"
     e20 = Z.ema(closes, 20)[-1]
     e9 = Z.ema(closes, 9)[-1]
     e21 = Z.ema(closes, 21)[-1]
