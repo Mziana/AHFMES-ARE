@@ -237,3 +237,53 @@ def test_p0_04_valid_m15_does_not_change_result():
            "calendar": {"status": "empty", "events": [], "information_available_at": None}}
     d1 = gates.evaluate_all({"m5": m5, "m15": m15}, PROFILE_A, cfg, {})
     assert d1["layer_a"] == "DATA_VALID" and d1["layer_b_ran"] is True
+
+
+# ─── P1-03: decision log schema validation ───────────────────────────────────
+
+def test_p1_03_validator_rejects_violations():
+    from strategy_v2 import schema_check
+    schema = schema_check.load_schema()
+    base = {
+        "evaluation_timestamp": 1788739500, "data_available_until": 1788739500,
+        "strategy_version": "strategy_v2/0.1.0-p0", "profile_id": "MICRO_V2",
+        "hypothesis_registry_id": "registry-v2/1.0.0", "config_hash": "a" * 64,
+        "dataset_hash": "b" * 64, "layer_a": "DATA_VALID",
+        "all_gate_results": {"b1_news": "PASS", "b2_session": "PASS", "b3_regime": "PASS:BUY_ONLY",
+                             "b4_location": "PASS:x", "b5_trigger": "PASS:hammer",
+                             "b6_volume": "PASS", "b7_risk": "PASS"},
+        "first_veto_reason": None, "bias": "BUY_ONLY", "decision": "BUY",
+        "market_snapshot": {"spread": None, "atr": 120.0, "vol_ratio": 1.1,
+                            "rsi_m15": 55.0, "rsi_m5": 52.0},
+    }
+    assert schema_check.validate_record(base, schema) == []
+    # missing required
+    bad = {k: v for k, v in base.items() if k != "config_hash"}
+    errs = schema_check.validate_record(bad, schema)
+    assert any("config_hash" in e for e in errs)
+    # enum violation
+    bad2 = dict(base, decision="MAYBE")
+    assert any("enum" in e for e in schema_check.validate_record(bad2, schema))
+    # pattern violation (config_hash bukan sha256)
+    bad3 = dict(base, config_hash="nothex")
+    assert any("pattern" in e for e in schema_check.validate_record(bad3, schema))
+    # layer_a pattern: m15 reason valid, sampah ditolak
+    ok4 = dict(base, layer_a="DATA_INVALID:m15:nan")
+    assert schema_check.validate_record(ok4, schema) == []
+    bad4 = dict(base, layer_a="DATA_INVALID:!!!")
+    assert any("pattern" in e for e in schema_check.validate_record(bad4, schema))
+    # gate enum violation di all_gate_results
+    bad5 = dict(base, all_gate_results={**base["all_gate_results"], "b6_volume": "HUGE"})
+    assert any("b6_volume" in e for e in schema_check.validate_record(bad5, schema))
+
+
+def test_p1_03_real_replay_jsonl_validates_against_schema():
+    from strategy_v2 import schema_check
+    p_micro = Path("data/research/v2_replay/decision_micro.jsonl")
+    p_scalp = Path("data/research/v2_replay/decision_scalp.jsonl")
+    schema = schema_check.load_schema()
+    for path in (p_micro, p_scalp):
+        assert path.exists(), f"{path} tidak ada — jalankan replay dulu"
+        n, errs = schema_check.validate_jsonl(path, schema)
+        assert n > 0, f"{path} kosong"
+        assert not errs, f"{path}: {len(errs)} pelanggaran schema, contoh: {errs[:3]}"

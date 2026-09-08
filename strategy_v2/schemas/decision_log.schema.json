@@ -86,7 +86,7 @@
       "required": ["spread", "atr", "vol_ratio", "rsi_m15", "rsi_m5"],
       "properties": {
         "spread": { "type": ["number", "null"] },
-        "atr": { "type": "number" },
+        "atr": { "type": ["number", "null"], "description": "null bila ATR belum terhitung (warmup awal)." },
         "vol_ratio": { "type": ["number", "null"] },
         "rsi_m15": { "type": ["number", "null"] },
         "rsi_m5": { "type": ["number", "null"] }
