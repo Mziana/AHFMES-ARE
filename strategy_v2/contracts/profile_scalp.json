@@ -1,5 +1,20 @@
 {
   "profile_id": "SCALP_V2",
+  "scoring": {
+    "mode": "off",
+    "_rationale": "Placeholder Fase 2 (tidak dieksekusi sebelum MICRO lulus C1-C3): scalping paling sensitif biaya -> cost_quality tetap ada (5); konteks zona M15 tetap relevan untuk trail -> structure 5; bobot final dikalibrasi di Fase 2",
+    "weights": {
+      "trend_alignment": 25,
+      "location_quality": 20,
+      "structure": 5,
+      "volume_confirmation": 10,
+      "cost_quality": 5,
+      "trigger_quality": 20,
+      "momentum_quality": 10,
+      "volatility_quality": 5
+    },
+    "thresholds": { "candidate": null, "strong": null, "premium": null }
+  },
   "description": "SCALP = high-confidence, low-frequency",
   "session_windows_utc": [[0, 24]],
   "timeframe_trigger": "M5",

@@ -261,7 +261,7 @@ def test_p1_03_validator_rejects_violations():
         "dataset_hash": "b" * 64, "layer_a": "DATA_VALID",
         "all_gate_results": {"b1_news": "PASS", "b2_session": "PASS", "b3_regime": "PASS:BUY_ONLY",
                              "b4_location": "PASS:x", "b5_trigger": "PASS:hammer",
-                             "b6_volume": "PASS", "b7_risk": "PASS"},
+                             "b6_volume": "PASS", "b7_risk": "PASS", "b8_quality": "DISABLED"},
         "first_veto_reason": None, "bias": "BUY_ONLY", "decision": "BUY",
         "market_snapshot": {"spread": None, "atr": 120.0, "vol_ratio": 1.1,
                             "rsi_m15": 55.0, "rsi_m5": 52.0},
@@ -287,16 +287,45 @@ def test_p1_03_validator_rejects_violations():
     assert any("b6_volume" in e for e in schema_check.validate_record(bad5, schema))
 
 
-def test_p1_03_real_replay_jsonl_validates_against_schema():
+def test_p1_03_real_replay_jsonl_validates_against_schema(tmp_path):
+    """P1-03: replay sungguhan harus lolos schema decision_log CURRENT.
+
+    Dirusak ulang di C0 (b8_quality masuk required): artefak legacy era-F2 di
+    data/research/ ber-provenance dan TIDAK boleh ditimpa/diregenerasi hanya
+    demi schema baru — kontraknya adalah replay fresh terhadap schema current.
+    """
     from strategy_v2 import schema_check
-    p_micro = Path("data/research/v2_replay/decision_micro.jsonl")
-    p_scalp = Path("data/research/v2_replay/decision_scalp.jsonl")
+
+    def _m5(n, start=1788739200):
+        return [{"time": start + i * 300, "open": 4400.0 + 0.02 * i,
+                 "high": 4400.0 + 0.02 * i + 1.2, "low": 4400.0 + 0.02 * i - 1.2,
+                 "close": 4400.0 + 0.02 * i + 0.4, "volume": 100 + (i % 5)}
+                for i in range(n)]
+
+    def _m15(n, start=1788739200):
+        out = []
+        for i in range(n):
+            c = 4400.0 + 0.08 * i
+            out.append({"time": start + i * 900, "open": c, "high": c + 0.5,
+                        "low": c - 0.5, "close": c, "volume": 400 + (i % 3)})
+        return out
+
+    m5, m15 = _m5(220), _m15(220)
+    profile = registry.load_profile("MICRO")
+    reg = registry.load_hypothesis_registry()
+    cfg = {"config_hash": "a" * 64, "dataset_hash": "b" * 64,
+           "balance": 1000.0, "spread_points": None}
+    records = run_decision_replay(m5, m15, profile, reg,
+                                  {"status": "empty", "events": [],
+                                   "information_available_at": 0}, cfg)
+    assert len(records) > 0
+    out = tmp_path / "decision_fresh.jsonl"
+    out.write_text("\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
+                   encoding="utf-8")
     schema = schema_check.load_schema()
-    for path in (p_micro, p_scalp):
-        assert path.exists(), f"{path} tidak ada — jalankan replay dulu"
-        n, errs = schema_check.validate_jsonl(path, schema)
-        assert n > 0, f"{path} kosong"
-        assert not errs, f"{path}: {len(errs)} pelanggaran schema, contoh: {errs[:3]}"
+    n, errs = schema_check.validate_jsonl(out, schema)
+    assert n == len(records), "jumlah record valid < total"
+    assert not errs, f"{len(errs)} pelanggaran schema, contoh: {errs[:3]}"
 
 
 # ─── P0-01b: look-ahead guard + archived artifact ────────────────────────────

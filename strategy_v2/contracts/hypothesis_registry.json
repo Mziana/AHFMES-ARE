@@ -120,6 +120,28 @@
       },
       "status": "HYPOTHESIS",
       "source": "P6_iter1_revision"
+    },
+    "H-SCORE-01": {
+      "id": "H-SCORE-01",
+      "value": {
+        "s_max_pt_per_bar": 5.0,
+        "cost_R_bad": 0.25,
+        "atr_band_pts": [
+          200,
+          500
+        ],
+        "rsi_zone_band": [
+          45,
+          55
+        ],
+        "adj_sl_lt_1_5_spread": -10,
+        "adj_range_gt_2_atr": -5,
+        "adj_sl_near_zone": -5,
+        "volume_baseline_invalid_score": 0.0,
+        "threshold": null
+      },
+      "status": "HYPOTHESIS",
+      "source": "cognitive_layer_v2.1_C0"
     }
   }
 }

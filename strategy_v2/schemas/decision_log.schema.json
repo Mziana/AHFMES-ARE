@@ -31,11 +31,28 @@
       "minimum": 0,
       "description": "T eksplisit (epoch bar close M5). Semua input punya ts <= T."
     },
-    "strategy_version": { "type": "string", "minLength": 1 },
-    "profile_id": { "enum": ["SCALP_V2", "MICRO_V2"] },
-    "hypothesis_registry_id": { "type": "string", "minLength": 1 },
-    "config_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "dataset_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "strategy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_id": {
+      "enum": [
+        "SCALP_V2",
+        "MICRO_V2"
+      ]
+    },
+    "hypothesis_registry_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dataset_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "layer_a": {
       "description": "DATA_VALID atau DATA_INVALID:<reason> (Layer A terpisah dari statistik strategi).",
       "type": "string",
@@ -43,53 +60,218 @@
     },
     "all_gate_results": {
       "type": "object",
-      "description": "FULL DIAGNOSTIC — semua gate dinilai meski satu sudah veto.",
-      "required": ["b1_news", "b2_session", "b3_regime", "b4_location", "b5_trigger", "b6_volume", "b7_risk"],
+      "description": "FULL DIAGNOSTIC \u2014 semua gate dinilai meski satu sudah veto.",
+      "required": [
+        "b1_news",
+        "b2_session",
+        "b3_regime",
+        "b4_location",
+        "b5_trigger",
+        "b6_volume",
+        "b7_risk",
+        "b8_quality"
+      ],
       "additionalProperties": false,
       "properties": {
-        "b1_news": { "enum": ["PASS", "NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE", "NEWS_CALENDAR_UNAVAILABLE", "DISABLED"] },
-        "b2_session": { "enum": ["PASS", "FAIL:outside", "DISABLED"] },
-        "b3_regime": { "enum": ["PASS:BUY_ONLY", "PASS:SELL_ONLY", "FAIL:NO_TRADE", "DISABLED"] },
-        "b4_location": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:far|DISABLED)$" },
-        "b5_trigger": { "type": "string", "pattern": "^(PASS:[^\\s]+|FAIL:none|FAIL:forming_bar|DISABLED)$" },
-        "b6_volume": { "enum": ["PASS", "FAIL:ratio", "FAIL:baseline_invalid", "DISABLED"] },
-        "b7_risk": { "enum": ["PASS", "FAIL:cooldown", "FAIL:stop_bounds", "DISABLED"] }
+        "b1_news": {
+          "enum": [
+            "PASS",
+            "NEWS_EVENT_ACTIVE",
+            "NEWS_PROVIDER_DOWN",
+            "NEWS_DATA_STALE",
+            "NEWS_CALENDAR_UNAVAILABLE",
+            "DISABLED"
+          ]
+        },
+        "b2_session": {
+          "enum": [
+            "PASS",
+            "FAIL:outside",
+            "DISABLED"
+          ]
+        },
+        "b3_regime": {
+          "type": "string",
+          "pattern": "^(PASS:(BUY_ONLY|SELL_ONLY)(\\|slope=-?[0-9]+(\\.[0-9]+)?pt/bar)?|FAIL:NO_TRADE(\\|slope=-?[0-9]+(\\.[0-9]+)?pt/bar)?|DISABLED)$",
+          "description": "B3 regime; sufiks diagnostic |slope=...pt/bar opsional (mode slope H-REGIME-SLOPE-02). decide() memisahkan sufiks dari bias (diagnostic != operational)."
+        },
+        "b4_location": {
+          "type": "string",
+          "pattern": "^(PASS:[^\\s]+|FAIL:far|DISABLED)$"
+        },
+        "b5_trigger": {
+          "type": "string",
+          "pattern": "^(PASS:[^\\s]+|FAIL:none|FAIL:forming_bar|DISABLED)$"
+        },
+        "b6_volume": {
+          "enum": [
+            "PASS",
+            "FAIL:ratio",
+            "FAIL:baseline_invalid",
+            "DISABLED"
+          ]
+        },
+        "b7_risk": {
+          "enum": [
+            "PASS",
+            "FAIL:cooldown",
+            "FAIL:stop_bounds",
+            "DISABLED"
+          ]
+        },
+        "b8_quality": {
+          "enum": [
+            "PASS",
+            "FAIL:score_low",
+            "FAIL:score_error",
+            "DISABLED"
+          ],
+          "description": "BQ quality gate (Cognitive Layer v2.1, H-SCORE-01). DISABLED saat scoring.mode=off atau bukan kandidat."
+        }
       }
     },
     "first_veto_reason": {
-      "type": "string",
-      "description": "OPERATIONAL DECISION — veto pertama (mis. 'B1:NEWS_EVENT_ACTIVE') atau null bila semua PASS.",
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "OPERATIONAL DECISION \u2014 veto pertama (mis. 'B1:NEWS_EVENT_ACTIVE') atau null bila semua PASS."
     },
-    "bias": { "enum": ["BUY_ONLY", "SELL_ONLY", "NO_TRADE", null] },
+    "bias": {
+      "enum": [
+        "BUY_ONLY",
+        "SELL_ONLY",
+        "NO_TRADE",
+        null
+      ]
+    },
     "setup": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
-        "kind": { "enum": ["sr_zone", "ema_pullback"] },
-        "ref": { "type": "string" },
-        "distance_atr": { "type": "number" }
+        "kind": {
+          "enum": [
+            "sr_zone",
+            "ema_pullback"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "distance_atr": {
+          "type": "number"
+        }
       }
     },
     "trigger": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "properties": {
-        "pattern": { "type": "string" },
-        "bar_ts": { "type": "integer" }
+        "pattern": {
+          "type": "string"
+        },
+        "bar_ts": {
+          "type": "integer"
+        }
       }
     },
-    "decision": { "enum": ["BUY", "SELL", "WAIT"] },
-    "sl_points": { "type": "number", "minimum": 0 },
-    "tp_points": { "type": "number", "minimum": 0 },
-    "lot": { "type": "number", "minimum": 0 },
+    "decision": {
+      "enum": [
+        "BUY",
+        "SELL",
+        "WAIT"
+      ]
+    },
+    "sl_points": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tp_points": {
+      "type": "number",
+      "minimum": 0
+    },
+    "lot": {
+      "type": "number",
+      "minimum": 0
+    },
     "market_snapshot": {
       "type": "object",
-      "required": ["spread", "atr", "vol_ratio", "rsi_m15", "rsi_m5"],
+      "required": [
+        "spread",
+        "atr",
+        "vol_ratio",
+        "rsi_m15",
+        "rsi_m5"
+      ],
       "properties": {
-        "spread": { "type": ["number", "null"] },
-        "atr": { "type": ["number", "null"], "description": "null bila ATR belum terhitung (warmup awal)." },
-        "vol_ratio": { "type": ["number", "null"] },
-        "rsi_m15": { "type": ["number", "null"] },
-        "rsi_m5": { "type": ["number", "null"] }
+        "spread": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "atr": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "null bila ATR belum terhitung (warmup awal)."
+        },
+        "vol_ratio": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rsi_m15": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rsi_m5": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "quality_score": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "C0 scorer output (kandidat lolos B3+B5+B7 saja; null selain itu).",
+      "properties": {
+        "score": {
+          "type": "number"
+        },
+        "final_score": {
+          "type": "number"
+        },
+        "breakdown": {
+          "type": "object"
+        },
+        "adjustments": {
+          "type": "array"
+        },
+        "adjustments_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tier": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "object"
+        }
       }
     }
   }

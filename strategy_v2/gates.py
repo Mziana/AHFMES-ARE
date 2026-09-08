@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 
+from . import scoring as SC
 from . import zones as Z
 from .registry import TRIGGER_TIMEFRAME, REGIME_TIMEFRAME
 
@@ -28,6 +29,7 @@ VETO_ORDER = [
     ("b5_trigger", "B5"),
     ("b6_volume", "B6"),
     ("b7_risk", "B7"),
+    ("b8_quality", "BQ"),
 ]
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -504,6 +506,40 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     state["now_ts"] = now_ts
     results["b7_risk"] = b7_risk(state, profile, sl_calc or {"skip": False})
 
+    # B8 "BQ" — quality score (Cognitive Layer v2.1, H-SCORE-01). Kandidat =
+    # lolos B3 (bias) + B5 (trigger PASS) + B7 (PASS). BQ SETELAH B7 dan hanya
+    # membaca nilai pre-B7 (sl_calc/spread/ATR) — tanpa siklus; B7 tidak baca skor.
+    quality = None
+    scoring_cfg = profile.get("scoring") or {}
+    if scoring_cfg.get("mode", "off") == "off" or "b8_quality" in _off:
+        results["b8_quality"] = "DISABLED"
+    elif bias is None or results["b7_risk"] != "PASS" \
+            or not (isinstance(trigger, dict) and trigger.get("pattern")):
+        results["b8_quality"] = "DISABLED"   # bukan kandidat (veto B3/B5/B7 sudah cukup)
+    else:
+        slope_pts = None
+        if "|slope=" in results["b3_regime"]:
+            try:
+                slope_pts = float(results["b3_regime"].split("|slope=")[1].split("pt")[0])
+            except (ValueError, IndexError):
+                slope_pts = None
+        h_score = {**(config.get("h_score") or {})}
+        thr = (scoring_cfg.get("thresholds") or {}).get("candidate")
+        h_score["threshold"] = thr
+        q = SC.evaluate_quality(m5, zones15, bias, slope_pts, spread_points,
+                                sl_calc, str(trigger["pattern"]),
+                                scoring_cfg.get("weights") or {}, h_score)
+        if q is None:
+            results["b8_quality"] = "FAIL:score_error"   # fail-closed (L1)
+        else:
+            quality = q
+            if thr is None:
+                results["b8_quality"] = "PASS"           # C0/C1: skor dicatat, belum memveto
+            elif q["final_score"] >= float(thr):
+                results["b8_quality"] = "PASS"
+            else:
+                results["b8_quality"] = "FAIL:score_low"
+
     snap.setdefault("spread", spread_points)
     snap.setdefault("atr", atr5 * 100.0 if atr5 else None)
     snap.setdefault("vol_ratio", vol_ratio)
@@ -519,6 +555,7 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
         "setup": setup,
         "trigger": trigger,
         "sl_calc": sl_calc,
+        "quality_score": quality,
         "market_snapshot": snap,
     }
 

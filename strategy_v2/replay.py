@@ -176,6 +176,8 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         "min_bars_m15_warmup": registry.hypothesis(registry_dict, "H-Q1")["value"]["min_bars_m15_warmup"],
         # H-REGIME-SLOPE-02 (revisi P6 iter-1): param B3 slope — None = mode classic
         "b3_slope": registry.hypothesis(registry_dict, "H-REGIME-SLOPE-02")["value"],
+        # H-SCORE-01 (Cognitive Layer v2.1): param scorer BQ
+        "h_score": registry.hypothesis(registry_dict, "H-SCORE-01")["value"],
         "layer_a": prof_a,
         "calendar": calendar or {"status": "down", "events": []},
         "ticks_meta": {"spread_points": config.get("spread_points")},  # None → cek spread dilewati
@@ -229,6 +231,7 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
             "bias": diag["bias"],
             "setup": diag.get("setup"),
             "trigger": diag.get("trigger"),
+            "quality_score": diag.get("quality_score"),
             "decision": decision,
             "sl_points": sl_points,
             "tp_points": tp_points,

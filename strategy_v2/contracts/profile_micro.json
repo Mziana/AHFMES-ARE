@@ -1,5 +1,19 @@
 {
   "profile_id": "MICRO_V2",
+  "scoring": {
+    "mode": "off",
+    "weights": {
+      "trend_alignment": 20,
+      "location_quality": 15,
+      "structure": 15,
+      "volume_confirmation": 15,
+      "cost_quality": 10,
+      "trigger_quality": 10,
+      "momentum_quality": 10,
+      "volatility_quality": 5
+    },
+    "thresholds": { "candidate": null, "strong": null, "premium": null }
+  },
   "description": "MICRO = higher-frequency, guarded",
   "session_windows_utc": [[0, 24]],
   "timeframe_trigger": "M5",
