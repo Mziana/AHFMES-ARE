@@ -14,6 +14,7 @@ I/O hanya di level CLI (load dataset, tulis JSONL) — gate engine tetap pure.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -68,11 +69,12 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
     """Load kalender ekonomi nyata (ForexFactory JSON). Tidak ada file → None
     (B1 → NEWS_PROVIDER_DOWN, fail-closed).
 
-    Temporal provenance (P0-01): `ts` = event_timestamp (waktu rilis data
-    ekonomi), terpisah dari `information_available_at` = waktu snapshot
-    kalender ini diambil (epoch UTC saat fetch). Staleness B1 diukur dari
-    `information_available_at`, BUKAN heuristic max(event.ts): replay
-    historis tidak boleh menganggap snapshot now tersedia di masa lalu.
+    Temporal provenance (P0-01): setiap event membawa DUA timestamp terpisah —
+    `ts` = event_timestamp (waktu rilis data ekonomi) dan
+    `information_available_at` = waktu snapshot kalender ini diambil (epoch UTC
+    saat fetch). Staleness B1 diukur dari `information_available_at`, BUKAN
+    heuristic max(event.ts): replay historis tidak boleh menganggap snapshot
+    now sebagai pengetahuan yang tersedia di masa lalu.
     """
     if path is None or not Path(path).exists():
         return None
@@ -88,8 +90,9 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
         events.append({"ts": ts, "currency": e.get("country", e.get("currency", "")),
                        "impact": str(e.get("impact", "low")).lower(), "title": e.get("title", "")})
     # information_available_at: HANYA dari field eksplisit artifact. Bila artifact
-    # tidak mencatatnya → None → b1_news fail-closed NEWS_DATA_STALE (jujur,
-    # bukan heuristic karangan).
+    # tidak mencatatnya → None → b1_news fail-closed NEWS_DATA_STALE (jujur, bukan
+    # heuristic karangan). Snapshot yang ditulis via save_calendar_artifact selalu
+    # mencatatnya.
     info_at = raw.get("information_available_at") if isinstance(raw, dict) else None
     if info_at is not None:
         try:
@@ -98,6 +101,33 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
             info_at = None
     return {"status": "ok" if events else "empty",
             "information_available_at": info_at, "events": events}
+
+
+def save_calendar_artifact(raw: dict | list, src_path: str | Path,
+                           out_dir: str | Path, fetched_at: int) -> Path:
+    """P1-01 — snapshot kalender ke artifact deterministik + provenance.
+
+    Menulis data/research/calendar/calendar_<sha8>.json berisi events +
+    information_available_at (= fetched_at epoch UTC). Return path artifact;
+    hash artifact (SHA-256 konten) dipakai compute_config_hash (P0-02/P1-02).
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    artifact = {"information_available_at": int(fetched_at),
+                "source": str(src_path),
+                "events": (raw if isinstance(raw, list) else raw.get("events", []))}
+    blob = json.dumps(artifact, sort_keys=True, ensure_ascii=True)
+    h = hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    path = out / f"calendar_{h[:8]}.json"
+    path.write_text(blob, encoding="utf-8")
+    return path
+
+
+def calendar_artifact_hash(path: str | Path | None) -> str | None:
+    """SHA-256 konten artifact kalender (untuk config_hash). None bila tak ada."""
+    if path is None or not Path(path).exists():
+        return None
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 # ─── Evaluation loop (Decision Replay) ───────────────────────────────────────
@@ -333,8 +363,9 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     dhash = registry.dataset_hash({"m5": m5, "m15": m15})
     profile_cfg = registry.load_profile(profile_id)
     reg_data = registry.load_hypothesis_registry()
-    chash = registry.compute_config_hash(profile_cfg, reg_data)
     calendar = load_calendar(calendar_path)
+    cal_hash = registry.calendar_artifact_hash(calendar_path) if calendar else None
+    chash = registry.compute_config_hash(profile_cfg, reg_data, calendar_artifact_hash=cal_hash)
 
     cfg = {"config_hash": chash, "dataset_hash": dhash, "balance": balance,
            "risk_percent": profile_cfg["risk"]["risk_percent"],
@@ -356,6 +387,8 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
         "dataset_hash": dhash,
         "qualification": qualification,
         "calendar_source": "ff_calendar_thisweek.json (real)" if calendar else "unavailable (B1 fail-closed)",
+        "calendar_artifact_hash": cal_hash,
+        "information_available_at": (calendar or {}).get("information_available_at"),
         "funnel": funnel,
         "execution": {k: v for k, v in (execution or {}).items() if k != "trades"},
     }

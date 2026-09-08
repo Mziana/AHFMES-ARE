@@ -89,13 +89,18 @@ def dataset_hash(candles: list) -> str:
 
 
 def compute_config_hash(profile: dict, registry: dict,
-                        dataset_sha: str | None = None) -> str:
+                        dataset_sha: str | None = None,
+                        calendar_artifact_hash: str | None = None) -> str:
     """Pagar 1 — SHA-256 atas seluruh konten yang menentukan identitas.
 
     dataset_sha ikut dalam hash bila diberikan (dataset identity per replay
     run disimpan terpisah sebagai `dataset_hash` di record; config_hash
     menjawab 'aturan main', jadi dataset tidak wajib ikut — tapi bila
     dimasukkan via dataset_sha, identity makin ketat).
+
+    P0-02/P1-02: news calendar identity ikut hash via calendar_artifact_hash
+    (SHA-256 konten artifact kalender). Dua replay dengan kalender berbeda →
+    config_hash berbeda → experiment identity berbeda (tidak ada collision).
     """
     identity = {
         "strategy_version": STRATEGY_VERSION,
@@ -108,6 +113,7 @@ def compute_config_hash(profile: dict, registry: dict,
         "timezone": TIMEZONE,
         "session_calendar": profile.get("session_windows_utc"),
         "indicator_defs": INDICATOR_DEFS,
+        "news_calendar_artifact": calendar_artifact_hash,
     }
     if dataset_sha is not None:
         identity["dataset_sha"] = dataset_sha

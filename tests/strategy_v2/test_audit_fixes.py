@@ -73,3 +73,44 @@ def test_p0_01_load_calendar_reads_explicit_provenance():
         assert cal2["information_available_at"] is None
     finally:
         tmp2.unlink(missing_ok=True)
+
+
+# ─── P0-02 / P1-02: calendar artifact hash in config_hash ────────────────────
+
+def test_p0_02_config_hash_changes_with_calendar_artifact():
+    profile = registry.load_profile("MICRO")
+    reg = registry.load_hypothesis_registry()
+    h_none = registry.compute_config_hash(profile, reg)
+    h_a = registry.compute_config_hash(profile, reg, calendar_artifact_hash="a" * 64)
+    h_b = registry.compute_config_hash(profile, reg, calendar_artifact_hash="b" * 64)
+    assert h_none != h_a != h_b and h_a != h_none
+    # deterministik
+    assert registry.compute_config_hash(profile, reg, calendar_artifact_hash="a" * 64) == h_a
+
+
+def test_p0_02_calendar_artifact_hash_and_snapshot(tmp_path=None):
+    from strategy_v2.replay import save_calendar_artifact, calendar_artifact_hash
+    tmp = Path(__file__).parent / "_tmp_art_cal.json"
+    tmp.write_text(json.dumps({"information_available_at": 1788700000,
+                               "events": [{"date": "2026-09-07T08:30:00-04:00",
+                                           "country": "USD", "impact": "High",
+                                           "title": "CPI"}]}), encoding="utf-8")
+    outdir = Path(__file__).parent / "_tmp_cal_art"
+    try:
+        raw = json.loads(tmp.read_text(encoding="utf-8"))
+        art = save_calendar_artifact(raw, tmp, outdir, fetched_at=1788700000)
+        # artifact tersimpan dengan provenance + nama deterministik dari hash konten
+        assert art.exists() and art.name.startswith("calendar_")
+        saved = json.loads(art.read_text(encoding="utf-8"))
+        assert saved["information_available_at"] == 1788700000
+        # hash konten artifact stabil & masuk config_hash via helper
+        h1 = calendar_artifact_hash(art)
+        h2 = calendar_artifact_hash(art)
+        assert h1 == h2 and len(h1) == 64
+        # file tidak ada → None (B1 fail-closed tetap jalan)
+        assert calendar_artifact_hash(None) is None
+        assert calendar_artifact_hash(art.parent / "nope.json") is None
+    finally:
+        tmp.unlink(missing_ok=True)
+        import shutil as _sh
+        _sh.rmtree(outdir, ignore_errors=True)
