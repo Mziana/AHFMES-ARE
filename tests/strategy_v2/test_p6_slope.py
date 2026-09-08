@@ -4,6 +4,7 @@ Regresi yang dijaga: sufiks diagnostic |slope=... TIDAK BOLEH bocor ke bias —
 exact-match bias di B4/B5 butuh "BUY_ONLY"/"SELL_ONLY" murni. Ditemukan saat
 P4 iterasi 3 (kedua arm slope 0 sinyal karena bias terkontaminasi sufiks).
 """
+import math
 import sys
 from pathlib import Path
 
@@ -42,10 +43,13 @@ def test_slope_sell_direction_and_clean_bias():
 
 
 def test_slope_chop_filtered_to_no_trade():
-    chop = _m15([100 + (0.02 * i if (i // 10) % 2 == 0 else -0.02 * i)
-                 for i in range(120)])
+    # osilasi stasioner sejati (sine amp 0.1) — pasca-EMA20 slope efektif ~0.65
+    # pt/bar < ambang 1.0 (amp 0.5 menghasilkan ~3.2 pt/bar: GAGAL chop, jangan dipakai)
+    chop = _m15([100 + 0.1 * math.sin(2 * math.pi * i / 20) for i in range(120)])
     raw = b3_regime(chop, CFG)
     assert raw.startswith("FAIL:NO_TRADE|slope="), raw
+    slope = float(raw.split("slope=")[1].split("pt")[0])
+    assert abs(slope) < 1.0, slope
     assert _clean_bias(raw) is None
 
 
