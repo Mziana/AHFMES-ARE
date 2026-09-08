@@ -295,3 +295,85 @@ sample size + max drawdown + loss streak + OOS robustness (koreksi review #9).
 - Mandat berikutnya: **"GATE ENGINE & DETERMINISTIC REPLAY (Strategy v2 P0–P2)"** — scope persis
   P0–P2 di atas, tanpa menyentuh live engine, tanpa WFO.
 - Keputusan live (start bot) tetap milik user.
+
+
+---
+
+## 10. v2.4 — EXECUTION TRUTH REPAIR (hasil triase red team + audit lead architect)
+
+Status masukan red team: **sebagian diterima, sebagian ditolak setelah verifikasi kode.**
+
+### 10.1 TEMUAN TERVERIFIKASI (dengan bukti eksekusi)
+
+**E-1 [P0] Semantik harga eksekusi & double-count spread (bukti: round-trip test)**
+Kondisi terverifikasi: entry BUY = open(BID) + spread + slippage ✓, TAPI exit_price = level
+SL/TP (BID basis) sehingga gross sudah memuat biaya spread entry — lalu `cost_usd`
+memotong entry+exit spread LAGI → double-count. Round-trip flat test (spread 1700,
+harga flat): net simulasi −$3551/lot vs realita −$150/lot.
+**Kontrak eksekusi v2.4 (FINAL):**
+- `candle_price_basis = BID` (standar MT5 historis).
+- BUY: entry = open + spread + slippage_adverse; exit (SL/TP/EOD) = level pada basis BID.
+- SELL: entry = open − slippage_adverse (dijual di BID); exit = level + spread (tutup di ASK).
+- **PnL gross TIDAK memotong spread di harga (spread adalah biaya, bukan bagian path)**
+  — aritmetika: `pnl_usd = directional_points × point_value × lot − spread_cost − commission`,
+  dengan directional_points dihitung pada basis konsisten (BID-in-BID-out utk BUY;
+  BID-in, ASK-out + spread cost utk SELL — dipilih bentuk yang bebas double-count,
+  di-lock oleh invariant round-trip).
+- **INVARIANT ROUND-TRIP (wajib, RED dulu)**: pada harga flat, round-trip BUY dan SELL
+  masing-masing menghasilkan loss = `(entry_spread + exit_spread + commission) × point_value × lot`
+  PERSIS (slippage=0, delay=0). Selisih apa pun = fail.
+
+**E-2 [P0] Bug unit spread 100× (temuan BARU audit lead architect — lebih parah dari klaim red team)**
+Bridge `spread` field = (ask−bid) × 10000 (0.17 harga → "1700"); `compute_cost`
+mengasumsikan poin 0.01 (×100) → cost $3400/lot vs realita $17/lot. Seluruh PnL
+execution replay saat ini fiksi.
+**Kontrak:** satu fungsi normalisasi `normalize_spread(raw, source_unit)` dengan
+source_unit eksplisit (`PRICE_1E4` dari bridge / `POINTS_001`), plus broker metadata
+(`contract_size`, `point`, `tick_value`) dari `symbol_info` bridge — masuk `config_hash`
+(Pagar 1). Dilarang hardcode `price_mult`.
+
+**E-3 [P0] Position state machine**
+`ONE_POSITION_ONLY` (disetujui): state `FLAT|LONG|SHORT`; sinyal searah saat terbuka →
+`REJECTED:position_open`; sinyal berlawanan saat terbuka → exit-then-reverse (aturan
+reversal eksplisit per profil). Cooldown tetap berlaku. State diekspos di decision log
+(§2) dan execution replay.
+
+**E-4 [P1] Evidence B1 repair**
+Jangan lemahkan B1. Ganti dataset: (a) arsip kalender ForexFactory yang **pre-dated**
+(< 7 Sep) sebagai artifact + hash, atau (b) dataset multi-hari dengan kalender valid
+per hari. Target funnel: B1 PASS pada ≥ 80% bar di luar blackout nyata. (User memutuskan:
+pengujian TIDAK dibatasi hari — multi-hari/multi-minggu diizinkan dan diharapkan.)
+
+### 10.2 KLAIM RED TEAM YANG DITOLAK (dengan bukti kode — jangan dikerjakan ulang)
+- "WFO pooled equity = concat equity yang di-reset per fold" — **SALAH**: fold-2+
+  di-chain dari returns (`last_eq *= (1+r)`, backtest.py:775-778) — ekonomi konsisten.
+  Yang wajib: **invariant test** `pooled_oos_equity == cumprod(pooled_returns) × initial`
+  sebagai regression guard (murah, menutup klaim ini permanen).
+- "DSR memakai evaluation_count" — **SALAH**: `effective_trial_count` (verified).
+- "Provenance hash tidak mencakup semua field" — **SALAH**: payload = seluruh field
+  dataclass (models.py:173-192) + semantic re-check di `validate_wfo_integrity`.
+- "Infinite loop CPU 100% di run_live_loop" — **SALAH** untuk kedua loop (raise-on-error
+  di mt5_runner; sleep 1s di bot). Yang valid: **log flood** saat error persisten →
+  exponential backoff (P2, bukan P1).
+- "dataset_hash hanya panjang data" — **SALAH** (hash konten ts/price/volume); valid
+  sebagian: format V1 tak menyertakan high/low/bid/ask → align ke format V2 strategy_v2 (P2).
+
+### 10.3 DITERIMA DARI DOMAIN B (pra-syarat P6, bukan P0–P2)
+- **B-1 [P2→P6 gate]** Preflight Certificate: `run_full_preflight_battery()` menghasilkan
+  sertifikat ber-hash (config_hash + dataset_hash + hasil); bot/jalur WFO hanya boleh
+  lanjut bila sertifikat valid & match. Saat ini preflight TIDAK dipanggil siapa pun
+  (verified) → wiring masuk fase P6 prep.
+- **B-2 [P2]** Bot exception taxonomy ringan: BridgeError persisten → exponential
+  backoff (1s→2s→…→60s cap) + counter; mencegah log flood. Tanpa mengubah logika sinyal.
+- **B-3 [P2]** `dataset_hash` WFO align ke format V2 (semua kolom market).
+- **B-4 [P6]** Worst-fold & fold dispersion sudah dihitung (backtest.py) — wajib tampil
+  di gate statistik P6 (bukan hanya pooled).
+
+### 10.4 URUTAN EKSEKUSI v2.4
+```
+F1 — Execution Truth (E-1 + E-2 + E-3): RED invariant tests dulu → implementasi → GREEN.
+F2 — Evidence Repair (E-4): kalender pre-dated / dataset multi-hari → replay ulang
+     → target: funnel natural (B1 tidak memveto 100%).
+F3 — Core Truth pra-P6 (B-1..B-4): certificate, backoff, hash align, invariant WFO.
+F4 — Baru: P3 data qualification → P4 ablation → P5 cost stress → P6 WFO+DSR.
+```
