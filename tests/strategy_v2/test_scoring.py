@@ -228,7 +228,10 @@ def _run(profile, cfg_extra=None, disable=("b1_news", "b4_location")):
 def test_parity_mode_off_vs_score_on_null_threshold():
     off, _ = _run(registry.load_profile("MICRO"))
     prof = dict(registry.load_profile("MICRO"))
-    prof["scoring"] = dict(prof["scoring"], mode="score")
+    # threshold NULL eksplisit — kontrak yang dites adalah mode-on tanpa veto;
+    # kontrak file kini membawa T* C1 (60.1) dan TIDAK boleh bocor ke sini.
+    prof["scoring"] = dict(prof["scoring"], mode="score",
+                           thresholds={"candidate": None, "strong": None, "premium": None})
     on, _ = _run(prof)
     assert len(off) == len(on)
     for a, b in zip(off, on):

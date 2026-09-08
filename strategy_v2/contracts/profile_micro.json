@@ -12,25 +12,41 @@
       "momentum_quality": 10,
       "volatility_quality": 5
     },
-    "thresholds": { "candidate": null, "strong": null, "premium": null }
+    "thresholds": {
+      "candidate": 60.1,
+      "strong": null,
+      "premium": null
+    }
   },
   "description": "MICRO = higher-frequency, guarded",
-  "session_windows_utc": [[0, 24]],
+  "session_windows_utc": [
+    [
+      0,
+      24
+    ]
+  ],
   "timeframe_trigger": "M5",
   "timeframe_regime": "M15",
   "risk": {
-      "sl_atr_mult": 1.25,
-      "tp_atr_mult": 1.5,
-      "min_stop_params": { "spread_mult": 3, "stops_level_poin": 0, "buffer_poin": 10 },
-      "max_stop_points": 350,
-      "risk_percent": 2.0,
-      "cooldown_minutes": 5
+    "sl_atr_mult": 1.25,
+    "tp_atr_mult": 1.5,
+    "min_stop_params": {
+      "spread_mult": 3,
+      "stops_level_poin": 0,
+      "buffer_poin": 10
     },
+    "max_stop_points": 350,
+    "risk_percent": 2.0,
+    "cooldown_minutes": 5
+  },
   "location": {
     "kind": "ema_pullback",
     "ema_pullback_distance_atr": 1.0,
     "atr_timeframe": "M5",
-    "ema_periods": [9, 21]
+    "ema_periods": [
+      9,
+      21
+    ]
   },
   "volume_gate": {
     "enabled": false,
@@ -42,7 +58,9 @@
     "policy": "FAIL_CLOSED",
     "window_minutes": 30,
     "staleness_hours": 4,
-    "impacts": ["high"]
+    "impacts": [
+      "high"
+    ]
   },
   "layer_a": {
     "max_staleness_bars": 3,

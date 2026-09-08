@@ -18,7 +18,7 @@ CONTRACTS_DIR = PKG_DIR / "contracts"
 
 # ─── Konstanta identitas experiment (bagian dari config_hash) ────────────────
 
-STRATEGY_VERSION = "strategy_v2/0.4.0-c0"
+STRATEGY_VERSION = "strategy_v2/0.4.1-c1"
 EXECUTION_TIMING = "next_bar_open"          # sinyal @ close T, fill @ open T+1
 TRIGGER_TIMEFRAME = "M5"                    # bar_seconds 300
 REGIME_TIMEFRAME = "M15"                    # bar_seconds 900

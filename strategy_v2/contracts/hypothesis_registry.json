@@ -138,10 +138,16 @@
         "adj_range_gt_2_atr": -5,
         "adj_sl_near_zone": -5,
         "volume_baseline_invalid_score": 0.0,
-        "threshold": null
+        "threshold": 60.1,
+        "threshold_provenance": {
+          "artifact": "data/research/c1/score_calibration.json",
+          "results_hash": "2b99583dbe563eb1",
+          "rule": "lowest T with exp_net_base>0 AND exp_net_must(x1.5+slip2)>0 AND trades>=30",
+          "n_trials_evaluated": 12
+        }
       },
       "status": "HYPOTHESIS",
-      "source": "cognitive_layer_v2.1_C0"
+      "source": "cognitive_layer_v2.1_C1"
     }
   }
 }
