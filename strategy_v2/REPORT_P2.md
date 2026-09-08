@@ -147,3 +147,58 @@ dengan data/cost/execution sama).
 3. **Cost model perlu spread historis** sebelum P5 (cost stress) bermakna.
 4. Jangan men-tune parameter berdasarkan 1 hari ini — mining di luar registry
    dilarang (kontrak §3).
+
+## 11. F2 — NATURAL FUNNEL (evidence repair, 2026-09-08, mandat §10.1 E-4)
+
+### 11.1 Window & provenance
+
+| Item | Nilai |
+|---|---|
+| Window replay | **Sep 7 22:00 → Sep 8 08:25 UTC** (125 bar M5, satu sesi kontinu) |
+| Dataset | bridge `copy_rates_from_pos` count=1200 (Sep 1 → Sep 8, 6 sesi; file `dataset_f2_m5.json` / `dataset_f2_m15.json`) |
+| Kalender | artifact arsip `calendar_multiday.json` (hash `f8033de8…`, 81 event FF riil, `information_available_at` = 1788807582 = Sep 7 18:59:42Z — **waktu fetch riil**, bukan karangan) |
+| Sesi lain (Sep 1–4, Sep 7 pagi) | DITOLAK untuk replay: close < info_at → provenance guard P0-01 (benar — informasi kalender belum tersedia saat itu) |
+| Broker meta | FALLBACK XAUUSD (bridge belum expose symbol_info): contract 100 oz × point 0.01 → $1/lot/poin; hash `21938b7f…` masuk config_hash |
+| Unit spread | bridge PRICE_1E4: 1700 → **17 poin** (`normalize_spread`), cost $17/lot/sisi — BUKAN $3400 (bug 100× E-2 sudah difix di F1b) |
+
+### 11.2 Funnel lama vs baru (MICRO_V2)
+
+| | Lama (7 Sep 00:00–18:25) | Baru (F2, Sep 7 22:00 → Sep 8 08:25) |
+|---|---|---|
+| evaluation_opportunities | 222 | 125 |
+| DATA_INVALID | 0 | 2 (`m15:stale` — M15 belum closed di 2 bar awal sesi; Layer A bekerja) |
+| layer_b_evaluated | 222 | 123 |
+| **veto B1 (news)** | **222 NEWS_DATA_STALE** | **0** |
+| veto B2 session | — (tertutup B1) | 105 (22:00–07:00 di luar window 07:00–17:00) |
+| veto B4 location | — | 15 |
+| veto B5 trigger | — | 3 |
+| final_signals | 0 | 0 |
+| executed_trades | 0 | 0 |
+
+SCALP_V2 identik strukturnya (125 opp, B1 veto 0, B2 105, sisa B4/B5).
+**Funnel natural tercapai**: B1 tidak lagi memveto 100% — PASS pada 100% bar
+layer-B (target ≥80% di luar blackout nyata; window ini memang tanpa event
+high-impact USD). Veto berikutnya sesuai desain: session, lalu location/trigger.
+
+### 11.3 Unit PnL kini benar (setelah fix 100× + double-count)
+
+Cost model per trade (spread snapshot live 0.17 harga = 17 poin, komisi $1):
+
+| Komponen | Lama (fiksi) | Benar |
+|---|---|---|
+| Spread entry | $1700 | **$17/lot** |
+| Spread exit | $1700 | **$17/lot** |
+| Round-trip (incl. comm $1) | ~$3401 | **$35/lot** |
+
+Window F2 menghasilkan 0 trade → 0 PnL (outcome valid, tanpa KPI frekuensi).
+Angka cost di atas = regression guard `test_cost_17_usd_per_lot_regression_guard`
+(PAKET 4) — bug unit tidak boleh kembali.
+
+### 11.4 Limitasi F2 (jujur)
+
+1. Window masih 1 sesi (125 bar) — multi-hari penuh menunggu snapshot kalender
+   yang di-fetch SEBELUM window historis (arsip per minggu) atau dataset
+   multi-minggu dengan kalender pre-dated per hari.
+2. Spread = snapshot konstanta live (17 poin), label `ESTIMATED_COST_MODEL`
+   tetap — bukan spread historis per-bar.
+3. 0 sinyal pada 1 sesi bukan bukti apa pun tentang profitabilitas.

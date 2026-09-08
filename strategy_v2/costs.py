@@ -36,10 +36,15 @@ def assert_supported_cost_model(cost: dict) -> None:
 
 def compute_cost(entry_spread: float | None, exit_spread: float | None,
                  commission: float | None = None, slippage: float | None = None,
-                 delay: int | None = None) -> dict:
+                 delay: int | None = None,
+                 spread_label: str | None = None) -> dict:
     """Hitung biaya trade (poin XAUUSD + USD/lot). Semua input poin = 0.01 harga.
 
     entry_spread/exit_spread None → fallback konstanta → label ESTIMATED_COST_MODEL.
+    spread_label: override eksplisit untuk kasus spread KONSTANTA terukur
+    (bukan per-bar historis) — mis. snapshot live bridge: tetap ESTIMATED,
+    BUKAN HISTORICAL (desain §4: estimasi tidak pernah disajikan sebagai
+    market truth).
     """
     cm = registry.COST_MODEL
     historical = entry_spread is not None and exit_spread is not None
@@ -57,8 +62,10 @@ def compute_cost(entry_spread: float | None, exit_spread: float | None,
     # XAUUSD: 1 lot = 100 oz → 1 poin (0.01) = $1 per lot.
     total_usd_per_lot = total_points * 1.0 + comm
 
+    label = spread_label or (cm["label_when_historical"] if historical
+                             else cm["label_when_fallback"])
     return {
-        "label": cm["label_when_historical"] if historical else cm["label_when_fallback"],
+        "label": label,
         "entry_spread_points": es,
         "exit_spread_points": xs,
         "slippage_points": slip,

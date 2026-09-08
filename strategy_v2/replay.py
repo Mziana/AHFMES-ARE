@@ -217,7 +217,8 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
                          slippage_points: float | None = None,
                          delay_bars: int | None = None,
                          commission_usd_per_lot: float | None = None,
-                         broker_meta: dict | None = None) -> dict:
+                         broker_meta: dict | None = None,
+                         spread_label: str | None = None) -> dict:
     """Decision → simulator next-bar-open + cost model → trades + PnL.
 
     Kontrak eksekusi v2.4 (F1b, desain §10.1 E-1) — `candle_price_basis = BID`:
@@ -247,7 +248,8 @@ def run_execution_replay(records: list[dict], m5: list, profile: dict,
 
     cost = compute_cost(spread_points, spread_points,
                         commission=commission_usd_per_lot,
-                        slippage=slippage_points, delay=delay_bars)
+                        slippage=slippage_points, delay=delay_bars,
+                        spread_label=spread_label)
     spread_pts = cost["entry_spread_points"]
     slip_pts = cost["slippage_points"]
     delay_bars = cost["delay_bars"]
@@ -542,7 +544,8 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     records = run_decision_replay(m5, m15, profile_cfg, reg_data, calendar, cfg)
     execution = (run_execution_replay(records, m5, profile_cfg,
                                       spread_points=cfg["spread_points"],
-                                      broker_meta=meta)
+                                      broker_meta=meta,
+                                      spread_label="ESTIMATED_COST_MODEL")
                  if with_execution else None)
 
     funnel = build_funnel(records, execution)
