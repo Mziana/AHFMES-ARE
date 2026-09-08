@@ -1,8 +1,8 @@
 """P5 — Cost stress grid (mandat §P5) atas arm juara P4, parameter FROZEN.
 
-Arm: MICRO_V2, disable_gates = ("b1_news", "b3_regime", "b4_location") —
-keputusan P4 (REPORT_P4.md). Decision records dihitung SEKALI (deterministik,
-harus 220 sinyal = parity P4), lalu grid eksekusi:
+Arm: MICRO_V2, disable_gates = ("b1_news", "b4_location") — champion P4
+iterasi 3 (B3 slope dua-arah, H-REGIME-SLOPE-02). Decision records dihitung
+SEKALI (deterministik, harus 199 sinyal = parity P4 iter-3), lalu grid eksekusi:
   spread {×1.25, ×1.5, ×2.0} × slippage {0,2,5} × delay {0,1} = 18 kombinasi.
 
 Garis lulus wajib desain: spread ×1.5 + slip 2 + delay 0 → expNet > 0.
@@ -25,7 +25,8 @@ from strategy_v2.replay import run_decision_replay, run_execution_replay
 P3 = ROOT / "data" / "research" / "p3"
 P5 = ROOT / "data" / "research" / "p5"
 SESSION_BREAK_S = 3600
-DISABLE = ("b1_news", "b3_regime", "b4_location")   # FROZEN dari P4
+DISABLE = ("b1_news", "b4_location")   # FROZEN dari P4 iter-3 (champion slope)
+PARITY_SIGNALS = 199                                   # parity P4 iter-3
 BASE_SPREAD = 17.0                                   # poin (snapshot P3)
 
 
@@ -62,8 +63,8 @@ def main() -> int:
         records.extend(run_decision_replay(sess, m15, profile, reg, None, cfg,
                                            disable_gates=DISABLE))
     signals = sum(1 for r in records if r["decision"] in ("BUY", "SELL"))
-    print(f"decision records: {len(records)}, signals: {signals} (parity P4: 220)")
-    if signals != 220:
+    print(f"decision records: {len(records)}, signals: {signals} (parity P4 iter-3: {PARITY_SIGNALS})")
+    if signals != PARITY_SIGNALS:
         print("FATAL: parity P4 pecah — identitas eksperimen berubah, P5 batal")
         return 1
 

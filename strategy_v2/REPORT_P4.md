@@ -45,3 +45,23 @@ SCALP (iterasi 1, 5 arm): semua negatif (terbaik −0,22) → tidak dilanjutkan.
 - config_hash (arm no_b3_b4): lihat `data/research/p4/ablation_results.json` (`results_hash 944fa5c8…`)
 - Catatan identitas: `disable_gates` adalah runtime flag — identitas eksperimen = config_hash **+ daftar disabled** + dataset_hash (dicatat eksplisit di sini)
 - **Caveat wajib diuji P6**: b3-off memaksa long-only di window gold uptrend (Jul–Sep) → sebagian hasil bisa regime luck; keputusan akhir tetap WFO OOS.
+
+---
+
+## ADDENDUM — Iterasi 3 (revisi H-REGIME-SLOPE-02, budget terakhir 3/3)
+
+> Status efektif P4 = iterasi 3. Artefak kanonik: `data/research/p4/ablation_results.json`
+> (results_hash `db04cb340367e6f1…`); iterasi 2 diarsipkan `ablation_results_iter2.json`.
+
+| Arm (MICRO, B1 disabled terlabel) | Sig | Trade | Net | ExpNet |
+|---|---|---|---|---|
+| `no_b3_b4` — baseline juara iter-2 (long-only paksa) | 220 | 136 | +437.70 | **+3.22** |
+| `slope` — revisi B3 dua-arah (EMA20 M15), B4 off | 199 | 136 | +94.39 | **+0.69 ← dibawa ke P5/P6** |
+| `slope_b4` — revisi slope + B4 + B5 | 133 | 93 | +30.17 | +0.32 |
+
+- Semua arm memenuhi kriteria mandatorial (≥30 trade, net > 0) — tapi hanya sebagai set in-sample.
+- Revisi slope berfungsi sesuai desain (dua arah terbukti di data: SELL 148 / BUY 30 / NO_TRADE 3 pada sesi uji; saring chop aktif) — namun expNet lebih rendah dari long-only paksa yang menunggangi melt-up gold. Dipilih tetap `slope` untuk P5/P6 karena long-only paksa sudah terbukti rapuh OOS (P6 iter-1: worst-fold −9.14 di fold downtrend) — memilih baseline in-sample tertinggi berarti memilih bias regime.
+- Ablation konsisten lintas iterasi: **B4 menurunkan expectancy** (0.69 → 0.32), **B5 bernilai** (dilepas → anjlok), B6 off via profil (sanity identik).
+- **Regresi yang ditemukan & diperbaiki di iterasi 3**: sufiks diagnostic `|slope=…` bocor ke `bias` → exact-match B4/B5 gagal → 0 sinyal. Fix `f4be56f` + regression test `c937d20` (`tests/strategy_v2/test_p6_slope.py`, 4 kontrak).
+- Kriteria "V2 > OLD-MICRO" tetap TERBUKA (harness engine lama belum diparalelkan).
+- Nasib champion `slope` di P5/P6: lihat REPORT_P5.md (GAGAL) dan REPORT_P6.md (GAGAL_STATISTIK) — **kembali ke owner**.
