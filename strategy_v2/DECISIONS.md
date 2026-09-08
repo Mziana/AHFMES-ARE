@@ -46,3 +46,15 @@ Format: tanggal | keputusan | alasan.
   timeframe): reason per-timeframe `DATA_INVALID:m15:<reason>`; M15 invalid →
   Layer B DISABLED (Pagar 3 tetap) | keputusan strategi bergantung M15, jadi
   M15 wajib tervalidasi sama seperti M5; schema pattern diperluas.
+- 2026-09-08 | P0-01b — Look-ahead guard B1: `information_available_at` >
+  now_ts → `NEWS_DATA_STALE` (informasi dari masa depan TIDAK tersedia pada T);
+  artifact arsip menandai `archived: True` → age-check dilewati (jadwal
+  mingguan memang berumur saat direplay) | replay historis tidak boleh
+  menganggap snapshot now tersedia di masa lalu; snapshot FF 7 Sep di-fetch
+  18:59Z SETELAH window evaluasi → B1 fail-closed 222/222 (klaim lama
+  "PASS 222/222" adalah artefak heuristic max(event.ts)).
+- 2026-09-08 | P0-04b — Layer A M15 mengizinkan gap >= 3600 dtk (break sesi
+  pasar: maintenance harian broker ~4500 dtk, weekend ~177300 dtk — terukur
+  nyata di dataset 7 Sep); gap 1–3 bar intra-sesi tetap `missing_bar` |
+  struktur kalender pasar bukan korupsi data; konsisten dengan
+  qualify_dataset (gap dilaporkan, tidak meng-invalidate).

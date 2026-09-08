@@ -100,7 +100,8 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
         except Exception:
             info_at = None
     return {"status": "ok" if events else "empty",
-            "information_available_at": info_at, "events": events}
+            "information_available_at": info_at, "events": events,
+            "archived": True}  # artifact arsip: availability dinyatakan eksplisit
 
 
 def save_calendar_artifact(raw: dict | list, src_path: str | Path,
@@ -364,7 +365,7 @@ def run_profile(profile_id: str, m5_path: str, m15_path: str, calendar_path: str
     profile_cfg = registry.load_profile(profile_id)
     reg_data = registry.load_hypothesis_registry()
     calendar = load_calendar(calendar_path)
-    cal_hash = registry.calendar_artifact_hash(calendar_path) if calendar else None
+    cal_hash = calendar_artifact_hash(calendar_path) if calendar else None
     chash = registry.compute_config_hash(profile_cfg, reg_data, calendar_artifact_hash=cal_hash)
 
     cfg = {"config_hash": chash, "dataset_hash": dhash, "balance": balance,

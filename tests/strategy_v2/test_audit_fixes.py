@@ -287,3 +287,29 @@ def test_p1_03_real_replay_jsonl_validates_against_schema():
         n, errs = schema_check.validate_jsonl(path, schema)
         assert n > 0, f"{path} kosong"
         assert not errs, f"{path}: {len(errs)} pelanggaran schema, contoh: {errs[:3]}"
+
+
+# ─── P0-01b: look-ahead guard + archived artifact ────────────────────────────
+
+def test_p0_01b_future_snapshot_look_ahead_guard():
+    # information_available_at DI MASA DEPAN relatif T → informasi belum
+    # tersedia pada T → STALE (bukan PASS)
+    now = 1788799380
+    ev = [{"ts": now - 60, "impact": "high", "currency": "USD"}]
+    cal = {"status": "ok", "information_available_at": now + 3600, "events": ev}
+    assert gates.b1_news(now, cal, POLICY) == "NEWS_DATA_STALE"
+
+
+def test_p0_01b_archived_artifact_skips_age_check():
+    # artifact arsip (jadwal mingguan): availability lama adalah normal —
+    # age check dilewati, evaluasi event tetap dijalankan
+    now = 1788799380
+    ev = [{"ts": now - 6 * 3600, "impact": "high", "currency": "USD"}]
+    cal = {"status": "ok", "information_available_at": now - 5 * 3600,
+           "events": ev, "archived": True}
+    assert gates.b1_news(now, cal, POLICY) == "PASS"
+    # archived + event high-impact dalam window → tetap EVENT_ACTIVE
+    cal2 = {"status": "ok", "information_available_at": now - 5 * 3600,
+            "events": [{"ts": now - 60, "impact": "high", "currency": "USD"}],
+            "archived": True}
+    assert gates.b1_news(now, cal2, POLICY) == "NEWS_EVENT_ACTIVE"

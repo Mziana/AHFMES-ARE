@@ -58,11 +58,18 @@ def layer_a_m15_integrity(m15: list, config: dict) -> str:
     M15 dipakai b3_regime + b4_location → keputusan bergantung timeframe ini,
     jadi wajib tervalidasi sama seperti M5. Tanpa spread check (tick spread
     adalah properti M5 trigger). Return 'DATA_VALID' atau 'DATA_INVALID:m15:<reason>'.
+
+    Gap ≥ 3600 dtk (≥ 1 jam) diizinkan: itu break sesi pasar (maintenance
+    harian broker ~75 menit, weekend ~49 jam — terukur nyata di dataset),
+    BUKAN korupsi data. Gap 1–3 bar (900–2700 dtk) tetap ditolak sebagai
+    missing_bar — kehilangan data intra-sesi. Konsisten dengan qualify_dataset
+    yang menghitung gap tapi tidak meng-invalidate dataset.
     """
     prof_a = config.get("layer_a", {})
     max_stale_bars = prof_a.get("max_staleness_bars", 3)
     base = _layer_a_check_bars(m15, None, 900, max_stale_bars,
-                               spread_cap=None, now_ts=config["now_ts"])
+                               spread_cap=None, now_ts=config["now_ts"],
+                               min_gap_seconds=3600)
     if base == "DATA_VALID":
         return base
     # prefix per-timeframe: DATA_INVALID:m15:<reason> (audit P0-04)
@@ -71,8 +78,12 @@ def layer_a_m15_integrity(m15: list, config: dict) -> str:
 
 def _layer_a_check_bars(bars: list, ticks_meta: dict | None, bar_seconds: int,
                         max_stale_bars: int, spread_cap: float | None,
-                        now_ts: int) -> str:
-    """Core integrity check (dipakai M5 dan M15). Urutan deterministik."""
+                        now_ts: int, min_gap_seconds: int = 0) -> str:
+    """Core integrity check (dipakai M5 dan M15). Urutan deterministik.
+
+    min_gap_seconds=0 → strict gap (M5). min_gap_seconds>0 → gap >= nilai itu
+    dianggap break sesi pasar (M15), bukan korupsi data."""
+
     if spread_cap is None:
         spread_cap = float("inf")  # M15: tanpa spread check
 
@@ -85,7 +96,11 @@ def _layer_a_check_bars(bars: list, ticks_meta: dict | None, bar_seconds: int,
         if t in seen:
             return "DATA_INVALID:duplicate_ts"
         seen.add(t)
-        if prev_t is not None and int(t) - int(prev_t) != bar_seconds:
+        delta = int(t) - int(prev_t) if prev_t is not None else bar_seconds
+        # min_gap_seconds=0 → strict (M5): delta != bar_seconds = missing_bar.
+        # min_gap_seconds>0 (M15): gap >= min_gap_seconds = break sesi (allowed),
+        # gap lebih kecil = kehilangan data intra-sesi (missing_bar).
+        if delta != bar_seconds and (min_gap_seconds == 0 or delta < min_gap_seconds):
             return "DATA_INVALID:missing_bar"
         prev_t = t
         o, h, l, c = b.get("open"), b.get("high"), b.get("low"), b.get("close")
@@ -123,10 +138,15 @@ def b1_news(now_ts: int, calendar: dict | None, policy: dict) -> str:
                'events': [{'ts', 'impact': 'high'|..., 'currency': 'USD', ...}]}
     policy dari profil: {'window_minutes', 'staleness_hours', 'impacts'}
 
-    P0-01: staleness diukur dari `information_available_at` (kapan snapshot
-    kalender diambil) — BUKAN heuristic dari event timestamp. Snapshot tanpa
-    provenance eksplisit → fail-closed NEWS_DATA_STALE (replay historis tidak
-    boleh menganggap snapshot now tersedia di masa lalu).
+    P0-01: staleness diukur dari `information_available_at` (kapan informasi
+    kalender tersedia) — BUKAN heuristic dari event timestamp. Tiga fail-closed:
+    - field provenance tidak ada → NEWS_DATA_STALE (jujur, bukan heuristic)
+    - information_available_at > now_ts → NEWS_DATA_STALE (look-ahead guard:
+      snapshot dari masa depan TIDAK tersedia pada T)
+    - usia > staleness_hours → NEWS_DATA_STALE (freshness provider, jalur live)
+    Calendar artifact arsip (replay) menandai 'archived': True — availability
+    sudah dinyatakan artifact; age-check dilewati (jadwal mingguan memang
+    berumur > staleness_hours saat direplay).
     """
     if not calendar or calendar.get("status") == "down":
         return "NEWS_PROVIDER_DOWN"
@@ -134,7 +154,12 @@ def b1_news(now_ts: int, calendar: dict | None, policy: dict) -> str:
     if calendar.get("status") == "empty" or not events:
         return "NEWS_CALENDAR_UNAVAILABLE"
     info_at = calendar.get("information_available_at")
-    if info_at is None or now_ts - int(info_at) > policy.get("staleness_hours", 4) * 3600:
+    if info_at is None:
+        return "NEWS_DATA_STALE"
+    info_at = int(info_at)
+    if info_at > now_ts:  # look-ahead guard: informasi belum tersedia pada T
+        return "NEWS_DATA_STALE"
+    if not calendar.get("archived") and now_ts - info_at > policy.get("staleness_hours", 4) * 3600:
         return "NEWS_DATA_STALE"
     win = policy.get("window_minutes", 30) * 60
     impacts = set(policy.get("impacts", ["high"]))

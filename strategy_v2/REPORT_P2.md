@@ -12,7 +12,7 @@
 | Profil | `MICRO_V2` + `SCALP_V2` (kontrak frozen, commit `ddbfed9`) |
 | Dataset | XAUUSD M5 222 bar (00:00–18:25 UTC, 7 Sep 2026) + M15 1200 bar (warmup dari 19 Agu) |
 | Dataset source | MT5 bridge `/candles` `copy_rates_from_pos` count=1200 (token dari `data/bridge_token.txt` saat runtime) |
-| Kalender | ForexFactory `ff_calendar_thisweek.json` (nyata; 81 event, 22 pada 7 Sep) |
+| Kalender | ForexFactory `ff_calendar_thisweek.json` → artifact arsip `data/research/calendar/calendar_d306217f.json` (81 event, 22 pada 7 Sep; `information_available_at` = 2026-09-07T18:59:42Z, hash masuk config_hash) |
 | Cost model | `ESTIMATED_COST_MODEL` (spread historis per-bar tidak tersedia di dataset candle) |
 | Execution timing | `next_bar_open` (sinyal @ close T, fill @ open T+1) |
 
@@ -30,11 +30,7 @@
 evaluation_opportunities   : 222   (setiap M5 closed bar)
 DATA_INVALID               :   0
 layer_b_evaluated          : 222
-veto B2 (session)          : 102   (luar 07:00–17:00 UTC)
-veto B3 (regime NO_TRADE)  :  24
-veto B4 (location far)     :  62
-veto B5 (no pattern)       :  23
-veto B6 (volume ratio)     :  11
+veto B1 (news STALE)       : 222   (provenance: snapshot 18:59Z > window 00:00–18:25Z)
 final_signals              :   0
 executed_trades            :   0
 rejected_executions        :   0
@@ -42,31 +38,33 @@ gross / costs / net        : 0.0 / 0.0 / 0.0 USD
 distinct gate states       : 102
 ```
 
-Verifikasi aritmetika: 102+24+62+23+11 = **222** = layer_b_evaluated →
+Verifikasi aritmetika: 222 = **222** = layer_b_evaluated →
 **ke mana semua kandidat trade hilang terjawab penuh** (0 sinyal final).
+Catatan: B1 memveto SEMUA bar karena snapshot kalender di-fetch SETELAH window
+evaluasi — look-ahead guard (P0-01) bekerja jujur; B2–B7 tetap dievaluasi
+full-diagnostic di `all_gate_results` (distinct gate states 102).
 
 ## 4. Funnel — SCALP_V2
 
 ```
 evaluation_opportunities   : 222
 DATA_INVALID               :   0
-veto B2                    : 102
-veto B3                    :  24
-veto B4 (sr_zone far)      :  75
-veto B5                    :  13
-veto B7 (stop_bounds/SKIP) :   8   ← min_stop > cap 400 poin → SKIP eksplisit
+veto B1 (news STALE)       : 222   (provenance: snapshot 18:59Z > window 00:00–18:25Z)
 final_signals              :   0
 executed_trades            :   0
 ```
 
-Verifikasi: 102+24+75+13+8 = **222**. B7 aktif bekerja (8 SKIP karena ATR
-tinggi × mult 1.5 > cap) — perilaku sesuai desain §B7 (SKIP, bukan clamp).
+Verifikasi: 222 = **222**. B1 memveto semua bar (provenance fail-closed);
+B2–B7 full-diagnostic tetap di `all_gate_results`.
 
 ## 5. Gate behavior penting
 
-- **B1 News**: `PASS` 222/222 — tidak ada event high-impact USD dalam window
-  ±30 menit pada jam evaluasi (07:00–18:25 UTC, Senin). Reason codes 4 arah
-  terpisah teruji di invariant suite (test_inv5).
+- **B1 News**: `NEWS_DATA_STALE` 222/222 — snapshot kalender di-fetch
+  2026-09-07T18:59:42Z, SETELAH window evaluasi (00:00–18:25Z) → look-ahead
+  guard (P0-01) menolak sebagai informasi yang belum tersedia pada T. Klaim
+  lama "PASS 222/222" (heuristic `max(event.ts)`) adalah artefak bug
+  provenance — sekarang fail-closed jujur. Reason codes 4 arah terpisah
+  teruji di invariant suite (test_inv5).
 - **B3 Regime**: SELL_ONLY 137 / BUY_ONLY 58 / NO_TRADE 27 — hari turun
   (XAUUSD 4412 → turun), bias mengikuti M15 closed bar, tanpa lookahead.
 - **B4 Location**: veto dominan (62 MICRO / 75 SCALP) — zona S/R anti-lookahead
@@ -82,6 +80,11 @@ tinggi × mult 1.5 > cap) — perilaku sesuai desain §B7 (SKIP, bukan clamp).
   funnel di report ini dijalankan ulang dan angkanya identik (0 sinyal
   baik dengan maupun tanpa cap — B7 cap tidak pernah tercapai pada
   dataset 7 Sep).
+- **Revisi audit (2026-09-08)**: P0-01..P1-03 fix — provenance kalender
+  (look-ahead guard), calendar hash in config_hash (identity baru:
+  micro `c732ade7…`, scalp `e149fc0d…`), fail-closed cost model,
+  Layer A M15 (gap break sesi ≥ 1h diizinkan), schema validation.
+  Funnel di atas = identity baru dengan provenance jujur.
 
 ## 6. Perbandingan vs baseline lama (122 trade, −$42.02, 7 Sep)
 
@@ -89,7 +92,7 @@ tinggi × mult 1.5 > cap) — perilaku sesuai desain §B7 (SKIP, bukan clamp).
 |---|---|---|---|
 | Trade | 122 | 0 | 0 |
 | Evaluasi | — | 222 | 222 |
-| Veto terbanyak | — | B2 session (102) | B2 session (102) |
+| Veto terbanyak | — | B1 news STALE (222) | B1 news STALE (222) |
 | Cost model | implisit | ESTIMATED | ESTIMATED |
 
 Frekuensi 122 → 0 bukan "strategi lebih baik" — itu **rejection yang
@@ -123,8 +126,10 @@ dengan data/cost/execution sama).
    (fallback 20 poin sisi). Edge nyata bisa lebih tipis dari estimasi.
 3. **0 sinyal pada 1 hari** bukan bukti apa pun tentang profitabilitas —
    hanya bukti gate behave sesuai kontrak.
-4. Kalender FF adalah snapshot minggu ini (event historis 7 Sep akurat,
-   `fetched_at` heuristik = event terakhir); untuk multi-hari perlu arsip.
+4. Kalender FF adalah snapshot minggu ini, di-fetch 18:59Z 7 Sep — SETELAH
+   window evaluasi → B1 fail-closed `NEWS_DATA_STALE` untuk seluruh bar
+   (look-ahead guard P0-01). Untuk replay multi-hari, arsip kalender perlu
+   di-fetch SEBELUM window (provenance eksplisit per artifact).
 5. M15 gap 13 bar (weekend) di warmup — tidak mempengaruhi evaluasi 7 Sep.
 
 ## 10. Keputusan yang bisa dijalankan
