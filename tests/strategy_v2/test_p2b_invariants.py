@@ -150,9 +150,9 @@ def test_inv5_news_codes_separate_all_veto():
     codes = ["NEWS_EVENT_ACTIVE", "NEWS_PROVIDER_DOWN", "NEWS_DATA_STALE", "NEWS_CALENDAR_UNAVAILABLE"]
     seen = set()
     ev = {"ts": now, "impact": "high", "currency": "USD"}
-    seen.add(gates.b1_news(now, {"status": "ok", "fetched_at": now - 60, "events": [dict(ev)]}, policy))
+    seen.add(gates.b1_news(now, {"status": "ok", "information_available_at": now - 60, "events": [dict(ev)]}, policy))
     seen.add(gates.b1_news(now, {"status": "down", "events": []}, policy))
-    seen.add(gates.b1_news(now, {"status": "ok", "fetched_at": now - 5 * 3600, "events": [dict(ev)]}, policy))
+    seen.add(gates.b1_news(now, {"status": "ok", "information_available_at": now - 5 * 3600, "events": [dict(ev)]}, policy))
     seen.add(gates.b1_news(now, {"status": "empty", "events": []}, policy))
     assert seen == set(codes)
     # semua → WAIT di decide (NO_NEW_ENTRY)

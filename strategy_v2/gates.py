@@ -91,17 +91,23 @@ def layer_a_data_integrity(bars: list, ticks_meta: dict | None, config: dict) ->
 def b1_news(now_ts: int, calendar: dict | None, policy: dict) -> str:
     """FAIL-CLOSED, 4 reason code terpisah (desain §B1).
 
-    calendar: {'status': 'ok'|'down'|'empty', 'fetched_at': epoch|None,
+    calendar: {'status': 'ok'|'down'|'empty',
+               'information_available_at': epoch|None,   # P0-01 provenance
                'events': [{'ts', 'impact': 'high'|..., 'currency': 'USD', ...}]}
     policy dari profil: {'window_minutes', 'staleness_hours', 'impacts'}
+
+    P0-01: staleness diukur dari `information_available_at` (kapan snapshot
+    kalender diambil) — BUKAN heuristic dari event timestamp. Snapshot tanpa
+    provenance eksplisit → fail-closed NEWS_DATA_STALE (replay historis tidak
+    boleh menganggap snapshot now tersedia di masa lalu).
     """
     if not calendar or calendar.get("status") == "down":
         return "NEWS_PROVIDER_DOWN"
     events = calendar.get("events")
     if calendar.get("status") == "empty" or not events:
         return "NEWS_CALENDAR_UNAVAILABLE"
-    fetched_at = calendar.get("fetched_at")
-    if fetched_at is None or now_ts - fetched_at > policy.get("staleness_hours", 4) * 3600:
+    info_at = calendar.get("information_available_at")
+    if info_at is None or now_ts - int(info_at) > policy.get("staleness_hours", 4) * 3600:
         return "NEWS_DATA_STALE"
     win = policy.get("window_minutes", 30) * 60
     impacts = set(policy.get("impacts", ["high"]))

@@ -24,13 +24,13 @@ def test_b1_news_four_codes():
     policy = registry.load_profile("MICRO")["news"]
     now = 1788799380
     ev = {"ts": now, "impact": "high", "currency": "USD"}
-    assert gates.b1_news(now, {"status": "ok", "fetched_at": now - 600, "events": [dict(ev)]}, policy) == "NEWS_EVENT_ACTIVE"
-    assert gates.b1_news(now, {"status": "ok", "fetched_at": now - 600, "events": [{**ev, "ts": now - 3600}]}, policy) == "PASS"
+    assert gates.b1_news(now, {"status": "ok", "information_available_at": now - 600, "events": [dict(ev)]}, policy) == "NEWS_EVENT_ACTIVE"
+    assert gates.b1_news(now, {"status": "ok", "information_available_at": now - 600, "events": [{**ev, "ts": now - 3600}]}, policy) == "PASS"
     assert gates.b1_news(now, {"status": "down", "events": []}, policy) == "NEWS_PROVIDER_DOWN"
-    assert gates.b1_news(now, {"status": "ok", "fetched_at": now - 5 * 3600, "events": [dict(ev)]}, policy) == "NEWS_DATA_STALE"
+    assert gates.b1_news(now, {"status": "ok", "information_available_at": now - 5 * 3600, "events": [dict(ev)]}, policy) == "NEWS_DATA_STALE"
     assert gates.b1_news(now, {"status": "empty", "events": []}, policy) == "NEWS_CALENDAR_UNAVAILABLE"
     # event non-USD / impact lain tidak memicu
-    assert gates.b1_news(now, {"status": "ok", "fetched_at": now - 600,
+    assert gates.b1_news(now, {"status": "ok", "information_available_at": now - 600,
                                "events": [{"ts": now, "impact": "high", "currency": "EUR"}]}, policy) == "PASS"
 
 

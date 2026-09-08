@@ -66,7 +66,14 @@ def qualify_dataset(m5: list, m15: list) -> dict:
 
 def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | None:
     """Load kalender ekonomi nyata (ForexFactory JSON). Tidak ada file → None
-    (B1 → NEWS_PROVIDER_DOWN, fail-closed)."""
+    (B1 → NEWS_PROVIDER_DOWN, fail-closed).
+
+    Temporal provenance (P0-01): `ts` = event_timestamp (waktu rilis data
+    ekonomi), terpisah dari `information_available_at` = waktu snapshot
+    kalender ini diambil (epoch UTC saat fetch). Staleness B1 diukur dari
+    `information_available_at`, BUKAN heuristic max(event.ts): replay
+    historis tidak boleh menganggap snapshot now tersedia di masa lalu.
+    """
     if path is None or not Path(path).exists():
         return None
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -80,11 +87,17 @@ def load_calendar(path: str | Path | None, staleness_hours: int = 4) -> dict | N
             continue
         events.append({"ts": ts, "currency": e.get("country", e.get("currency", "")),
                        "impact": str(e.get("impact", "low")).lower(), "title": e.get("title", "")})
-    # fetched_at: usia data kalender diukur dari event terakhir yang SUDAH lewat
-    # pada evaluation time (dihitung di b1_news via now_ts - fetched_at).
-    # Kita set fetched_at = ts event terakhir (data historis lengkap utk hari replay).
-    last_ts = max((e["ts"] for e in events), default=0)
-    return {"status": "ok" if events else "empty", "fetched_at": last_ts, "events": events}
+    # information_available_at: HANYA dari field eksplisit artifact. Bila artifact
+    # tidak mencatatnya → None → b1_news fail-closed NEWS_DATA_STALE (jujur,
+    # bukan heuristic karangan).
+    info_at = raw.get("information_available_at") if isinstance(raw, dict) else None
+    if info_at is not None:
+        try:
+            info_at = int(info_at)
+        except Exception:
+            info_at = None
+    return {"status": "ok" if events else "empty",
+            "information_available_at": info_at, "events": events}
 
 
 # ─── Evaluation loop (Decision Replay) ───────────────────────────────────────

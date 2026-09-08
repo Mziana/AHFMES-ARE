@@ -37,3 +37,8 @@ Format: tanggal | keputusan | alasan.
   terjaga via cooldown (30m/5m), stop bounds (SKIP), sizing konstan-dolar,
   dan Layer A. Per Pagar 1, perubahan ini = config_hash BARU = experiment
   identity baru; replay 7 Sep dijalankan ulang dengan identity baru.
+- 2026-09-08 | P0-01 — Staleness B1 diukur dari `information_available_at`
+  (waktu snapshot kalender diambil, field eksplisit artifact), BUKAN heuristic
+  `max(event.ts)`; artifact tanpa provenance → fail-closed `NEWS_DATA_STALE`
+  | temporal provenance: replay historis tidak boleh menganggap snapshot now
+  tersedia di masa lalu; event_timestamp ≠ availability_timestamp.

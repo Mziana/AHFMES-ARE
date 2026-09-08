@@ -32,7 +32,7 @@ def _replay_once():
     reg = registry.load_hypothesis_registry()
     cfg = {"config_hash": "a" * 64, "dataset_hash": "b" * 64, "balance": 1000.0, "spread_points": None}
     return run_decision_replay(m5, m15, profile, reg,
-                               {"status": "empty", "events": [], "fetched_at": 0}, cfg)
+                               {"status": "empty", "events": [], "information_available_at": 0}, cfg)
 
 
 def test_replay_deterministic_two_runs_identical():
