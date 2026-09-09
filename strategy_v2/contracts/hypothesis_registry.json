@@ -148,6 +148,159 @@
       },
       "status": "HYPOTHESIS",
       "source": "cognitive_layer_v2.1_C1"
+    },
+    "H-LOC-03": {
+      "id": "H-LOC-03",
+      "value": {
+        "b4_max_distance_atr": 0.75,
+        "previous_value_atr": 0.25,
+        "scope": "MICRO",
+        "frozen_basis": "training-window B4 distance diagnostic 2026-09-09",
+        "expectation": "buckets 0.25-0.75 ATR = +2.09/+2.01 per trade; >0.75 = -2.90 (diagnostik training)",
+        "threshold_t_star": 60.1,
+        "threshold_note": "skala skor tak berubah -> T* champion tetap sah"
+      },
+      "status": "HYPOTHESIS",
+      "source": "R1_package_arm_A",
+      "genealogy": {
+        "id": "H-LOC-03",
+        "parent_id": [
+          "H-LOC-02",
+          "H-SCORE-01"
+        ],
+        "status": "HYPOTHESIS",
+        "reason_for_change": "KILL_REVISE A5 + keputusan owner K1 (diagnostik bucket menunjukkan B4 0.25 membuang zona untung)",
+        "hypothesis_statement": "Ambang lokasi B4 longgar dari 0.25 ke 0.75xATR mengembalikan zona emas (0.25-0.75) tanpa memasukkan zona rugi (>0.75) -> expectancy net naik.",
+        "data_used": [
+          "training window B4 distance diagnostic (2026-09-09)",
+          "P5 cost-stress artifacts",
+          "C1 threshold calibration artifacts",
+          "docs/PAKET_HIPOTESIS_R1.md (kontrak owner)"
+        ],
+        "data_period": "2026-07-28 05:50Z .. 2026-09-08 13:20:00Z (P3 locked; koreksi dari label 29 Jul — first bar aktual 28 Jul) (dataset_hash 86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200)",
+        "author": "buffy",
+        "timestamp": "2026-09-09 09:25:40Z",
+        "config_hash": "5ebc546c6bd9be3e",
+        "result": null,
+        "decision": null,
+        "retroactive": false,
+        "confidence": "exact"
+      }
+    },
+    "H-EXEC-M1-01": {
+      "id": "H-EXEC-M1-01",
+      "value": {
+        "execution_timeframe": "M1",
+        "signal_timeframe": "M5",
+        "bias_timeframe": "M15",
+        "entry_rule": "first M1 open >= T (M5 signal bar close)",
+        "no_lookahead": true,
+        "expectation": "delay 1 bar M5 terbukti fatal (P5: -2.89..-5.56); ini perbaikan eksekusi, bukan edge"
+      },
+      "status": "HYPOTHESIS",
+      "source": "R1_package_arm_B",
+      "genealogy": {
+        "id": "H-EXEC-M1-01",
+        "parent_id": [
+          "H-SCORE-01"
+        ],
+        "status": "HYPOTHESIS",
+        "reason_for_change": "KILL_REVISE A5 + keputusan owner K2 (P5/C3: delay 1 bar M5 membunuh semua sel biaya)",
+        "hypothesis_statement": "Eksekusi di M1 (open pertama >= close bar sinyal M5) memangkas delay 5 menit menjadi ~1 menit -> kerusakan delay turun drastis.",
+        "data_used": [
+          "training window B4 distance diagnostic (2026-09-09)",
+          "P5 cost-stress artifacts",
+          "C1 threshold calibration artifacts",
+          "docs/PAKET_HIPOTESIS_R1.md (kontrak owner)"
+        ],
+        "data_period": "2026-07-28 05:50Z .. 2026-09-08 13:20:00Z (P3 locked; koreksi dari label 29 Jul — first bar aktual 28 Jul) (dataset_hash 86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200)",
+        "author": "buffy",
+        "timestamp": "2026-09-09 09:25:40Z",
+        "config_hash": "c2423819197a8246",
+        "result": null,
+        "decision": null,
+        "retroactive": false,
+        "confidence": "exact"
+      }
+    },
+    "H-VOL-02": {
+      "id": "H-VOL-02",
+      "value": {
+        "volume_component": "graded",
+        "graded_definition": "volume_confirmation dari VR = volume sinyal / mean 5 bar sebelumnya (0..1, tanpa cliff-edge)",
+        "binary_veto": "off",
+        "inherits": "H-EXEC-M1-01 (M1 execution)",
+        "recalibrate_threshold": true,
+        "threshold_rule": "C1 rule dideklarasikan ulang persis: lowest T with exp_net_base>0 AND exp_net_must(x1.5+slip2)>0 AND trades>=30 (grid tetap)",
+        "n_grid_points": 12
+      },
+      "status": "HYPOTHESIS",
+      "source": "R1_package_arm_C",
+      "genealogy": {
+        "id": "H-VOL-02",
+        "parent_id": [
+          "H-VOL-01"
+        ],
+        "status": "HYPOTHESIS",
+        "reason_for_change": "Keputusan owner K4 (volume layak diuji dalam bentuk graded); konsekuensi: T* arm C dikalibrasi ulang dengan rule C1",
+        "hypothesis_statement": "Volume sebagai komponen skor graded (bukan veto biner) menambah informasi seleksi tanpa cliff-edge -> expectancy net arm C lebih baik dari arm B.",
+        "data_used": [
+          "training window B4 distance diagnostic (2026-09-09)",
+          "P5 cost-stress artifacts",
+          "C1 threshold calibration artifacts",
+          "docs/PAKET_HIPOTESIS_R1.md (kontrak owner)"
+        ],
+        "data_period": "2026-07-28 05:50Z .. 2026-09-08 13:20:00Z (P3 locked; koreksi dari label 29 Jul — first bar aktual 28 Jul) (dataset_hash 86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200)",
+        "author": "buffy",
+        "timestamp": "2026-09-09 09:25:40Z",
+        "config_hash": "1d7efd827da6b4e2",
+        "result": null,
+        "decision": null,
+        "retroactive": false,
+        "confidence": "exact"
+      }
+    },
+    "H-IBREAK-01": {
+      "id": "H-IBREAK-01",
+      "value": {
+        "family": "inside_bar_breakout",
+        "order_type": "pending_stop",
+        "entry_rule": "STOP di luar range inside bar, arah = bias B3; skor >= T* dievaluasi saat pemasangan",
+        "expiry_m1_bars": 12,
+        "cancel_on_opposite_signal": true,
+        "location_constraint": "dist_to_ema <= 0.75*ATR (sama Arm A) atau zona S/R M15",
+        "fill_assumption": "trigger price + sel slippage (replay tidak tahu jalur intrabar)",
+        "mandatory_slippage_cells_pts": [
+          2,
+          5
+        ],
+        "inherits": "H-EXEC-M1-01 (M1 execution)"
+      },
+      "status": "HYPOTHESIS",
+      "source": "R1_package_arm_D",
+      "genealogy": {
+        "id": "H-IBREAK-01",
+        "parent_id": [
+          "H-SCORE-01"
+        ],
+        "status": "HYPOTHESIS",
+        "reason_for_change": "Keputusan owner K5+K8 (uji paralel entri beda sifat); fondasi: Varian 1 dokumen penelitian owner",
+        "hypothesis_statement": "Entri breakout Inside-Bar (pending STOP, expiry 12 bar M1, lokasi dekat EMA/S-R) menghasilkan set trade beda sifat yang expectancy net-nya unggul atas entri market-on-open.",
+        "data_used": [
+          "training window B4 distance diagnostic (2026-09-09)",
+          "P5 cost-stress artifacts",
+          "C1 threshold calibration artifacts",
+          "docs/PAKET_HIPOTESIS_R1.md (kontrak owner)"
+        ],
+        "data_period": "2026-07-28 05:50Z .. 2026-09-08 13:20:00Z (P3 locked; koreksi dari label 29 Jul — first bar aktual 28 Jul) (dataset_hash 86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200)",
+        "author": "buffy",
+        "timestamp": "2026-09-09 09:25:40Z",
+        "config_hash": "81a9ff26347505e1",
+        "result": null,
+        "decision": null,
+        "retroactive": false,
+        "confidence": "exact"
+      }
     }
   }
 }
