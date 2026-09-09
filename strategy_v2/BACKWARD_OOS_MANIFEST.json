@@ -25,13 +25,28 @@
     "cooldown_min": 5
   },
   "dataset_training_hash": "86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200",
-  "dataset_training_window": "2026-07-29 .. 2026-09-08 (P3 locked)",
-  "dataset_oos_hash": "PENDING-A2 (bridge perlu hidup)",
-  "dataset_disjoint_check": "PENDING-A2",
+  "dataset_training_window": "2026-07-28 05:50Z .. 2026-09-08 13:20:00Z (P3 locked; koreksi dari label 29 Jul \u2014 first bar aktual 28 Jul)",
+  "dataset_oos_hash": "da72f41e2ac09c240e5ab0d4414d031b2fbd05de8cef254511a3a2ac6da0b1d8",
+  "dataset_disjoint_check": {
+    "verdict": "DISJOINT",
+    "layer_a_hash_different": true,
+    "layer_b_no_shared_bars": true,
+    "oos_last_utc": "2026-07-28 05:45:00Z",
+    "training_first_utc": "2026-07-28 05:50:00Z"
+  },
   "rules": [
     "RUN ONCE",
     "no parameter change after OOS result seen",
     "verdict only: GO_RESEARCH | INCONCLUSIVE | KILL_REVISE",
     "analyses mandatory: expNet net, PSR, DSR, CI95, worst period, loss streak, score-bucket monotonicity, regime decomposition (vol/trend/chop/spread/session/direction)"
-  ]
+  ],
+  "dataset_oos_window": "2026-04-23 10:30Z .. 2026-07-28 05:45Z (M5 18515 bar, 64.28 hari trading; M15 8162 bar dari 2026-03-24)",
+  "qualification_standard": {
+    "gap_intra_day_max": 0,
+    "fail_closed_all_zero": true,
+    "session_break_classified_only": true,
+    "evidence": "data/research/backward/oos_qualification.json (verdict LAYAK, fail-closed=0 di kedua TF)"
+  },
+  "manifest_finalized_utc": "2026-09-09 05:56:07Z",
+  "manifest_note": "Manifest-final: PENDING-A2 terisi SEBELUM A3 run-once. Tidak ada parameter strategi berubah vs A1."
 }
