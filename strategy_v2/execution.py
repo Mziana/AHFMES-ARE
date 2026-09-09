@@ -260,19 +260,25 @@ class ShadowGateway:
         self.flatten_log: List[Dict[str, Any]] = []
 
     def _next_bar_open(self, ts: int) -> Optional[Dict[str, Any]]:
+        # Kontrak replay: entry = bar pertama dengan time >= T (T = close time
+        # bar sinyal = open bar berikutnya pada grid 300s).
         lo, hi, idx = 0, len(self._times) - 1, None
         while lo <= hi:
             mid = (lo + hi) // 2
-            if self._times[mid] > ts:
+            if self._times[mid] >= ts:
                 idx = mid
                 hi = mid - 1
             else:
                 lo = mid + 1
         return self._bars[idx] if idx is not None else None
 
-    def submit(self, intent: ExecutionIntent, latency: Optional[Dict[str, float]] = None
-               ) -> ShadowFill:
-        """submit: simulated submit -> simulated fill (next bar open)."""
+    def submit(self, intent: ExecutionIntent, spread_points: float = 17.0,
+               latency: Optional[Dict[str, float]] = None) -> ShadowFill:
+        """submit: simulated submit -> simulated fill (kontrak replay persis).
+
+        Basis BID: SELL diisi di open bar; BUY diisi di ASK = open + spread
+        (spread tepat satu kali per arah — kontrak F1/F2). Slippage sim = 0.
+        """
         if self.kill_switch_active:
             raise RuntimeError("KILL_SWITCH_ACTIVE — submit ditolak (fail-closed)")
         bar = self._next_bar_open(intent.decision_ts)
@@ -280,14 +286,13 @@ class ShadowGateway:
             raise ValueError("tidak ada bar berikutnya untuk fill simulasi")
         open_px = float(bar["open"])
         slip = 0.0
-        fill_px = open_px
         if intent.direction == "BUY":
-            fill_px = open_px + slip * self.point
+            fill_px = open_px + (float(spread_points) + slip) * self.point
         else:
             fill_px = open_px - slip * self.point
         fill = ShadowFill(
-            intent_id=intent.intent_id, fill_ts=int(bar["time"]),  # fill di OPEN bar berikutnya
-            fill_price=round(fill_px, 2), submitted_price=intent.entry_est or open_px,
+            intent_id=intent.intent_id, fill_ts=int(bar["time"]),  # fill di OPEN bar entry (>= T)
+            fill_price=round(fill_px, 4), submitted_price=intent.entry_est or open_px,
             slippage_points=slip,
             latency=latency or {"decision": 0.0, "risk": 0.0, "submit": 0.0,
                                 "ack": 0.0, "fill": 0.0},

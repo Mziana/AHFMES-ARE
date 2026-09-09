@@ -130,9 +130,18 @@ class TestShadowGateway:
         csk = CapitalSafetyKernel(SafetyLimits())
         ad = ex.DecisionAdapter(csk)
         it = ad.submit(_record(ts=1_700_000_000), "MICRO_V2")
-        fill = gw.submit(it)
-        assert fill.fill_ts == 1_700_000_000 + 300
-        assert abs(fill.fill_price - 2401.0) < 1e-9  # open bar berikutnya
+        fill = gw.submit(it, spread_points=17.0)
+        assert fill.fill_ts == 1_700_000_000  # bar pertama dengan open >= decision close
+        # BUY diisi di ASK = open + 17 poin (kontrak replay: spread sekali per arah)
+        assert abs(fill.fill_price - (2400.0 + 17.0 * 0.01)) < 1e-9
+
+    def test_sell_fills_at_bid_open(self):
+        gw = ex.ShadowGateway(_bars())
+        csk = CapitalSafetyKernel(SafetyLimits())
+        ad = ex.DecisionAdapter(csk)
+        it = ad.submit(_record(ts=1_700_000_000, decision="SELL"), "MICRO_V2")
+        fill = gw.submit(it, spread_points=17.0)
+        assert abs(fill.fill_price - 2400.0) < 1e-9  # SELL di BID = open
 
     def test_kill_switch_blocks_submit(self):
         gw = ex.ShadowGateway(_bars(), kill_switch_active=True)
