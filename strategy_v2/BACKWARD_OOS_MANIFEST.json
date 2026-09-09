@@ -1,0 +1,37 @@
+{
+  "manifest_id": "BACKWARD-OOS-FREEZE-A1",
+  "created_utc": "2026-09-09",
+  "strategy_version": "strategy_v2/0.4.1-c1",
+  "champion_commit": "631d2192fc6eea3a5d2dd8138edbf361ea7d0a15",
+  "config_hash_c1": "e36b90f3c8bdb5978a534a412b0a499d3e64179bdf197965bb636c33d169c5eb",
+  "scorer_file_sha256": "5dd84f6c4cb8f2f1ae425b09820c73ab0464dab9f2771acc89d11394d93cc418",
+  "gates_file_sha256": "aa22d08a2fd8adbfa33c5863ff35649c2d827488cd996aba91b16fcfe680dcf0",
+  "replay_file_sha256": "1ff6acb3722405b01e2ae6f661dac34b1d218362688272755060f1cb9c88a4c3",
+  "weights_hash_profile_micro_canonical": "7238f054196f5a998076de05ddb8c980fcf3f9d355268ac4d75df3432f8e2ea2",
+  "threshold_frozen": 60.1,
+  "threshold_selection_rule": "lowest T with exp_net_base>0 AND exp_net_must>0 AND trades>=30 (12-point causal sweep, C1)",
+  "cost_model": {
+    "spread_pts": 17,
+    "point_value_usd_per_lot": 1.0,
+    "slippage_pts": 0,
+    "delay_bars": 0,
+    "must_cell": "x1.5 spread + slip2 + delay0 (+0.2023, C3)"
+  },
+  "execution_assumptions": {
+    "basis": "BID",
+    "entry": "next_bar_open",
+    "spread_paid": "once_per_crossing",
+    "position_mode": "ONE_POSITION_ONLY",
+    "cooldown_min": 5
+  },
+  "dataset_training_hash": "86014edf84ad866d6a06a73832e6a67a3ca87c3b93831c1d49828c7c93735200",
+  "dataset_training_window": "2026-07-29 .. 2026-09-08 (P3 locked)",
+  "dataset_oos_hash": "PENDING-A2 (bridge perlu hidup)",
+  "dataset_disjoint_check": "PENDING-A2",
+  "rules": [
+    "RUN ONCE",
+    "no parameter change after OOS result seen",
+    "verdict only: GO_RESEARCH | INCONCLUSIVE | KILL_REVISE",
+    "analyses mandatory: expNet net, PSR, DSR, CI95, worst period, loss streak, score-bucket monotonicity, regime decomposition (vol/trend/chop/spread/session/direction)"
+  ]
+}
