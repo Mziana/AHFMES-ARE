@@ -68,6 +68,7 @@ POLL_S = 1  # owner: respon per 1 detik (CPU masih kuat)
 from strategy_v2 import simple_variants as SV  # noqa: E402
 from strategy_v2 import candle_scoring as CS  # noqa: E402
 from strategy_v2 import micro_v2 as MICRO_V2  # noqa: E402  (MICRO v2.1, 2026-09-11)
+from strategy_v2 import shadow_ab  # noqa: E402  (ops-rev7: shadow A/B, tanpa order)
 
 
 def get(path: str) -> dict:
@@ -130,6 +131,7 @@ def write_state(open_orders: dict, last_T: int, equity: float,
             "rsi": rsi or {},
             "arms": {a: {**arm_state[a], "enabled": arm_enabled.get(a, True)}
                      for a in arm_state},
+            "shadow": shadow_ab.summary(),
         }, ensure_ascii=True), encoding="utf-8")
     except Exception:
         pass
@@ -553,6 +555,8 @@ def main() -> int:
 
         # ── MICRO: evaluasi tiap close M1 ──
         if need_refresh["M1"] and m1 and m5:
+            # ops-rev7: shadow A/B dulu (murni read-only; exception-proof)
+            shadow_ab.on_m1_close(m1, m5, now_epoch)
             _run_arm("MICRO", m1, m5, m15, h4, balance, news, now_epoch,
                      kills, open_orders, arm_state, journal, last_entry_ts,
                      arm_enabled)
