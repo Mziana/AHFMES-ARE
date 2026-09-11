@@ -46,6 +46,34 @@ MT5_ACCOUNT = None
 _REPO_ROOT = None  # resolved lazily to avoid import-order coupling
 
 
+class _Tee:
+    """rev6: salurkan stdout ke file permanen juga.
+
+    Saat bridge di-spawn detached penuh (WMI — kebal penutupan Freebuff),
+    stdout tidak tersambung ke pipa mana pun; file ini satu-satunya jejak
+    operasional. Print() di kode tidak perlu diubah satu pun.
+    """
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, s):
+        for st in self._streams:
+            try:
+                st.write(s)
+                st.flush()
+            except Exception:
+                pass
+        return len(s)
+
+    def flush(self):
+        for st in self._streams:
+            try:
+                st.flush()
+            except Exception:
+                pass
+
+
 def _repo_root() -> str:
     global _REPO_ROOT
     if _REPO_ROOT is None:
@@ -316,7 +344,18 @@ def send_order(symbol, direction, lot, sl=0, tp=0, sl_points=0, tp_points=0, com
             return {'success': False, 'error': f'order_send returned None — last_error: {mt5.last_error()}'}
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             return {'success': False, 'error': result.comment, 'retcode': result.retcode}
-        return {'success': True, 'ticket': result.order, 'deal': result.deal, 'price': result.price}
+        # result.order = order ticket; order entry dan ID posisinya SAMA di
+        # MT5 (position id = ticket order pembuka), tapi kita verifikasi dari
+        # positions_get alih-alih mengasumsikan — fallback ke result.order.
+        position_id = None
+        try:
+            opened = mt5.positions_get(ticket=result.order) if result.order else None
+            if opened:
+                position_id = int(getattr(opened[0], 'identifier', 0) or 0) or int(opened[0].ticket)
+        except Exception:
+            position_id = None
+        return {'success': True, 'ticket': result.order, 'deal': result.deal,
+                'price': result.price, 'position_id': position_id}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
@@ -478,11 +517,20 @@ class MT5Handler(BaseHTTPRequestHandler):
             try:
                 from datetime import datetime, timedelta
                 since = datetime.now() - timedelta(days=days)
-                deals = mt5.history_deals_get(since, datetime.now())
+                # batas atas +2 hari: deal di-stamp dgn waktu server broker yang
+                # bisa LEBIH MAJU dari jam lokal — dulu memakai datetime.now()
+                # sehingga trade sore terpotong dari history (bug ditemukan di
+                # demo 2026-09-10: deal 11:44 & 12:09 hilang dari /deals)
+                deals = mt5.history_deals_get(since, datetime.now() + timedelta(days=2))
                 data = {'deals': [
                     {
                         'ticket': d.ticket, 'order': d.order, 'time': d.time,
                         'type': d.type, 'entry': d.entry, 'magic': d.magic,
+                        # position_id = ID posisi (sama dgn ticket /positions &
+                        # ticket order entry) — kunci pairing eksak entry->exit
+                        # (bug 2026-09-10: dua arm close bareng dgn lot sama
+                        # membuat matcher heuristik bisa tukar PnL antar arm)
+                        'position_id': d.position_id,
                         'volume': d.volume, 'price': d.price,
                         'profit': d.profit, 'swap': d.swap, 'commission': d.commission,
                         'symbol': d.symbol, 'comment': d.comment,
@@ -591,6 +639,15 @@ def main():
 
     # E-4: rotasi log auth sendiri saat startup (jangan tumbuh tanpa batas).
     _rotate_own_log(os.path.join(_repo_root(), 'data', 'logs', 'bridge_auth.log'))
+    # rev6: teelog permanen (rotasi saat startup, keep 2) — observability
+    # untuk spawn WMI yang tidak punya stdout pipa.
+    try:
+        _log_path = os.path.join(_repo_root(), 'data', 'logs', 'bridge_server.log')
+        os.makedirs(os.path.dirname(_log_path), exist_ok=True)
+        _rotate_own_log(_log_path, max_bytes=2_000_000, keep=2)
+        sys.stdout = _Tee(sys.stdout, open(_log_path, 'a', encoding='utf-8', errors='replace'))
+    except Exception:
+        pass
     ok, msg = connect_mt5()
     print(f"MT5 Server starting on port {port} (auth: token enabled)")
     print(f"MT5: {msg}")
