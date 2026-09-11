@@ -34,7 +34,7 @@ if _ROOT not in sys.path:
 from are.safety import CapitalSafetyKernel, SafetyLimits, SafetyDecision  # noqa: E402
 
 STRATEGY_ROOT = "strategy_v2"
-STRATEGY_VERSION = "strategy_v2/0.4.2-b2"
+STRATEGY_VERSION = "strategy_v2/0.5.0-r1"
 ONE_BAR_M5_S = 300
 LATENCY_VIABILITY_P99_S = 5.0
 PARITY_TICK_FLOOR = 0.01  # 1 point XAUUSD (0.01 harga) — floor, bukan pengganti tick_size broker
@@ -230,6 +230,64 @@ class ExecutionStateMachine:
 # ─────────────────────────────────────────────────────────────────────────────
 # B4 — ShadowGateway (satu-satunya gateway; kill switch + flatten_all di sini)
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# S0.3 (R1) — kontrak pending STOP (H-IBREAK-01)
+# ─────────────────────────────────────────────────────────────────────────────
+PENDING_M1_BAR_S = 60  # satu bar M1 (detik) — sama dengan execution_m1.M1_BAR
+
+
+@dataclass
+class PendingShadowOrder:
+    """Order pending yang bersarang (resting) di gateway bayangan."""
+    order_id: str
+    intent: ExecutionIntent
+    order_type: str            # "BUY_STOP" | "SELL_STOP"
+    stop_price: float
+    placement_ts: int
+    expiry_ts: int             # placement_ts + expiry_bars × 60
+    trigger_scan_from: int     # placement_ts + 60 (bar placement TIDAK trigger)
+
+
+@dataclass
+class PendingResolveResult:
+    """Hasil resolusi satu order pending.
+
+    outcome: "FILLED" | "CANCELLED" | "OPEN" (belum ada data keputusan)
+    """
+    outcome: str
+    fill_ts: Optional[int] = None
+    fill_price: Optional[float] = None
+    reason: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"outcome": self.outcome, "fill_ts": self.fill_ts,
+                "fill_price": self.fill_price, "reason": self.reason}
+
+
+def _resolve_pending_m1(order: PendingShadowOrder, m1_bars: List[Dict[str, Any]],
+                        slippage_points: float, point_size: float) -> PendingResolveResult:
+    """Resolusi murni atas grid M1: trigger pertama dalam [cursor, expiry_ts].
+
+    Mirror run_execution_m1: while trig <= expiry_ts; hit = high >= stop (BUY)
+    / low <= stop (SELL); fill = stop ± slip; entry_ts = time bar trigger.
+    """
+    for b in sorted(m1_bars, key=lambda x: int(x["time"])):
+        t = int(b["time"])
+        if t < order.trigger_scan_from:
+            continue
+        if t > order.expiry_ts:
+            break
+        if order.order_type == "BUY_STOP":
+            hit = float(b["high"]) >= order.stop_price
+        else:
+            hit = float(b["low"]) <= order.stop_price
+        if hit:
+            slip_px = float(slippage_points) * point_size
+            fill = order.stop_price + (slip_px if order.order_type == "BUY_STOP" else -slip_px)
+            return PendingResolveResult(outcome="FILLED", fill_ts=t, fill_price=round(fill, 4))
+    return PendingResolveResult(outcome="OPEN")
+
+
 @dataclass
 class ShadowFill:
     intent_id: str
@@ -258,6 +316,7 @@ class ShadowGateway:
         self.kill_switch_active = bool(kill_switch_active)
         self.open_shadows: Dict[str, ShadowFill] = {}
         self.flatten_log: List[Dict[str, Any]] = []
+        self.pending_orders: Dict[str, "PendingShadowOrder"] = {}
 
     def _next_bar_open(self, ts: int) -> Optional[Dict[str, Any]]:
         # Kontrak replay: entry = bar pertama dengan time >= T (T = close time
@@ -310,6 +369,68 @@ class ShadowGateway:
 
     def resume(self) -> None:
         self.kill_switch_active = False
+
+    # ── S0.3 (R1) — Pending STOP (H-IBREAK-01) ──────────────────────────────
+    # Kontrak = mirror persis run_execution_m1 pending path (satu kebenaran):
+    #   - trigger: bar M1 PERTAMA dengan time >= cursor (cursor = placement +
+    #     60s — order belum live di bar placement) yang high >= stop (BUY) /
+    #     low <= stop (SELL), dan time <= expiry_ts = placement + 12×60s.
+    #   - fill = stop_price + slippage (BUY) / − slippage (SELL).
+    #   - cancel/expiry eksplisit (reversal / market-entry / kill) → hasil
+    #     CANCELLED; state machine intent menutup via ABORTED (transisi legal
+    #     ACKNOWLEDGED → ABORTED). Tidak ada state machine baru.
+
+    def submit_pending(self, intent: ExecutionIntent, order_type: str,
+                       stop_price: float, expiry_bars: int = 12) -> "PendingShadowOrder":
+        """Pasang order pending STOP di gateway bayangan (fail-closed).
+
+        Kontrak H-IBREAK-01: stop_price wajib positif; arah intent wajib
+        cocok dengan tipe order. Expiry dalam bar M1 (60s).
+        """
+        if self.kill_switch_active:
+            raise RuntimeError("KILL_SWITCH_ACTIVE — submit_pending ditolak (fail-closed)")
+        if order_type not in ("BUY_STOP", "SELL_STOP"):
+            raise ValueError(f"order_type '{order_type}' bukan pending STOP")
+        stop = _require_finite(stop_price, "stop_price")
+        if stop <= 0:
+            raise ValueError("stop_price wajib positif")
+        if intent.direction == "BUY" and order_type != "BUY_STOP":
+            raise ValueError("intent BUY wajib BUY_STOP")
+        if intent.direction == "SELL" and order_type != "SELL_STOP":
+            raise ValueError("intent SELL wajib SELL_STOP")
+        placement = int(intent.decision_ts)
+        order = PendingShadowOrder(
+            order_id="P-" + intent.intent_id[2:],
+            intent=intent, order_type=order_type, stop_price=stop,
+            placement_ts=placement,
+            expiry_ts=placement + int(expiry_bars) * PENDING_M1_BAR_S,
+            trigger_scan_from=placement + PENDING_M1_BAR_S,
+        )
+        self.pending_orders[order.order_id] = order
+        return order
+
+    def resolve_pending(self, order_id: str, m1_bars: List[Dict[str, Any]],
+                        slippage_points: float = 0.0) -> "PendingResolveResult":
+        """Resolusi order pending terhadap grid M1 nyata (trigger/expiry).
+
+        FILLED → order dihapus dari resting (state intent berikutnya
+        ACKNOWLEDGED → FILLED dipegang pemanggil); OPEN → tetap resting.
+        """
+        order = self.pending_orders.get(order_id)
+        if order is None:
+            raise KeyError(f"pending order '{order_id}' tidak dikenal")
+        res = _resolve_pending_m1(order, m1_bars, slippage_points, self.point)
+        if res.outcome == "FILLED":
+            self.pending_orders.pop(order_id, None)
+        return res
+
+    def expire_pending(self, order_id: str, now_ts: int) -> "PendingResolveResult":
+        """Expiry/cancel eksplisit (reversal / market-entry / kill)."""
+        order = self.pending_orders.pop(order_id, None)
+        if order is None:
+            raise KeyError(f"pending order '{order_id}' tidak dikenal")
+        reason = "pending_expired" if now_ts > order.expiry_ts else "pending_cancelled"
+        return PendingResolveResult(outcome="CANCELLED", reason=reason)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

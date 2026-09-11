@@ -232,7 +232,9 @@
         "inherits": "H-EXEC-M1-01 (M1 execution)",
         "recalibrate_threshold": true,
         "threshold_rule": "C1 rule dideklarasikan ulang persis: lowest T with exp_net_base>0 AND exp_net_must(x1.5+slip2)>0 AND trades>=30 (grid tetap)",
-        "n_grid_points": 12
+        "n_grid_points": 12,
+        "test_direction": "ablation_remove",
+        "ladder": "A subset B subset C; C = B MINUS volume_confirmation component (weights renormalisasi ke total 100)"
       },
       "status": "HYPOTHESIS",
       "source": "R1_package_arm_C",
@@ -243,7 +245,7 @@
         ],
         "status": "HYPOTHESIS",
         "reason_for_change": "Keputusan owner K4 (volume layak diuji dalam bentuk graded); konsekuensi: T* arm C dikalibrasi ulang dengan rule C1",
-        "hypothesis_statement": "Volume sebagai komponen skor graded (bukan veto biner) menambah informasi seleksi tanpa cliff-edge -> expectancy net arm C lebih baik dari arm B.",
+        "hypothesis_statement": "MENGHAPUS komponen volume_confirmation (graded) dari scorer (bobot 15 dinormalisasi) dgn T* dikalibrasi ulang via rule C1 pada grid tetap -> expNet arm C lebih baik dari arm B (volume tidak informatif) ATAU lebih buruk (volume informatif); pengujian dua arah sesuai amendemen pra-hasil 2026-09-09.",
         "data_used": [
           "training window B4 distance diagnostic (2026-09-09)",
           "P5 cost-stress artifacts",
@@ -274,7 +276,10 @@
           2,
           5
         ],
-        "inherits": "H-EXEC-M1-01 (M1 execution)"
+        "inherits": "H-EXEC-M1-01 (M1 execution)",
+        "trigger_tier": 0.7,
+        "placement": "open +/- (range + 1 tick), tick = 0.01",
+        "order_contract": "pending STOP; expiry 12 bar M1 sejak placement; scan trigger berikutnya dimulai bar SETELAH placement; cancel pada reversal exit"
       },
       "status": "HYPOTHESIS",
       "source": "R1_package_arm_D",

@@ -179,6 +179,11 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         # H-SCORE-01 (Cognitive Layer v2.1): param scorer BQ
         "h_score": registry.hypothesis(registry_dict, "H-SCORE-01")["value"],
         "layer_a": prof_a,
+        # R1 Arm D (H-IBREAK-01): mode trigger inside-bar via virtual profile —
+        # passthrough kontrak (default tidak ada → mode reversal champion).
+        "b5_mode": profile.get("b5_mode"),
+        "inside_bar_enabled": profile.get("b5_mode") == "inside_bar",
+        "inside_bar_expiry_bars": registry.hypothesis(registry_dict, "H-IBREAK-01")["value"]["expiry_m1_bars"],
         "calendar": calendar or {"status": "down", "events": []},
         "ticks_meta": {"spread_points": config.get("spread_points")},  # None → cek spread dilewati
         "risk_state": {},   # diupdate oleh eksekusi (dipakai saat gabungan)
@@ -231,6 +236,7 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
             "bias": diag["bias"],
             "setup": diag.get("setup"),
             "trigger": diag.get("trigger"),
+            "pending_order": diag.get("pending_order"),   # R1 Arm D (H-IBREAK-01)
             "quality_score": diag.get("quality_score"),
             "decision": decision,
             "sl_points": sl_points,

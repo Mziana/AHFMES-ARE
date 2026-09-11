@@ -28,6 +28,7 @@ TRIGGER_TIER = {
     "evening_star": 1.0, "three_black_crows": 1.0,
     "bullish_engulfing": 0.8, "bearish_engulfing": 0.8,
     "hammer": 0.6, "shooting_star": 0.6,
+    "inside_bar": 0.7,   # R1 H-IBREAK-01 (amandemen pra-hasil, tercatat di registry)
 }
 UNKNOWN_PATTERN_SCORE = 0.5   # pola di luar daftar (mis. ablation_any) -> netral
 

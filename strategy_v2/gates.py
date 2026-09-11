@@ -328,6 +328,40 @@ def b5_trigger(m5_closed_bars: list, bias: str, config: dict) -> str:
     return "FAIL:none"
 
 
+def b5_inside_bar_signal(m5_closed_bars: list, bias: str, config: dict) -> tuple:
+    """R1 Arm D (H-IBREAK-01): sinyal Inside-Bar breakout — CONFIG-GATED
+    (default OFF; aktif hanya via virtual profile b5_mode="inside_bar").
+
+    Definisi: bar sinyal S seluruhnya di dalam range bar sebelumnya P
+    (high(S) < high(P) DAN low(S) > low(P), strict — tanpa equal-high/low).
+    Output (placement_ts, order_type, stop_price) atau (None, reason).
+    Arah mengikuti bias B3 (bukan pola dua-arah seperti breakout netral klasik).
+    """
+    if not config.get("inside_bar_enabled", False):
+        return None, "DISABLED"
+    if len(m5_closed_bars) < 2:
+        return None, "FAIL:none"
+    now_ts = config["now_ts"]
+    last_close = int(m5_closed_bars[-1]["time"]) + config.get("bar_seconds", BAR_SECONDS[TRIGGER_TIMEFRAME])
+    if last_close > now_ts:
+        return None, "FAIL:forming_bar"
+    if bias not in ("BUY_ONLY", "SELL_ONLY"):
+        return None, "FAIL:none"
+    s, p = m5_closed_bars[-1], m5_closed_bars[-2]
+    rng = float(p["high"]) - float(p["low"])
+    if not (rng > 0):
+        return None, "FAIL:none"
+    inside = float(s["high"]) < float(p["high"]) and float(s["low"]) > float(p["low"])
+    if not inside:
+        return None, "FAIL:none"
+    tick = 0.01
+    if bias == "BUY_ONLY":
+        stop = float(p["high"]) + tick
+        return int(s["time"]), "BUY_STOP", round(stop, 2)
+    stop = float(p["low"]) - tick
+    return int(s["time"]), "SELL_STOP", round(stop, 2)
+
+
 def b6_volume(m5_closed_bars: list, config: dict) -> str:
     """Tick-activity proxy. Baseline = mean volume 5 bar SEBELUM signal bar
     (exclude-self). Zero/missing baseline → FAIL:baseline_invalid (BUKAN PASS)."""
@@ -402,12 +436,15 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     atr5 = Z.atr(m5) if m5 else None
     
     # Default snapshot with all required fields (schema compliance)
+    # Analyst Desk v2.5: `close` = harga close bar sinyal (input trade plan
+    # narrative; opsional di schema — record lama tetap valid).
     snap = {
         "spread": spread_points,
         "atr": atr5 * 100.0 if atr5 else None,
         "vol_ratio": None,
         "rsi_m15": rsi_m15,
         "rsi_m5": rsi_m5,
+        "close": (m5[-1]["close"] if m5 else None),
     }
 
     layer_a = layer_a_data_integrity(m5, config.get("ticks_meta"), config)
@@ -421,6 +458,7 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
     bias = None
     setup = None
     trigger = None
+    pending = None   # R1 Arm D: sinyal pending STOP (mode inside_bar saja)
 
     if layer_a != "DATA_VALID":
         # Pagar 3: Layer B TIDAK dijalankan atas data invalid.
@@ -433,6 +471,7 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
             "bias": None,
             "setup": None,
             "trigger": None,
+            "pending_order": None,
             "market_snapshot": snap,
         }
 
@@ -484,6 +523,22 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
         # rezim+lokasi menjadi sinyal (trigger sintetis, dilabel eksplisit).
         if bias:
             trigger = {"pattern": "ablation_any", "bar_ts": int(m5[-1]["time"])}
+    elif str(config.get("b5_mode", "reversal")) == "inside_bar":
+        # R1 Arm D (H-IBREAK-01): inside-bar MENGGANTIKAN trigger reversal —
+        # kejelasan atribusi (bukan mode ganda). Sinyal = pending STOP (tier 0.7);
+        # skor dievaluasi saat pemasangan (kontrak H-IBREAK-01).
+        _ib = b5_inside_bar_signal(m5, bias, config)
+        ib_ts, ib_type = _ib[0], _ib[1]
+        ib_stop = _ib[2] if len(_ib) > 2 else None
+        if ib_ts is not None:
+            results["b5_trigger"] = "PASS:inside_bar"
+            trigger = {"pattern": "inside_bar", "bar_ts": int(m5[-1]["time"])}
+            pending = {"placement_ts": ib_ts, "order_type": ib_type,
+                       "stop_price": ib_stop,
+                       "expiry_bars": int(config.get("inside_bar_expiry_bars", 12)),
+                       "trigger_tier": 0.7}
+        else:
+            results["b5_trigger"] = "FAIL:none"
     else:
         results["b5_trigger"] = b5_trigger(m5, bias, config) if bias else "FAIL:none"
     if results["b5_trigger"].startswith("PASS:"):
@@ -554,6 +609,7 @@ def evaluate_all(bars_dict: dict, profile: dict, config: dict, market_snapshot: 
         "bias": bias,
         "setup": setup,
         "trigger": trigger,
+        "pending_order": pending,
         "sl_calc": sl_calc,
         "quality_score": quality,
         "market_snapshot": snap,
