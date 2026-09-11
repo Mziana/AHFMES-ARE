@@ -1,0 +1,823 @@
+{
+  "status": "stopped",
+  "pid": null,
+  "symbol": "XAUUSD",
+  "style": "micro",
+  "risk": 1,
+  "magic": 2001,
+  "started_at": "2026-09-07T16:12:48.018160+00:00",
+  "active_ticket": 423890024,
+  "active_direction": "BUY",
+  "positions": [
+    {
+      "ticket": 423890024,
+      "direction": "BUY",
+      "entry": 4416.81,
+      "lot": 0.02,
+      "sl": 150,
+      "tp": 150,
+      "opened_at": 1788797570.6305866,
+      "last_pnl": 0,
+      "last_price": 4416.81
+    }
+  ],
+  "trade_count": 0,
+  "daily_pnl": 0,
+  "starting_balance": 1139.67,
+  "last_trade_at": 1788797570.6305866,
+  "last_reject_at": null,
+  "trailing_atr": 0,
+  "last_trailing_sl": null,
+  "last_atr": null,
+  "last_known_pnl": 0,
+  "last_known_equity": 1139.67,
+  "trade_history": [],
+  "rejections": {
+    "total": 0,
+    "by_reason": {},
+    "last": null
+  },
+  "next_check_at": 1788797571.6356642,
+  "rejections_prev": {
+    "total": 0,
+    "by_reason": {}
+  },
+  "rejections_reset_at": "2026-09-07T16:12:48.018160+00:00",
+  "last_decision": {
+    "decision": "BUY",
+    "decisionReason": "TA: master BUY 63% — M1 76 · M5 64 · M15 54 — skor 5/5 — candle READY skor 10 — M1 4x bullish, M5 2x bullish, pullback ke EMA21 M5, struktur M5 pecah — shadow: 10 indikator lawan (MACD@M5, Stochastic@M5, CCI@M5...) — R:R 1.0:1, ATR 2.4",
+    "finalSignal": "BUY",
+    "totalConfirmations": 2,
+    "minRequired": 2,
+    "mtfConfirmed": true,
+    "inSession": true,
+    "dataFresh": true,
+    "rr": 1,
+    "slPoints": 150,
+    "tpPoints": 150,
+    "lotSize": 0.02,
+    "slTpSource": "manual",
+    "timeframeSignals": {
+      "M5": {
+        "signal": "BUY",
+        "confidence": 54,
+        "atr": 2.429999999999901,
+        "rsi": 66.1174197405949,
+        "price": 4416.64
+      },
+      "M15": {
+        "signal": "BUY",
+        "confidence": 54,
+        "atr": 5.796428571428805,
+        "rsi": 63.53138698614742,
+        "price": 4416.64
+      }
+    },
+    "taSnapshot": {
+      "available": true,
+      "master": {
+        "signal": "BUY",
+        "confidence": 63
+      },
+      "m1": {
+        "signal": "BUY",
+        "confidence": 76
+      },
+      "m5": {
+        "signal": "BUY",
+        "confidence": 64
+      },
+      "m15": {
+        "signal": "BUY",
+        "confidence": 54
+      },
+      "h4": {
+        "signal": "BUY",
+        "confidence": 65
+      },
+      "d1": {
+        "signal": "SELL",
+        "confidence": 51
+      },
+      "score": 5,
+      "maxScore": 5,
+      "minScore": 3,
+      "patterns": [],
+      "m5Volume": 332,
+      "indicatorSummary": {
+        "m1": {
+          "buy": 24,
+          "sell": 7.5,
+          "topBuy": [
+            "MACD",
+            "ADX",
+            "MFI"
+          ],
+          "topSell": [
+            "RSI (14)",
+            "Stochastic",
+            "Bollinger"
+          ]
+        },
+        "m5": {
+          "buy": 11.5,
+          "sell": 6.5,
+          "topBuy": [
+            "RSI (14)",
+            "ADX",
+            "SuperTrend"
+          ],
+          "topSell": [
+            "MACD",
+            "Stochastic",
+            "Bollinger"
+          ]
+        },
+        "m15": {
+          "buy": 10.5,
+          "sell": 9,
+          "topBuy": [
+            "RSI (14)",
+            "MACD",
+            "ADX"
+          ],
+          "topSell": [
+            "Stochastic",
+            "Bollinger",
+            "CCI"
+          ]
+        }
+      },
+      "shadow": [
+        {
+          "name": "MACD",
+          "tf": "M5",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "Stochastic",
+          "tf": "M5",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "CCI",
+          "tf": "M5",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "Williams %R",
+          "tf": "M5",
+          "signal": "SELL",
+          "strength": "STRONG"
+        },
+        {
+          "name": "Range Position",
+          "tf": "M5",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "Stochastic",
+          "tf": "M15",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "CCI",
+          "tf": "M15",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "Williams %R",
+          "tf": "M15",
+          "signal": "SELL",
+          "strength": "STRONG"
+        },
+        {
+          "name": "SuperTrend",
+          "tf": "M15",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        },
+        {
+          "name": "VWAP",
+          "tf": "M15",
+          "signal": "SELL",
+          "strength": "MODERATE"
+        }
+      ],
+      "candle": {
+        "setup": "READY",
+        "score": 10,
+        "block": false,
+        "note": "candle READY skor 10 — M1 4x bullish, M5 2x bullish, pullback ke EMA21 M5, struktur M5 pecah",
+        "opp": {
+          "m1_opp_streak": 0,
+          "m1_same_streak": 4,
+          "m5_opp_streak": 0,
+          "m15_opp_big": false,
+          "last_same_dir": true,
+          "reversal_pattern": false,
+          "at_ema21_m5": true,
+          "structure_break": true
+        }
+      },
+      "memory": {
+        "available": true,
+        "key": "micro|BUY|m_BUY|r_r>65|a_a<3|p_none",
+        "n": 0,
+        "win": 0,
+        "loss": 0,
+        "winrate": null,
+        "verdict": "neutral",
+        "reason": "memori: kondisi ini belum pernah dicatat"
+      },
+      "tfIndicators": {
+        "M1": [
+          {
+            "name": "RSI (14)",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "72.1"
+          },
+          {
+            "name": "MACD",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "M0.9 S0.6 H0.3"
+          },
+          {
+            "name": "Stochastic",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "K86.3 D94.1"
+          },
+          {
+            "name": "Bollinger",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "U4416.7 M4414.1 L4411.6"
+          },
+          {
+            "name": "ADX",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "A47.6 +41.1 -8.5"
+          },
+          {
+            "name": "CCI",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "186"
+          },
+          {
+            "name": "Williams %R",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "-13.7"
+          },
+          {
+            "name": "MFI",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "76.4"
+          },
+          {
+            "name": "SuperTrend",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "4410.5 ↑"
+          },
+          {
+            "name": "Ichimoku",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "TK4415.4 KJ4414.6"
+          },
+          {
+            "name": "VWAP",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "4407.9"
+          },
+          {
+            "name": "EMA 9/21",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "9:4415.4 21:4414.4"
+          },
+          {
+            "name": "EMA 21/50",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "21:4414.4 50:4413.4"
+          },
+          {
+            "name": "Golden/Death Cross",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "50:4413.4 200:4408.3"
+          },
+          {
+            "name": "SMA 200",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "4408.3"
+          },
+          {
+            "name": "Doji",
+            "signal": "NEUTRAL",
+            "strength": "MODERATE",
+            "value": "Body9.1%"
+          },
+          {
+            "name": "3 White Soldiers",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "↑↑↑"
+          },
+          {
+            "name": "Pin Bar Bear",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "UW78%"
+          },
+          {
+            "name": "HH/HL Structure",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "HH:8 HL:9"
+          },
+          {
+            "name": "Bull Momentum",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "4 consecutive ↑"
+          },
+          {
+            "name": "OBV Confirm",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "OBV ↑ Price ↑"
+          }
+        ],
+        "M5": [
+          {
+            "name": "RSI (14)",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "66.1"
+          },
+          {
+            "name": "MACD",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "M2.4 S2.6 H-0.2"
+          },
+          {
+            "name": "Stochastic",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "K92.8 D80.2"
+          },
+          {
+            "name": "Bollinger",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "U4418.2 M4413.4 L4408.7"
+          },
+          {
+            "name": "ADX",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "A19.2 +22.2 -21.0"
+          },
+          {
+            "name": "CCI",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "123"
+          },
+          {
+            "name": "Williams %R",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "-7.2"
+          },
+          {
+            "name": "MFI",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "44.6"
+          },
+          {
+            "name": "SuperTrend",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "4400.1 ↑"
+          },
+          {
+            "name": "Ichimoku",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "TK4413.0 KJ4412.1"
+          },
+          {
+            "name": "VWAP",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "4405.4"
+          },
+          {
+            "name": "EMA 9/21",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "9:4414.3 21:4412.3"
+          },
+          {
+            "name": "EMA 21/50",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "21:4412.3 50:4407.9"
+          },
+          {
+            "name": "Golden/Death Cross",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "50:4407.9 200:4405.3"
+          },
+          {
+            "name": "SMA 200",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "4405.3"
+          },
+          {
+            "name": "HH/HL Structure",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "HH:6 HL:6"
+          },
+          {
+            "name": "Range Position",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "93% of range"
+          },
+          {
+            "name": "OBV Confirm",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "OBV ↑ Price ↑"
+          }
+        ],
+        "M15": [
+          {
+            "name": "RSI (14)",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "63.5"
+          },
+          {
+            "name": "MACD",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "M3.8 S2.2 H1.6"
+          },
+          {
+            "name": "Stochastic",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "K88.5 D80.9"
+          },
+          {
+            "name": "Bollinger",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "U4423.2 M4403.4 L4383.6"
+          },
+          {
+            "name": "ADX",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "A47.8 +30.7 -6.1"
+          },
+          {
+            "name": "CCI",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "103"
+          },
+          {
+            "name": "Williams %R",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "-11.5"
+          },
+          {
+            "name": "MFI",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "71.8"
+          },
+          {
+            "name": "SuperTrend",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "4410.5 ↓"
+          },
+          {
+            "name": "Ichimoku",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "TK4410.3 KJ4400.8"
+          },
+          {
+            "name": "VWAP",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "4443.9"
+          },
+          {
+            "name": "EMA 9/21",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "9:4411.8 21:4407.3"
+          },
+          {
+            "name": "EMA 21/50",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "21:4407.3 50:4407.1"
+          },
+          {
+            "name": "Golden/Death Cross",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "50:4407.1 200:4442.6"
+          },
+          {
+            "name": "SMA 200",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "4442.6"
+          },
+          {
+            "name": "HH/HL Structure",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "HH:6 HL:5"
+          },
+          {
+            "name": "OBV Confirm",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "OBV ↑ Price ↑"
+          }
+        ],
+        "H4": [
+          {
+            "name": "RSI (14)",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "47.5"
+          },
+          {
+            "name": "MACD",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "M-8.8 S-7.9 H-0.8"
+          },
+          {
+            "name": "Stochastic",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "K35.1 D29.3"
+          },
+          {
+            "name": "Bollinger",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "U4513.3 M4427.2 L4341.1"
+          },
+          {
+            "name": "ADX",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "A30.8 +13.4 -22.6"
+          },
+          {
+            "name": "CCI",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "-27"
+          },
+          {
+            "name": "Williams %R",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "-64.9"
+          },
+          {
+            "name": "MFI",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "50.8"
+          },
+          {
+            "name": "SuperTrend",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "4362.9 ↑"
+          },
+          {
+            "name": "Ichimoku",
+            "signal": "NEUTRAL",
+            "strength": "MODERATE",
+            "value": "TK4428.2 KJ4396.6"
+          },
+          {
+            "name": "VWAP",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "4334.6"
+          },
+          {
+            "name": "EMA 9/21",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "9:4418.3 21:4425.3"
+          },
+          {
+            "name": "EMA 21/50",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "21:4425.3 50:4448.2"
+          },
+          {
+            "name": "Golden/Death Cross",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "50:4448.2 200:4329.7"
+          },
+          {
+            "name": "SMA 200",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "4329.7"
+          },
+          {
+            "name": "Bullish Engulfing",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "B19.9 > P14.2"
+          },
+          {
+            "name": "LH/LL Structure",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "LH:6 LL:7"
+          },
+          {
+            "name": "OBV Divergence",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "OBV ↑ Price ↓"
+          }
+        ],
+        "D1": [
+          {
+            "name": "RSI (14)",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "51.4"
+          },
+          {
+            "name": "MACD",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "M49.0 S73.9 H-24.9"
+          },
+          {
+            "name": "Stochastic",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "K32.4 D38.1"
+          },
+          {
+            "name": "Bollinger",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "U4674.6 M4467.1 L4259.7"
+          },
+          {
+            "name": "ADX",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "A36.4 +23.6 -21.4"
+          },
+          {
+            "name": "CCI",
+            "signal": "SELL",
+            "strength": "WEAK",
+            "value": "-44"
+          },
+          {
+            "name": "Williams %R",
+            "signal": "BUY",
+            "strength": "WEAK",
+            "value": "-67.6"
+          },
+          {
+            "name": "MFI",
+            "signal": "NEUTRAL",
+            "strength": "WEAK",
+            "value": "44.0"
+          },
+          {
+            "name": "SuperTrend",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "4341.9 ↑"
+          },
+          {
+            "name": "Ichimoku",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "TK4478.0 KJ4357.7"
+          },
+          {
+            "name": "VWAP",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "4544.3"
+          },
+          {
+            "name": "EMA 9/21",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "9:4447.4 21:4419.5"
+          },
+          {
+            "name": "EMA 21/50",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "21:4419.5 50:4348.7"
+          },
+          {
+            "name": "Golden/Death Cross",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "50:4348.7 200:4534.9"
+          },
+          {
+            "name": "SMA 200",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "4534.9"
+          },
+          {
+            "name": "Pin Bar Bull",
+            "signal": "BUY",
+            "strength": "MODERATE",
+            "value": "LW65%"
+          },
+          {
+            "name": "LH/LL Structure",
+            "signal": "SELL",
+            "strength": "STRONG",
+            "value": "LH:8 LL:7"
+          },
+          {
+            "name": "Inside Bar",
+            "signal": "NEUTRAL",
+            "strength": "MODERATE",
+            "value": "Range 53.1"
+          },
+          {
+            "name": "OBV Confirm",
+            "signal": "SELL",
+            "strength": "MODERATE",
+            "value": "OBV ↓ Price ↓"
+          },
+          {
+            "name": "Bull Divergence",
+            "signal": "BUY",
+            "strength": "STRONG",
+            "value": "P↓4328.5 I↑66.4"
+          }
+        ]
+      },
+      "reason": "TA: master BUY 63% — M1 76 · M5 64 · M15 54 — skor 5/5",
+      "candleSetup": "READY",
+      "candleScore": 10,
+      "slTpSource": "manual",
+      "rrWarning": []
+    }
+  },
+  "order_reject_streak": 0
+}

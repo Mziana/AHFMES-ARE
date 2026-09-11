@@ -1,0 +1,44 @@
+{
+  "multi_trading": false,
+  "max_positions": {
+    "micro": 1,
+    "scalp": 1,
+    "day": 1,
+    "swing": 1,
+    "position": 1
+  },
+  "entry_interval_seconds": 60,
+  "min_hold_seconds": {
+    "micro": 300,
+    "scalp": 600,
+    "day": 1800,
+    "swing": 3600,
+    "position": 7200
+  },
+  "sl_tp": {
+    "micro": {
+      "sl_points": 0,
+      "tp_points": 0,
+      "source": "auto",
+      "updated_at": 1788863230297
+    },
+    "scalp": {
+      "sl_points": 0,
+      "tp_points": 0,
+      "source": "auto",
+      "updated_at": 1788863233046
+    }
+  },
+  "lot": {
+    "micro": {
+      "mode": "auto",
+      "lot": 0,
+      "updated_at": 1788863242891
+    },
+    "scalp": {
+      "mode": "auto",
+      "lot": 0,
+      "updated_at": 1788863239867
+    }
+  }
+}
