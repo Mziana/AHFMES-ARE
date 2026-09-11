@@ -238,6 +238,13 @@
             "number",
             "null"
           ]
+        },
+        "close": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Harga close bar sinyal (Analyst Desk v2.5, input trade plan; optional — record lama tetap valid)."
         }
       }
     },
@@ -271,6 +278,112 @@
         },
         "inputs": {
           "type": "object"
+        }
+      }
+    },
+    "setup_score": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Analyst Desk v2.5 (H-SCORE-DESK-01, Step 4) — skor deskriptif 0-100 + triage tier. OPTIONAL: layer presentasi SAJA, tidak mengubah decision/first_veto (layer separation teruji). Record lama tanpa field ini tetap valid.",
+      "properties": {
+        "dimensions": {
+          "type": "object",
+          "description": "Skor per dimensi 0-10: trend/momentum/volume/level/catalyst/rr."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "PAST",
+            "WATCH",
+            "PAPER",
+            "TRADE"
+          ],
+          "description": "Triage label (WATCH>=40, PAPER>=60, TRADE>=75). TRADE = label skor; keputusan tetap milik gate."
+        }
+      }
+    },
+    "risk_calc": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Analyst Desk v2.5 (C1) — raw B7 input (sl_points/tp_points pre-computed), tersedia walau decision=WAIT; dipakai paper simulator. Optional.",
+      "properties": {
+        "sl_points": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tp_points": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "trade_plan": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Analyst Desk v2.5 (Step 6) — trade plan narrative DETERMINISTIK (template + angka record; dilarang LLM/free-text). Optional; null bila tidak ada arah/SL.",
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        "thesis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invalidation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "= setup_score.total (transparan, deskriptif — BUKAN probabilitas terkalibrasi)."
+        },
+        "confidence_note": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "entry_points": {
+          "type": "number"
+        },
+        "stop_points": {
+          "type": "number",
+          "minimum": 0
+        },
+        "target_points": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rr": {
+          "type": [
+            "number",
+            "null"
+          ]
         }
       }
     }

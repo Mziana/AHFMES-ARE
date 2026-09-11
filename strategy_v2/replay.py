@@ -23,6 +23,8 @@ from pathlib import Path
 from . import broker_meta as bm
 from . import gates, registry
 from .costs import compute_cost
+from .scorer import score_setup as desk_score_setup   # Analyst Desk v2.5 (Step 4)
+from .trade_plan import build_trade_plan as desk_build_trade_plan   # Step 6
 
 PKG_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PKG_DIR.parent
@@ -178,6 +180,11 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         "b3_slope": registry.hypothesis(registry_dict, "H-REGIME-SLOPE-02")["value"],
         # H-SCORE-01 (Cognitive Layer v2.1): param scorer BQ
         "h_score": registry.hypothesis(registry_dict, "H-SCORE-01")["value"],
+        # H-SCORE-DESK-01 (Analyst Desk v2.5): skor deskriptif 0-100 — layer
+        # presentasi SAJA; tidak dipakai decide() (layer separation teruji).
+        # Toleran registry lama tanpa hipotesis ini: skor → None (field null),
+        # keputusan TIDAK terpengaruh.
+        "desk_score": (registry_dict.get("hypotheses", {}).get("H-SCORE-DESK-01") or {}).get("value"),
         "layer_a": prof_a,
         # R1 Arm D (H-IBREAK-01): mode trigger inside-bar via virtual profile —
         # passthrough kontrak (default tidak ada → mode reversal champion).
@@ -188,6 +195,9 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
         "ticks_meta": {"spread_points": config.get("spread_points")},  # None → cek spread dilewati
         "risk_state": {},   # diupdate oleh eksekusi (dipakai saat gabungan)
     }
+    # Analyst Desk: point value utk trade plan narrative (fallback kontrak XAUUSD
+    # 0.01; identitas broker tetap dikunci broker_meta_hash di config_hash).
+    desk_meta = {"point": config.get("broker_point") or 0.01}
     records: list[dict] = []
     # P4: bisect index — slice bars[0..T] O(log n) + list-build terbatas, bukan
     # komprehensi O(n) per bar atas seluruh dataset (identik secara semantik:
@@ -242,8 +252,23 @@ def run_decision_replay(m5: list, m15: list, profile: dict, registry_dict: dict,
             "sl_points": sl_points,
             "tp_points": tp_points,
             "lot": lot,
+            # Analyst Desk v2.5 (C1): raw B7 input utk paper simulator — sl/tp
+            # pre-computed tersedia walau decision=WAIT (optional, backward-compat).
+            "risk_calc": ({"sl_points": sl_calc.get("sl_points"),
+                           "tp_points": sl_calc.get("tp_points")}
+                          if sl_calc and not sl_calc.get("skip") and sl_calc.get("sl_points") else None),
             "market_snapshot": diag["market_snapshot"],
         })
+        # Analyst Desk v2.5 (Step 4/6): skor deskriptif + trade plan narrative.
+        # Keduanya optional & deskriptif — decision/first_veto TIDAK terpengaruh
+        # (layer separation diuji di test_scorer.py). Fail-closed: skor/plan None
+        # → field null di record (schema optional, backward-compatible).
+        rec = records[-1]
+        risk_vals = {"sl_points": sl_points, "tp_points": tp_points}
+        rec["setup_score"] = desk_score_setup(
+            diag["all_gate_results"], diag["market_snapshot"], diag.get("setup"),
+            risk_vals, cfg["desk_score"], trigger=diag.get("trigger"))
+        rec["trade_plan"] = desk_build_trade_plan(rec, profile, desk_meta)
     return records
 
 
@@ -512,6 +537,13 @@ def build_funnel(records: list[dict], execution: dict | None) -> dict:
     distinct_states = len(set(full_results))
     signals = [r for r in valid if r["decision"] in ("BUY", "SELL")]
     vetoed = sum(1 for r in valid if r["first_veto_reason"])
+    # Analyst Desk v2.5 (Step 4): funnel 3-tier — ekspos "hampir-setup" yang
+    # funnel biner sembunyikan. Label deskriptif; TIDAK mengubah angka veto.
+    desk_tiers = {"PAST": 0, "WATCH": 0, "PAPER": 0, "TRADE": 0}
+    for r in valid:
+        t = (r.get("setup_score") or {}).get("tier")
+        if t in desk_tiers:
+            desk_tiers[t] += 1
     funnel = {
         "evaluation_opportunities": opp,
         "data_invalid": len(invalid),
@@ -520,6 +552,7 @@ def build_funnel(records: list[dict], execution: dict | None) -> dict:
         "veto_by_gate": veto_by_gate,
         "veto_by_first_reason": veto_combos,
         "distinct_gate_states": distinct_states,
+        "desk_tiers": desk_tiers,
         "final_signals": len(signals),
         "signals_by_direction": _count([r["decision"] for r in signals]),
         "wait": len(valid) - vetoed - len(signals),

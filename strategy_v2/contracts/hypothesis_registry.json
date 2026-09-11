@@ -306,6 +306,49 @@
         "retroactive": false,
         "confidence": "exact"
       }
+    },
+    "H-SCORE-DESK-01": {
+      "id": "H-SCORE-DESK-01",
+      "value": {
+        "weights": {
+          "trend": 30,
+          "momentum": 20,
+          "volume": 15,
+          "level": 15,
+          "catalyst": 10,
+          "rr": 10
+        },
+        "tiers": {
+          "watch": 40,
+          "paper": 60,
+          "trade": 75
+        },
+        "scope": "descriptive_triage",
+        "layer_separation_note": "Scorer TIDAK mengubah keputusan (layer presentasi): tier TRADE hanyalah label skor >= 75; entry tetap wajib lolos semua gate veto. Kalau skor dipakai memutuskan = perubahan kontrak = identity baru + persetujuan owner."
+      },
+      "status": "HYPOTHESIS",
+      "source": "analyst_desk_v2.5_plan_A1 (vision-user-2026-09-08)",
+      "genealogy": {
+        "id": "H-SCORE-DESK-01",
+        "parent_id": [
+          "H-SCORE-01"
+        ],
+        "status": "HYPOTHESIS",
+        "reason_for_change": "Plan analyst desk 7-langkah: scoring kembali sebagai triage deskriptif (WATCH/PAPER) untuk manusia & journal — BUKAN mesin keputusan; gate veto tetap satu-satunya jalur entry.",
+        "hypothesis_statement": "Skor deskriptif 0-100 per dimensi (trend/momentum/volume/level/catalyst/rr) memberi triage 3-tier (WATCH>=40/PAPER>=60) yang memprioritaskan perhatian manusia tanpa mengubah keputusan gate.",
+        "data_used": [
+          ".hermes/plans/2026-09-08_133000-are-analyst-desk-7-steps.md (plan A1)",
+          "data/research/v2_replay/ funnel 7 Sep (42 volume / 5 location / 45 trigger lolos parsial)"
+        ],
+        "data_period": "replay 2026-09-07 (dataset_hash per decision log)",
+        "author": "buffy",
+        "timestamp": "2026-09-09 12:00:00Z",
+        "config_hash": null,
+        "result": null,
+        "decision": null,
+        "retroactive": false,
+        "confidence": "exact"
+      }
     }
   }
 }

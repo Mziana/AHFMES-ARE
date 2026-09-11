@@ -202,3 +202,40 @@ Angka cost di atas = regression guard `test_cost_17_usd_per_lot_regression_guard
 2. Spread = snapshot konstanta live (17 poin), label `ESTIMATED_COST_MODEL`
    tetap — bukan spread historis per-bar.
 3. 0 sinyal pada 1 sesi bukan bukti apa pun tentang profitabilitas.
+
+## 12. ANALYST DESK v2.5 — funnel 3-tier (append, 2026-09-09)
+
+Implementasi plan `.hermes/plans/2026-09-08_133000-are-analyst-desk-7-steps.md`
+(Paket A/B/C/D): Step 4 SetupScorer (H-SCORE-DESK-01, deskriptif), Step 6
+TradePlanBuilder (narrative deterministik), Step 7 JournalLoop (paper append-only
++ review report), UI desk read-only. **Layer separation teruji**: menghapus/memutasi
+H-SCORE-DESK-01 TIDAK mengubah decision/first_veto_reason (test_scorer.py).
+
+Funnel 3-tier MICRO_V2 pada window F2 (Sep 7 22:00 → Sep 8 08:25, 123 bar
+layer-B; skema sama dgn §11.2):
+
+| Tier | n | Arti |
+|---|---|---|
+| PAST | 28 | skor < 40 — tidak menarik perhatian |
+| WATCH | 78 | skor 40-59 — "hampir-setup" yang funnel biner sembunyikan |
+| PAPER | 19 | skor 60-74 — layak paper trade otomatis (research plane) |
+| TRADE | 0 | skor >= 75 (label; entry tetap wajib lolos semua gate veto) |
+
+Angka baru yang menarik & jujur: funnel lama bilang **0 lolos semua gate**;
+funnel desk bilang **97 bar WATCH+** — ekspos seleksi gate yang ketat (B2/B4)
+tanpa mengubah satu pun keputusan. Contoh plan narrative (deterministik):
+
+> thesis: `XAUUSD pulled back to ema9@4412.33 with subdued volume; BUY regime
+> aligned (ATR 227 pts, three_white_soldiers trigger).` · invalidation:
+> `Close back below 4409.69 (SL 284 pts from ema9@4412.33).` · confidence 58
+> (= skor deskriptif H-SCORE-DESK-01, bukan probabilitas terkalibrasi).
+
+Verifikasi replay: ×2 `cmp` byte-identik, schema `--validate` 125 records OK
+(field baru `setup_score`/`trade_plan`/`risk_calc` optional — record lama tetap
+valid). Journal paper: `data/research/v2_replay/journal_<profile>.jsonl`
+(append-only), review agregat kompatibel `data/learning/buckets.json`, laporan
+usulan perubahan hipotesis via `strategy_v2/review_report.py` (USULAN — TIDAK
+auto-applied, experiment freeze tetap).
+
+⚠️ Ini bukan hasil P5/P6: tidak ada klaim edge baru — hanya visibilitas layer
+presentasi di atas gate engine yang vetonya tetap keras.
