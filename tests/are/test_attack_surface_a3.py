@@ -8,6 +8,7 @@ bare runner stays green):
   4. UI rejects bogus Host header (DNS-rebinding defense).
 """
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -57,10 +58,30 @@ def test_bridge_requires_token():
     assert status == 401, 'bridge must reject token-less POST (P0-01)'
 
 
+def _post_until(url, body, expect, headers=None, wait_s=60):
+    """POST with bounded retry until `expect` (or deadline).
+
+    The Next dev server compiles each API route on first hit; on a cold
+    server that compilation exceeds any single request timeout (observed as
+    flaky failures in full-suite runs right after a dev-server restart).
+    All probe bodies here are side-effect-free (pure computation or ticket 0),
+    so a bounded warm-up retry is safe and cannot mask a real contract change:
+    a wrong status (e.g. 403 where 200 is expected) still fails the assert.
+    """
+    deadline = time.time() + wait_s
+    status = None
+    while True:
+        status = _post(url, body, headers=headers, timeout=30)
+        if status == expect or time.time() >= deadline:
+            return status
+        time.sleep(3)
+
+
 def test_ui_blocks_cross_origin_mutation(ui_up):
     # /api/are/risk POST is a pure computation endpoint — safe to use as probe.
-    status = _post(f'{UI}/api/are/risk', {'balance': 10000, 'riskPercent': 1, 'slPoints': 100},
-                   headers={'Origin': 'http://evil.example'})
+    status = _post_until(f'{UI}/api/are/risk',
+                         {'balance': 10000, 'riskPercent': 1, 'slPoints': 100},
+                         expect=403, headers={'Origin': 'http://evil.example'})
     assert status == 403, 'cross-origin mutation must be denied (A3)'
 
 
@@ -68,11 +89,11 @@ def test_ui_allows_server_style_mutation(ui_up):
     # /api/are/trade/modify with ticket 0 reaches the route (HTTP 200,
     # success=false "position not found") — proves middleware passed the
     # server-style request through without side effects.
-    status = _post(f'{UI}/api/are/trade/modify', {'ticket': 0})
+    status = _post_until(f'{UI}/api/are/trade/modify', {'ticket': 0}, expect=200)
     assert status == 200, 'server-side clients (no Origin) must pass middleware'
 
 
 def test_ui_blocks_bogus_host(ui_up):
-    status = _post(f'{UI}/api/are/risk', {'balance': 10000},
-                   headers={'Host': 'rebound.example:4028'})
+    status = _post_until(f'{UI}/api/are/risk', {'balance': 10000},
+                         expect=403, headers={'Host': 'rebound.example:4028'})
     assert status == 403, 'DNS-rebinding style Host must be denied'
