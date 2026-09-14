@@ -231,3 +231,136 @@ dievaluasi tiap close M1 tanpa order, state persisten, journal
 shadow_ab_journal.jsonl, ringkasan di driver_state.shadow; (2) varian
 "jendela emas London" tidak diimplementasi langsung - menunggu data shadow
 (n>=30 per kandidat) sebelum swap. Arm live TIDAK berubah.
+
+## OPS-EXITGEO - Exit Geometry MICRO D+E (2026-09-11 malam, owner approve)
+Akar masalah: geometri 0.9/1.4xATR-M5 memberi TP tak terjangkau karakter M1
+(ticket 431035015: TP 923.9 pts, harga balik dalam $5; MICRO v2.1.1 hari ini
+1W/7L, kill switch 4x memotong streak 7). Doktrin exit owner 7 butir
+(doktrin 1-7) dipetakan ke dua kandidat shadow (owner pilih DUA-DUANYA):
+- D_exit (EXIT-D-01): entry parity A_base, SL tetap 0.9xATR-M5; exit diganti
+  D1 cap TP 600 pts + D2 clamp 0.25xATR sebelum swing berlawanan M5/M15
+  (sisa TP < 100 pts -> REJECT, fail-closed) + D4 RSI-burn (pola searah bias
+  & RSI-M1 >60 BULL / <40 BEAR -> TP x0.7) + D5 early exit (posisi profit +
+  pola berbalik ATAU momentum habis + EMA9/21 M1 cross ATAU RSI patah 50).
+  Urutan deterministik: cap -> burn -> clamp (clamp selalu terakhir).
+- E_atr_m1 (EXIT-E-01): SL/TP 0.9/1.4 x ATR-M1 - skala ikut TF eksekusi,
+  jawaban fundamental saat ATR-M5 membesar; tanpa cap/clamp/burn.
+Implementasi: strategy_v2/exit_geometry.py (pure, whitelist import dijaga
+test struktural); kandidat D/E append ke shadow_ab.py (A/B/C bit-identik);
+on_m1_close terima m15 utk clamp; registry EXIT-D-01/EXIT-E-01 parent
+H-EXEC-M1-01 (Pagar 1 - semua angka di registry/modul). TDD: RED dulu
+(20 test), full suite 1079 passed. D7 (SL anti-hunt) = studi data
+(sl_hunt_study), bukan rule; buffer sl_buffer_pts=0 sampai dikalifikasi.
+Rollout 19:50 WIB: restart driver via jalur resmi (watchdog respawn, PID
+24524) - dipilih saat tidak ada posisi open live/shadow. Kandidat D/E
+n=0; review pada n>=30 per kandidat (kontrak shadow swap).
+
+## SMC v3 - replay studi offline + bug-fix SL (2026-09-11 malam)
+Engine kandidat pengganti MICRO (strategy_v2/smc.py, rencana owner 11 Sep:
+POI + sweep + CHoCH mikro + pola, skor 12, RR>=1.3) direplay offline 39.2
+hari (scripts/smc_v3_study.py, parity jendela live M1/M5 400 bar, cooldown
+5m, 1 posisi, sel biaya R1 base 17/must 27.5). Dua temuan:
+- BUG engine ditemukan replay pertama & diperbaiki SEBELUM hasil dipakai:
+  anchor SL dari extrem sweep STALE di sisi salah harga (`ext < (sl_base
+  or 1e9)` selalu true saat sl_base None) → BUY dgn SL di ATAS entry, RR
+  palsu (5.95) lolos gate, 13 trade "SL" dgn gross positif. Fix: anchor
+  sweep wajib di sisi benar dari harga sekarang + guard fail-closed
+  "SL wajib di sisi benar" + 2 test regresi (test_engine_never_takes_with_
+  inverted_sl, test_engine_sl_side_invariant_on_take). Zona OB juga diperbaiki
+  body-only → range penuh H/L (SL di luar wick, test displacement hijau).
+- HASIL honesta (engine fixed, n=139, 36.6k evaluasi): VERDICT KILL -
+  WR 32.4% vs breakeven-gross 34.2% (RR rata-rata 1.92, avg SL 382/TP 721
+  pts); gross -16.99 pts/trade → net must -44.49. Kontrak keputusan terpenuhi
+  (n>=30, expNet_must << 0). Dekomposisi (n kecil, lead bukan konfirmasi):
+  SELL gross ~+5.8/tr vs BUY -45.9/tr; london 45.5% (+1757 pts) & ny_late
+  positif gross, overlap terburuk (-4149). Funnel: rr_gate 59% + bias H4
+  netral 35% → engine sangat selektif (3.5 sinyal/hari) tapi edge bruto
+  tidak ada di window ini - pola sama dgn MICRO v2: geometri jauh (SL 382
+  pts) + biaya must 27.5 pts memakan semua edge.
+- Keputusan: KILL DITUNDA oleh owner (11 Sep malam) setelah audit kepatuhan
+  vs desain - lihat REPORT_SMC_V3_CHECKLIST.md. Bukti audit (sampling 6.600
+  bar): mekanika inti sesuai desain (SL-side invariant 74/74, bobot skor
+  persis §7, aturan emas arah terpenuhi) TAPI 4 gap kepatuhan: G2 exit
+  desain (partial 50%+BE) belum direplay = vonis mengukur engine tanpa
+  manajemen exit desain; G1 gate item-8 (spread/ATR) belum ada; G3 BOS
+  "sebelum retrace POI" tidak dienforce temporal; G4 bias D1 belum dipakai.
+  Mitigasi OB/FVG basis CLOSE = deviasi disengaja, menunggu konfirmasi owner.
+
+## SMC v3 - verifikasi review + redundansi BOS (2026-09-12)
+Owner (via REVIEW_TANGGAPAN_SMC_V3.md) setuju KILL DITUNDA; G2 = prasyarat
+keputusan; review menemukan kecurigaan redundansi Bias<->BOS (pass-rate
+67,3% = 67,3%). Diverifikasi pada cache 5 bulan (8 Apr-9 Sep, 11.235 sampel,
+H4 = agregasi 16xM15, bridge sedang mati): P(BOS searah | bias non-netral)
+= 100,0% -> item BOS (bobot 1) DETERMINISTIK menyertai bias (bobot 2) -
+skor efektif max 11 bukan 12; threshold >=8 efektif lebih longgar. Umur BOS
+saat item OK: median 129 bar M5 (p75 275, maks 399) -> item #4 tidak
+mengukur friskness sama sekali. Konsekuensi keputusan: (1) kalibrasi
+threshold DILARANG sebelum G3 (poin harus independen dulu); (2) G3 = BOS
+hanya dihitung bila umur <= N bar M5, N dari sweep {24,36,48} di replay
+(tanpa pilih diam-diam); (3) reframing statistik diterima: CI95 WR
+[24,6%, 40,2%] memuat breakeven 34,2% -> 'belum cukup bukti', bukan
+'terbukti tidak ada edge'; (4) segmentasi WR per skor TIDAK konklusif
+(88% trade di skor 9; n bucket 2-3) - diulang pasca-G2; (5) klaim per
+bucket sesi/arah turun jadi lead-only (n 22-70); (6) kontrak test G2/G3
+tertulis di RESPON_REVIEW_SMC_V3.md bab 4 (SL tak pernah mundur dari BE,
+invariant 50/50, sweep N dilaporkan semua). KONSEKUENSI OPERASIONAL:
+semua python stack (bridge+driver+watchdog) mati saat analisis - TIDAK
+dinyalakan tanpa konfirmasi owner; replay G2 butuh bridge hidup.
+Artefak: strategy_v2/RESPON_REVIEW_SMC_V3.md · data/research/smc_v3/
+smc_v3_redundancy.json · smc_v3_segmentation.json · scripts/smc_v3_
+redundancy.py. Prioritas kerja mengikuti review bab 6: G2 -> G3+kalibrasi
+-> segmentasi ulang -> G1/G4 -> sensitivity POI_REACH & TP1-target ->
+window multi-regime.
+- Artefak: scripts/smc_v3_study.py · data/research/smc_v3/smc_v3_replay.json
+  · data/research/smc_v3/replay_run.log · strategy_v2/REPORT_SMC_V3.md
+- 2026-09-12 | Replay full-parity SMC v3 (G1+G2+G3+G4) DIJALANKAN, SEMUA gap
+  CLOSED di jalur evaluasi/replay; TIDAK ADA keputusan kill/viability —
+  bukti diserahkan ke owner | hasil: baseline regressed IDENTIK ke studi
+  lama (n=139, gross −16.99, TP44/SL94/EXPIRE1) → harness valid. G2 exit §4
+  (TP1 50%→BE→trailing, smc_exits.py): NETRAL — n 137, net-must −44.49→
+  −45.71; atribusi 136 matched: 92 SL→SL_full, 40 TP→TP1_TRAIL (696→711.6
+  pts), 3 TP→TP1_BE (BE menyelamatkan +355.5/+89.5/+182.5), 0 SL→BE (SL
+  struktural median >300 pts terlalu jauh utk perjalanan TP1→BE). G3
+  freshness BOS b24=b36=b48 identik (1 trade dihapus, SELL −539) — hampir
+  tanpa efek; redundansi Bias↔BOS tetap diblokir utk kalibrasi. G1 gate
+  item-8 aktif tapi no-op di window (spread snapshot 17<35; ATR-M5 171–
+  1168 di dalam band [120,2500], 0 blok). G4 bias D1 (rantai penuh
+  M15→H4→D1, ≥25 bar): 436 take → 213 veto + 212 warmup D1 → 11 selamat
+  (semua BUY, 24–27 Agu), WR 45.5% vs breakeven 25.6%, gross +188.7/tr,
+  CI95 WR [16%,75%] → TIDAK disimpulkan; parity penuh n=10 gross +125.7/tr.
+  Catatan kejujuran: sim UNDERSTATE biaya live (sim A −12.34$ vs live
+  −28.32$) → arah perbandingan antar-varian yang jadi bukti, bukan dolar.
+  Jendela dipin kedua tepi (3 Agu 11:39→11 Sep 17:08 UTC) + emulasi feed
+  lama (M5 8k/M15 3k/H4 250) — baseline identik = regresi silang. Rumah
+  angka: strategy_v2/REPORT_SMC_V3_PARITY.md · data/research/smc_v3/
+  smc_v3_parity_replay.json · scripts/smc_v3_parity_replay.py. Suite test
+  159 hijau; arm live/shadow tidak disentuh. Antrian berikut (urut review
+  owner): replay window panjang multi-regime (D1 matang) → bereskan
+  redundansi Bias↔BOS → kalibrasi threshold → sensitivity POI_REACH/TP1.
+- 2026-09-14 | Sensitivity POI (prio 7) + window sideways (prio 8) + kurva
+  threshold (prio 4, peta saja) DIJALANKAN dalam satu replay 2-pass; TIDAK
+  ADA keputusan kill/keep — bukti ke owner | pass TREND: jendela terpin
+  39.23 hari (== parity), 39.598 bar; pass SIDE: 2026-06-04T21:52+10d dari
+  cache R1, DIPILIH OLEH regime-scan BUTA PnL (ER-Kaufman 0.0044 terendah,
+  rng 16.0xATR-H4, trend None, ATR5 674p; efektif 7.95 hari — cache M5
+  berakhir ~12 Jun). 4 konfig POI dievaluasi terpisah di engine
+  (poi_reach/poi_mode param baru, default = perilaku lama persis; test
+  test_smc_sensitivity_params.py). HASIL: (a) POI makin ketat makin baik
+  di KEDUA window — trend: gross/tr −16.99→−1.36 (strict), side: strict
+  satu-satunya positif +111.3 net-must (legacy) / +2.5 (G2), WR 43.8%
+  sementara default 1.5xATR −204.1/−274.1; (b) G2 exit §4 versi engine
+  saat ini KONSISTEN MENGURANGI vs first-touch (lawan arah dari parity —
+  TP1 sini = target likuiditas sama, trailing memberi balik sebelum leg
+  penuh; keputusan geometri tetap owner); (c) kurva threshold MONOTON
+  TURUN (≥6 WR 33.4% → ≥11 WR 17.9%, gross +48→−327/sinyal) — skor tinggi
+  ≠ kualitas; konsisten redundansi Bias↔BOS; kalibrasi TETAP DITAHAN
+  (redundansi belum beres). Regresi silang: poi_d150/legacy == parity
+  baseline PERSIS (139 / −16.99 / −44.49). Keterbatasan jujur: window
+  side dari dataset sim sama (bukan independen penuh), n side kecil
+  (16–22), news gate OFF, spread snapshot, M1 sintetis 5-bar/M5 di pass
+  side (exit-sim saja), sim understates live. Rumah angka:
+  strategy_v2/REPORT_SMC_V3_SENSITIVITAS.md · data/research/smc_v3/
+  smc_v3_sensitivity_replay.json · smc_v3_regime_scan.json · scripts/
+  smc_v3_sensitivity_replay.py · scripts/smc_v3_regime_scan.py. Pertanyaan
+  terbuka owner: ganti default POI_REACH?; geometri exit (§4 vs TP2-leg);
+  lanjut resolusi redundansi Bias↔BOS?
